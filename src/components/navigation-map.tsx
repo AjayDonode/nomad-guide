@@ -46,11 +46,11 @@ const DestIcon = L.divIcon({
   iconAnchor: [16, 16],
 })
 
-const POIIcon = L.divIcon({
+const POIIcon = (isSelected: boolean) => L.divIcon({
   className: 'poi-marker',
-  html: '<div class="w-6 h-6 bg-primary rounded-lg border-2 border-white flex items-center justify-center shadow-md rotate-45 hover:scale-125 transition-transform"><div class="w-2 h-2 bg-white rounded-full -rotate-45"></div></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
+  html: `<div class="w-8 h-8 ${isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125"><div class="w-2 h-2 bg-white rounded-full animate-ping"></div></div>`,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
 })
 
 L.Marker.prototype.options.icon = DefaultIcon
@@ -66,19 +66,21 @@ function calculateBearing(start: [number, number], end: [number, number]) {
   return (bearing + 360) % 360;
 }
 
-function MapUpdater({ center, destination, isDriving }: { center: [number, number], destination?: [number, number] | null, isDriving?: boolean }) {
+function MapUpdater({ center, destination, isDriving, pois }: { center: [number, number], destination?: [number, number] | null, isDriving?: boolean, pois: POI[] }) {
   const map = useMap()
   
   useEffect(() => {
     if (isDriving && destination) {
       map.setView(center, 17, { animate: true })
     } else if (destination) {
-      const bounds = L.latLngBounds([center, destination])
-      map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 })
+      // Zoom to fit route and POIs
+      const markers = [center, destination, ...pois.map(p => [p.latitude, p.longitude] as [number, number])]
+      const bounds = L.latLngBounds(markers)
+      map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 })
     } else {
       map.setView(center, map.getZoom())
     }
-  }, [center, destination, isDriving, map])
+  }, [center, destination, isDriving, map, pois])
   
   return null
 }
@@ -168,7 +170,7 @@ export function NavigationMap({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapUpdater center={center} destination={destination} isDriving={isDriving} />
+          <MapUpdater center={center} destination={destination} isDriving={isDriving} pois={pois} />
           
           <Marker position={center} icon={UserIcon} />
 
@@ -202,7 +204,7 @@ export function NavigationMap({
             <Marker 
               key={`${poi.name}-${idx}`} 
               position={[poi.latitude, poi.longitude]}
-              icon={POIIcon}
+              icon={POIIcon(selectedPoi?.name === poi.name)}
               eventHandlers={{
                 click: () => onPoiSelect?.(poi)
               }}

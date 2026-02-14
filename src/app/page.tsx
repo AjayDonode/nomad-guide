@@ -16,7 +16,9 @@ import {
   MapPin,
   X,
   Play,
-  VolumeX
+  VolumeX,
+  Sparkles,
+  Info
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -176,11 +178,10 @@ export default function DrivingDashboard() {
       
       if (result.recommendedPois && result.recommendedPois.length > 0) {
         setRecommendedPois(result.recommendedPois)
-        setSelectedPoi(result.recommendedPois[0])
-        toast({
-          title: "Destination Selected",
-          description: `Route plotted. AI has discovered ${result.recommendedPois.length} story points.`
-        })
+        // toast({
+        //   title: "Destination Selected",
+        //   description: `Route plotted. AI has discovered ${result.recommendedPois.length} story points along your way.`
+        // })
       }
     } catch (error) {
       console.error(error)
@@ -200,10 +201,6 @@ export default function DrivingDashboard() {
       title: "Navigation Started",
       description: "Driving mode active. Audio tours will trigger automatically as you drive."
     })
-  }
-
-  const toggleCompass = () => {
-    setIsCompassActive(!isCompassActive)
   }
 
   const clearSearch = () => {
@@ -324,6 +321,47 @@ export default function DrivingDashboard() {
                 </Card>
               )}
             </div>
+
+            {/* POI Highlights before GO */}
+            {destination && !isDriving && recommendedPois.length > 0 && (
+              <div className="mt-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                <Card className="bg-card/80 backdrop-blur-xl border-white/10 rounded-3xl p-4 shadow-2xl border-none overflow-hidden relative">
+                  <div className="absolute top-0 right-0 p-4 opacity-10">
+                    <Sparkles className="w-16 h-16 text-primary" />
+                  </div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="bg-primary/20 p-1.5 rounded-lg">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                    </div>
+                    <span className="text-[10px] font-headline uppercase tracking-[0.2em] font-bold text-muted-foreground">AI Route Insights</span>
+                  </div>
+                  <h3 className="text-sm font-headline font-bold mb-3">Discovered {recommendedPois.length} Hidden Gems</h3>
+                  <ScrollArea className="max-h-[160px] pr-2">
+                    <div className="space-y-2">
+                      {recommendedPois.map((poi, idx) => (
+                        <div 
+                          key={idx} 
+                          className="flex items-start gap-3 p-2 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors"
+                          onClick={() => {
+                            setSelectedPoi(poi)
+                            setIsSheetOpen(true)
+                          }}
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-headline font-bold text-primary">{idx + 1}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold truncate">{poi.name}</p>
+                            <p className="text-[10px] text-muted-foreground truncate">{poi.category}</p>
+                          </div>
+                          <Info className="w-3.5 h-3.5 text-muted-foreground self-center" />
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </Card>
+              </div>
+            )}
           </div>
         )}
 
@@ -345,7 +383,7 @@ export default function DrivingDashboard() {
           <Button 
             variant="secondary" 
             size="icon" 
-            onClick={toggleCompass}
+            onClick={() => setIsCompassActive(!isCompassActive)}
             className={cn(
               "h-14 w-14 rounded-2xl glass-morphism shadow-xl transition-all duration-300 border-none",
               isCompassActive ? "bg-primary text-white scale-110" : "text-muted-foreground"
