@@ -70,6 +70,7 @@ export default function DrivingDashboard() {
   const [isLoading, setIsLoading] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [isDriving, setIsDriving] = useState(false)
+  const [isCompassActive, setIsCompassActive] = useState(false)
   const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoi, setSelectedPoi] = useState<any>(null)
@@ -118,10 +119,9 @@ export default function DrivingDashboard() {
     setDestination([destLat, destLon])
     setSuggestions([])
     setIsLoading(true)
-    setIsDriving(false) // Don't start driving mode immediately
+    setIsDriving(false)
 
     try {
-      // Get AI recommendations along the route
       const result = await recommendPois({
         userInterests: ["history", "culture", "landmarks", "viewpoints", "architecture"],
         routeWaypoints: [
@@ -155,6 +155,14 @@ export default function DrivingDashboard() {
     toast({
       title: "Navigation Started",
       description: "Driving mode active. Follow the route to discover story points."
+    })
+  }
+
+  const toggleCompass = () => {
+    setIsCompassActive(!isCompassActive)
+    toast({
+      title: !isCompassActive ? "Heading Up Mode" : "North Up Mode",
+      description: !isCompassActive ? "Map will align with driving direction." : "Map is now fixed to North."
     })
   }
 
@@ -212,9 +220,10 @@ export default function DrivingDashboard() {
           selectedPoi={selectedPoi}
           destination={destination}
           isDriving={isDriving}
+          isCompassActive={isCompassActive}
         />
 
-        {/* Search & Autocomplete UI - Hidden during driving mode */}
+        {/* Search & Autocomplete UI */}
         {!isDriving && (
           <div className="absolute top-24 left-4 right-4 z-[100] lg:max-w-md lg:mx-auto transition-all">
             <div className="relative group">
@@ -243,7 +252,6 @@ export default function DrivingDashboard() {
                 )}
               </div>
 
-              {/* Suggestions List */}
               {suggestions.length > 0 && (
                 <Card className="mt-2 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl overflow-hidden shadow-2xl">
                   <ScrollArea className="max-h-[300px]">
@@ -267,7 +275,7 @@ export default function DrivingDashboard() {
           </div>
         )}
 
-        {/* Stop Button - Only visible during driving */}
+        {/* Stop Button */}
         {isDriving && (
           <div className="absolute bottom-10 left-4 z-40">
              <Button 
@@ -282,8 +290,16 @@ export default function DrivingDashboard() {
 
         {/* Side Controls */}
         <div className="absolute right-4 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-3">
-          <Button variant="secondary" size="icon" className="h-14 w-14 rounded-2xl glass-morphism shadow-xl">
-            <Compass className="w-6 h-6" />
+          <Button 
+            variant="secondary" 
+            size="icon" 
+            onClick={toggleCompass}
+            className={cn(
+              "h-14 w-14 rounded-2xl glass-morphism shadow-xl transition-all duration-300",
+              isCompassActive ? "bg-primary text-white scale-110" : "text-muted-foreground"
+            )}
+          >
+            <Compass className={cn("w-6 h-6 transition-transform duration-500", isCompassActive ? "rotate-45" : "rotate-0")} />
           </Button>
           <Button variant="secondary" size="icon" className="h-14 w-14 rounded-2xl glass-morphism shadow-xl text-primary">
             <AudioWaveform className="w-6 h-6" />
