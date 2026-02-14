@@ -24,7 +24,7 @@ const ExistingPoiSchema = z.object({
 const RecommendPoisInputSchema = z.object({
   userInterests: z
     .array(z.string())
-    .describe('A list of the user's interests (e.g., "history", "art", "nature", "food").'),
+    .describe('A list of the user\'s interests (e.g., "history", "art", "nature", "food").'),
   routeWaypoints: z
     .array(RouteWaypointSchema)
     .describe('An ordered list of latitude/longitude pairs defining the planned route.'),

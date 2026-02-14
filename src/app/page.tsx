@@ -2,6 +2,7 @@
 "use client"
 
 import React, { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { 
   Search, 
   Settings, 
@@ -13,9 +14,6 @@ import {
   Menu,
   Loader2
 } from 'lucide-react'
-import { NavigationMap } from '@/components/navigation-map'
-import { AudioTourController } from '@/components/audio-tour-controller'
-import { Landmark3DPreview } from '@/components/landmark-3d-preview'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { 
@@ -30,6 +28,29 @@ import { Badge } from '@/components/ui/badge'
 import { recommendPois } from '@/ai/flows/recommend-pois-flow'
 import { useToast } from '@/hooks/use-toast'
 
+// Dynamic imports to prevent SSR errors with browser-only libraries
+const NavigationMap = dynamic(
+  () => import('@/components/navigation-map').then((mod) => mod.NavigationMap),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full bg-background flex items-center justify-center">
+        <div className="text-muted-foreground animate-pulse">Initializing Map Engine...</div>
+      </div>
+    )
+  }
+)
+
+const Landmark3DPreview = dynamic(
+  () => import('@/components/landmark-3d-preview').then((mod) => mod.Landmark3DPreview),
+  { ssr: false }
+)
+
+const AudioTourController = dynamic(
+  () => import('@/components/audio-tour-controller').then((mod) => mod.AudioTourController),
+  { ssr: false }
+)
+
 export default function DrivingDashboard() {
   const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
@@ -39,7 +60,7 @@ export default function DrivingDashboard() {
   const [selectedPoi, setSelectedPoi] = useState<any>(null)
 
   useEffect(() => {
-    if (navigator.geolocation) {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
         (err) => console.log("Location access denied", err)
@@ -53,29 +74,38 @@ export default function DrivingDashboard() {
 
     setIsLoading(true)
     try {
-      // For the prototype, we assume the route is from current location to a generic waypoint near search
+      // Simulate finding a destination coordinate near current location for prototype
+      // In a production app, we would use a geocoding service here
+      const destLat = userLocation[0] + (Math.random() - 0.5) * 0.1
+      const destLng = userLocation[1] + (Math.random() - 0.5) * 0.1
+
       const result = await recommendPois({
         userInterests: ["history", "culture", "landmarks"],
         routeWaypoints: [
           { latitude: userLocation[0], longitude: userLocation[1] },
-          { latitude: userLocation[0] + 0.05, longitude: userLocation[1] + 0.05 } // Mock route endpoint
+          { latitude: destLat, longitude: destLng }
         ]
       })
       
-      if (result.recommendedPois.length > 0) {
+      if (result.recommendedPois && result.recommendedPois.length > 0) {
         setRecommendedPois(result.recommendedPois)
         setSelectedPoi(result.recommendedPois[0])
         toast({
-          title: "Route Planned",
-          description: `Found ${result.recommendedPois.length} interesting stops along your way!`
+          title: "Route Optimized",
+          description: `Identified ${result.recommendedPois.length} AI-curated stops for your journey.`
+        })
+      } else {
+        toast({
+          title: "No Landmarks Found",
+          description: "Try a different route or update your interests."
         })
       }
     } catch (error) {
       console.error(error)
       toast({
         variant: "destructive",
-        title: "Search Failed",
-        description: "Could not fetch recommendations. Please try again."
+        title: "Navigation Error",
+        description: "AI routing service is currently unavailable."
       })
     } finally {
       setIsLoading(false)
@@ -93,7 +123,7 @@ export default function DrivingDashboard() {
             </div>
             <div>
               <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Status</div>
-              <div className="text-lg font-bold">{isLoading ? 'Finding Route...' : 'Ready to Drive'}</div>
+              <div className="text-lg font-bold">{isLoading ? 'AI Routing...' : 'Ready to Drive'}</div>
             </div>
           </div>
           <Button variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl pointer-events-auto">
