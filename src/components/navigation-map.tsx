@@ -60,7 +60,7 @@ function MapUpdater({ center, destination, isDriving }: { center: [number, numbe
   useEffect(() => {
     if (isDriving && destination) {
       // In driving mode, we zoom in closer and follow the user
-      map.setView(center, 16, { animate: true })
+      map.setView(center, 17, { animate: true })
     } else if (destination) {
       // Show overview of the whole route
       const bounds = L.latLngBounds([center, destination])
@@ -81,19 +81,38 @@ export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiS
     setMounted(true)
   }, [])
 
-  // Simulate/Fetch road-aware routing
+  // Fetch road-aware routing from OSRM
   useEffect(() => {
     if (destination) {
-      // For a production app, we would fetch from OSRM/Mapbox here.
-      // For this prototype, we'll draw a direct line but add the POIs to the path if they exist
-      const path: [number, number][] = [center]
-      pois.forEach(p => path.push([p.latitude, p.longitude]))
-      path.push(destination)
-      setRoutePoints(path)
+      const fetchRoute = async () => {
+        try {
+          // OSRM expects [lng, lat]
+          const start = `${center[1]},${center[0]}`
+          const end = `${destination[1]},${destination[0]}`
+          
+          const response = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson`
+          )
+          const data = await response.json()
+          
+          if (data.routes && data.routes[0]) {
+            // GeoJSON coordinates are [lng, lat], Leaflet needs [lat, lng]
+            const coords = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
+            setRoutePoints(coords)
+          } else {
+            // Fallback to straight line if API fails
+            setRoutePoints([center, destination])
+          }
+        } catch (error) {
+          console.error("Routing fetch failed", error)
+          setRoutePoints([center, destination])
+        }
+      }
+      fetchRoute()
     } else {
       setRoutePoints([])
     }
-  }, [center, destination, pois])
+  }, [center, destination])
 
   if (!mounted) {
     return (
@@ -135,7 +154,7 @@ export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiS
             positions={routePoints} 
             color="#6E2BCC" 
             weight={8}
-            opacity={0.7}
+            opacity={0.8}
             lineCap="round"
             lineJoin="round"
           />
@@ -147,7 +166,7 @@ export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiS
             positions={routePoints} 
             color="#A78BFA" 
             weight={14}
-            opacity={0.2}
+            opacity={0.3}
             lineCap="round"
             lineJoin="round"
           />
