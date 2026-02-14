@@ -1,113 +1,95 @@
 
 "use client"
 
-import React, { useState, useEffect } from 'react'
-import { MapPin, Navigation, Compass, Layers, Info } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import React, { useEffect, useState } from 'react'
+import 'leaflet/dist/leaflet.css'
+import L from 'leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 
-export function NavigationMap() {
-  const [userLocation, setUserLocation] = useState({ lat: 37.7749, lng: -122.4194 })
-  const [heading, setHeading] = useState(45)
+interface POI {
+  name: string
+  latitude: number
+  longitude: number
+  category: string
+  description: string
+}
+
+interface NavigationMapProps {
+  center?: [number, number]
+  pois?: POI[]
+  onPoiSelect?: (poi: POI) => void
+}
+
+// Fix for default Leaflet icon not showing correctly in Next.js
+const DefaultIcon = L.icon({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+})
+L.Marker.prototype.options.icon = DefaultIcon
+
+function MapUpdater({ center }: { center: [number, number] }) {
+  const map = useMap()
+  useEffect(() => {
+    map.setView(center, map.getZoom())
+  }, [center, map])
+  return null
+}
+
+export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiSelect }: NavigationMapProps) {
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    // Attempt to get real location, fallback to mock simulation
-    if (navigator.geolocation) {
-      const watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          setUserLocation({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude
-          })
-          if (pos.coords.heading) setHeading(pos.coords.heading)
-        },
-        (err) => console.log("Geolocation error:", err),
-        { enableHighAccuracy: true }
-      )
-      return () => navigator.geolocation.clearWatch(watchId)
-    }
+    setMounted(true)
   }, [])
 
+  if (!mounted) {
+    return (
+      <div className="w-full h-full bg-background flex items-center justify-center">
+        <div className="text-muted-foreground animate-pulse">Initializing Map...</div>
+      </div>
+    )
+  }
+
   return (
-    <div className="relative w-full h-full bg-[#1a1a2e] overflow-hidden">
-      {/* Simulation of a dynamic navigation grid */}
-      <div 
-        className="absolute inset-0 transition-transform duration-1000 ease-linear"
-        style={{
-          backgroundImage: `
-            linear-gradient(to right, rgba(110, 43, 204, 0.1) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(110, 43, 204, 0.1) 1px, transparent 1px)
-          `,
-          backgroundSize: '80px 80px',
-          transform: `perspective(1000px) rotateX(60deg) translateY(10%)`
-        }}
-      />
-
-      {/* Road Simulation */}
-      <div className="absolute inset-0 flex justify-center">
-        <div 
-          className="w-40 bg-gradient-to-t from-primary/20 via-primary/5 to-transparent h-full"
-          style={{ transform: 'perspective(1000px) rotateX(60deg)' }}
+    <div className="relative w-full h-full z-0">
+      <MapContainer 
+        center={center} 
+        zoom={13} 
+        style={{ height: '100%', width: '100%', filter: 'invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)' }}
+        zoomControl={false}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-      </div>
+        <MapUpdater center={center} />
+        
+        {/* User Location Marker */}
+        <Marker position={center}>
+          <Popup>You are here</Popup>
+        </Marker>
 
-      {/* User Vehicle Marker */}
-      <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 z-30">
-        <div className="relative">
-          <div className="absolute -inset-8 bg-primary/40 blur-3xl rounded-full animate-pulse" />
-          <div className="relative w-12 h-12 bg-primary rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(110,43,204,0.6)]">
-            <Navigation 
-              className="w-8 h-8 text-white transition-transform duration-500" 
-              style={{ transform: `rotate(${heading}deg)` }} 
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Point of Interest Markers */}
-      <div className="absolute top-[30%] left-[30%] z-20 animate-float">
-        <div className="group cursor-pointer relative">
-          <div className="absolute -inset-4 bg-accent/20 blur-xl rounded-full" />
-          <MapPin className="w-10 h-10 text-accent" />
-          <div className="absolute -top-12 left-1/2 -translate-x-1/2 glass-morphism px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap border border-accent/30">
-            Ancient Observatory
-          </div>
-        </div>
-      </div>
-
-      <div className="absolute top-[15%] right-[25%] z-20 animate-float [animation-delay:1.5s]">
-        <div className="group cursor-pointer relative">
-          <div className="absolute -inset-4 bg-white/10 blur-xl rounded-full" />
-          <MapPin className="w-8 h-8 text-white/60" />
-        </div>
-      </div>
-
-      {/* Map Information / Status */}
-      <div className="absolute bottom-32 left-4 z-40 space-y-2">
-        <div className="glass-morphism px-3 py-2 rounded-2xl flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground">GPS: High Precision</span>
-        </div>
-      </div>
-
-      {/* Route Line Placeholder */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-40">
-        <path 
-          d="M 200 800 Q 400 400 300 100" 
-          fill="none" 
-          stroke="hsl(var(--primary))" 
-          strokeWidth="8" 
-          strokeDasharray="20 10"
-          className="animate-[dash_20s_linear_infinite]"
-        />
-      </svg>
-
-      <style jsx>{`
-        @keyframes dash {
-          to {
-            stroke-dashoffset: -1000;
-          }
-        }
-      `}</style>
+        {/* POI Markers */}
+        {pois.map((poi, idx) => (
+          <Marker 
+            key={`${poi.name}-${idx}`} 
+            position={[poi.latitude, poi.longitude]}
+            eventHandlers={{
+              click: () => onPoiSelect?.(poi)
+            }}
+          >
+            <Popup>
+              <div className="text-black">
+                <strong className="block">{poi.name}</strong>
+                <span className="text-xs text-gray-500 uppercase">{poi.category}</span>
+                <p className="mt-1 text-sm">{poi.description}</p>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
     </div>
   )
 }

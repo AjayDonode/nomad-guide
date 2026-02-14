@@ -5,14 +5,13 @@ import React, { useState, useEffect } from 'react'
 import { 
   Search, 
   Settings, 
-  Map as MapIcon, 
+  Navigation,
   Compass, 
   AudioWaveform, 
   Mic2,
-  Navigation,
+  Volume2,
   Menu,
-  X,
-  Volume2
+  Loader2
 } from 'lucide-react'
 import { NavigationMap } from '@/components/navigation-map'
 import { AudioTourController } from '@/components/audio-tour-controller'
@@ -28,19 +27,64 @@ import {
 } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { recommendPois } from '@/ai/flows/recommend-pois-flow'
+import { useToast } from '@/hooks/use-toast'
 
 export default function DrivingDashboard() {
-  const [isDriving, setIsDriving] = useState(true)
-  const [currentPOI, setCurrentPOI] = useState({
-    name: "Ancient Observatory",
-    distance: "1.2 km",
-    eta: "4 min",
-    category: "Historical"
-  })
+  const { toast } = useToast()
+  const [searchQuery, setSearchQuery] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
+  const [recommendedPois, setRecommendedPois] = useState<any[]>([])
+  const [selectedPoi, setSelectedPoi] = useState<any>(null)
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
+        (err) => console.log("Location access denied", err)
+      )
+    }
+  }, [])
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+
+    setIsLoading(true)
+    try {
+      // For the prototype, we assume the route is from current location to a generic waypoint near search
+      const result = await recommendPois({
+        userInterests: ["history", "culture", "landmarks"],
+        routeWaypoints: [
+          { latitude: userLocation[0], longitude: userLocation[1] },
+          { latitude: userLocation[0] + 0.05, longitude: userLocation[1] + 0.05 } // Mock route endpoint
+        ]
+      })
+      
+      if (result.recommendedPois.length > 0) {
+        setRecommendedPois(result.recommendedPois)
+        setSelectedPoi(result.recommendedPois[0])
+        toast({
+          title: "Route Planned",
+          description: `Found ${result.recommendedPois.length} interesting stops along your way!`
+        })
+      }
+    } catch (error) {
+      console.error(error)
+      toast({
+        variant: "destructive",
+        title: "Search Failed",
+        description: "Could not fetch recommendations. Please try again."
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-sans">
-      {/* Top Header Overlay - Driver Information */}
+      {/* Top Header Overlay */}
       <div className="fixed top-0 left-0 right-0 z-50 p-4 pointer-events-none">
         <div className="max-w-md mx-auto flex items-center justify-between gap-4">
           <div className="flex-1 glass-morphism p-3 rounded-2xl pointer-events-auto flex items-center gap-3">
@@ -48,8 +92,8 @@ export default function DrivingDashboard() {
               <Navigation className="w-6 h-6 rotate-45" />
             </div>
             <div>
-              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Next Turn</div>
-              <div className="text-lg font-bold">200m • Skyline Bridge</div>
+              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Status</div>
+              <div className="text-lg font-bold">{isLoading ? 'Finding Route...' : 'Ready to Drive'}</div>
             </div>
           </div>
           <Button variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl pointer-events-auto">
@@ -58,19 +102,30 @@ export default function DrivingDashboard() {
         </div>
       </div>
 
-      {/* Main Navigation Map - Full Screen Background */}
+      {/* Main Navigation Map */}
       <main className="relative flex-1 h-full">
-        <NavigationMap />
+        <NavigationMap 
+          center={userLocation} 
+          pois={recommendedPois} 
+          onPoiSelect={(poi) => setSelectedPoi(poi)} 
+        />
 
-        {/* Floating Search - Accessible for co-pilot/driver at stop */}
+        {/* Search Bar */}
         <div className="absolute top-24 left-4 right-4 z-40 lg:max-w-md lg:mx-auto">
-          <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+          <form onSubmit={handleSearch} className="relative group">
+            {isLoading ? (
+              <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary animate-spin" />
+            ) : (
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            )}
             <Input 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search destination..." 
               className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl shadow-2xl text-lg"
+              disabled={isLoading}
             />
-          </div>
+          </form>
         </div>
 
         {/* Side Controls */}
@@ -83,71 +138,72 @@ export default function DrivingDashboard() {
           </Button>
         </div>
 
-        {/* Bottom Drawer Overlay - Current Tour Info */}
-        <div className="absolute bottom-0 left-0 right-0 z-50 p-4">
-          <Sheet>
-            <SheetTrigger asChild>
-              <div className="max-w-md mx-auto glass-morphism rounded-3xl p-4 shadow-2xl cursor-pointer hover:bg-card/70 transition-colors">
-                <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-4" />
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-accent text-accent-foreground font-bold">LIVE TOUR</Badge>
-                      <span className="text-sm text-muted-foreground font-medium">{currentPOI.distance} away</span>
+        {/* Bottom Drawer Overlay */}
+        {selectedPoi && (
+          <div className="absolute bottom-0 left-0 right-0 z-50 p-4">
+            <Sheet>
+              <SheetTrigger asChild>
+                <div className="max-w-md mx-auto glass-morphism rounded-3xl p-4 shadow-2xl cursor-pointer hover:bg-card/70 transition-colors">
+                  <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-4" />
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge className="bg-accent text-accent-foreground font-bold">{selectedPoi.category}</Badge>
+                        <span className="text-sm text-muted-foreground font-medium">Coming up</span>
+                      </div>
+                      <h2 className="text-xl font-headline font-bold truncate">{selectedPoi.name}</h2>
                     </div>
-                    <h2 className="text-xl font-headline font-bold">{currentPOI.name}</h2>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="text-2xl font-bold text-primary">{currentPOI.eta}</span>
-                    <span className="text-xs text-muted-foreground uppercase tracking-tighter">arrival</span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-2xl font-bold text-primary">4m</span>
+                      <span className="text-xs text-muted-foreground uppercase tracking-tighter">ETA</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </SheetTrigger>
-            <SheetContent side="bottom" className="h-[85vh] bg-background border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
-              <ScrollArea className="h-full">
-                <div className="p-6 space-y-8">
-                  <SheetHeader className="text-left">
-                    <div className="flex items-center justify-between">
-                      <SheetTitle className="text-2xl font-headline font-bold">Immersive Discovery</SheetTitle>
-                      <Badge variant="outline" className="text-accent border-accent/30">Auto-Playing</Badge>
-                    </div>
-                  </SheetHeader>
+              </SheetTrigger>
+              <SheetContent side="bottom" className="h-[85vh] bg-background border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
+                <ScrollArea className="h-full">
+                  <div className="p-6 space-y-8">
+                    <SheetHeader className="text-left">
+                      <div className="flex items-center justify-between">
+                        <SheetTitle className="text-2xl font-headline font-bold">Immersive Discovery</SheetTitle>
+                        <Badge variant="outline" className="text-accent border-accent/30">Auto-Playing</Badge>
+                      </div>
+                    </SheetHeader>
 
-                  <div className="grid gap-6">
-                    <div className="h-64 rounded-3xl overflow-hidden border border-white/5">
-                      <Landmark3DPreview landmarkId="observatory" />
-                    </div>
+                    <div className="grid gap-6">
+                      <div className="h-64 rounded-3xl overflow-hidden border border-white/5">
+                        <Landmark3DPreview landmarkId={selectedPoi.name} />
+                      </div>
 
-                    <AudioTourController />
+                      <AudioTourController poi={selectedPoi} />
 
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold flex items-center gap-2">
-                        <Mic2 className="w-5 h-5 text-primary" /> Narration Transcript
-                      </h3>
-                      <div className="bg-card/30 rounded-2xl p-4 italic text-muted-foreground leading-relaxed border border-white/5">
-                        "As you approach the summit of the ridge, look to your left. The Ancient Observatory was not just a scientific hub, but a beacon of hope for the early explorers of the 22nd century..."
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-bold flex items-center gap-2">
+                          <Mic2 className="w-5 h-5 text-primary" /> Narration
+                        </h3>
+                        <div className="bg-card/30 rounded-2xl p-4 italic text-muted-foreground leading-relaxed border border-white/5">
+                          {selectedPoi.reason || selectedPoi.description}
+                        </div>
                       </div>
                     </div>
+                    
+                    <div className="pb-8">
+                      <Button className="w-full h-16 rounded-2xl bg-accent text-accent-foreground font-bold text-lg shadow-lg shadow-accent/20">
+                        START FULL AR EXPERIENCE
+                      </Button>
+                    </div>
                   </div>
-                  
-                  <div className="pb-8">
-                    <Button className="w-full h-16 rounded-2xl bg-accent text-accent-foreground font-bold text-lg shadow-lg shadow-accent/20">
-                      START FULL AR EXPERIENCE
-                    </Button>
-                  </div>
-                </div>
-              </ScrollArea>
-            </SheetContent>
-          </Sheet>
-        </div>
+                </ScrollArea>
+              </SheetContent>
+            </Sheet>
+          </div>
+        )}
       </main>
 
-      {/* Driver Quick Bar - Desktop Side or Mobile Bottom */}
       <nav className="fixed bottom-20 lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:left-4 z-40 hidden md:flex flex-col gap-4">
         <div className="glass-morphism p-2 rounded-2xl flex flex-col gap-2">
           <Button variant="ghost" size="icon" className="h-12 w-12 rounded-xl bg-primary/20 text-primary">
-            <MapIcon className="w-6 h-6" />
+            <Navigation className="w-6 h-6" />
           </Button>
           <Button variant="ghost" size="icon" className="h-12 w-12 rounded-xl text-muted-foreground">
             <Volume2 className="w-6 h-6" />
