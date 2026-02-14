@@ -32,11 +32,28 @@ const DefaultIcon = L.icon({
   iconAnchor: [12, 41],
 })
 
-const UserIcon = L.divIcon({
+// Dynamic User Icon that changes and rotates
+const UserIcon = (isDriving: boolean, bearing: number) => L.divIcon({
   className: 'user-location-marker',
-  html: '<div class="w-6 h-6 bg-blue-500 rounded-full border-4 border-white shadow-[0_0_15px_rgba(59,130,246,0.8)] flex items-center justify-center animate-pulse"><div class="w-2 h-2 bg-white rounded-full"></div></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
+  html: `
+    <div class="relative flex items-center justify-center">
+      ${isDriving ? `
+        <div class="relative w-12 h-12 flex items-center justify-center transition-transform duration-500 ease-out" style="transform: rotate(${bearing}deg)">
+          <div class="absolute inset-0 bg-primary/30 rounded-full animate-ping"></div>
+          <div class="absolute inset-2 bg-primary/20 rounded-full animate-pulse"></div>
+          <svg viewBox="0 0 24 24" class="w-10 h-10 text-primary drop-shadow-[0_0_12px_rgba(110,43,204,0.9)]" fill="currentColor">
+            <path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z" />
+          </svg>
+        </div>
+      ` : `
+        <div class="w-7 h-7 bg-blue-500 rounded-full border-4 border-white shadow-[0_0_20px_rgba(59,130,246,0.8)] flex items-center justify-center animate-pulse">
+          <div class="w-2.5 h-2.5 bg-white rounded-full"></div>
+        </div>
+      `}
+    </div>
+  `,
+  iconSize: [48, 48],
+  iconAnchor: [24, 24],
 })
 
 const DestIcon = L.divIcon({
@@ -73,7 +90,6 @@ function MapUpdater({ center, destination, isDriving, pois }: { center: [number,
     if (isDriving && destination) {
       map.setView(center, 17, { animate: true })
     } else if (destination) {
-      // Zoom to fit route and POIs
       const markers = [center, destination, ...pois.map(p => [p.latitude, p.longitude] as [number, number])]
       const bounds = L.latLngBounds(markers)
       map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 })
@@ -102,10 +118,10 @@ export function NavigationMap({
     setMounted(true)
   }, [])
 
-  // Calculate bearing based on route if driving and compass active
+  // Calculate bearing based on route
   useEffect(() => {
-    if (isDriving && isCompassActive && routePoints.length > 5) {
-      // Look ahead a few points to get a stable bearing
+    if (routePoints.length > 5) {
+      // Look ahead to calculate bearing for the icon even if map isn't rotating
       const nextPoint = routePoints[5]
       if (nextPoint) {
         const newBearing = calculateBearing(center, nextPoint)
@@ -114,7 +130,7 @@ export function NavigationMap({
     } else {
       setBearing(0)
     }
-  }, [center, isDriving, isCompassActive, routePoints])
+  }, [center, routePoints])
 
   useEffect(() => {
     if (destination) {
@@ -172,7 +188,7 @@ export function NavigationMap({
           />
           <MapUpdater center={center} destination={destination} isDriving={isDriving} pois={pois} />
           
-          <Marker position={center} icon={UserIcon} />
+          <Marker position={center} icon={UserIcon(!!isDriving, bearing)} />
 
           {destination && (
             <Marker position={destination} icon={DestIcon} />
