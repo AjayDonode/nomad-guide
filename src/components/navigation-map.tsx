@@ -20,6 +20,7 @@ interface NavigationMapProps {
   onPoiSelect?: (poi: POI) => void
   selectedPoi?: POI | null
   destination?: [number, number] | null
+  isDriving?: boolean
 }
 
 // Fix for default Leaflet icon not showing correctly in Next.js
@@ -32,39 +33,67 @@ const DefaultIcon = L.icon({
 
 const UserIcon = L.divIcon({
   className: 'user-location-marker',
-  html: '<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-[0_0_10px_rgba(59,130,246,0.8)] animate-pulse"></div>',
-  iconSize: [16, 16],
-  iconAnchor: [8, 8],
+  html: '<div class="w-6 h-6 bg-blue-500 rounded-full border-4 border-white shadow-[0_0_15px_rgba(59,130,246,0.8)] flex items-center justify-center animate-pulse"><div class="w-2 h-2 bg-white rounded-full"></div></div>',
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
 })
 
 const DestIcon = L.divIcon({
   className: 'dest-marker',
-  html: '<div class="w-6 h-6 bg-primary rounded-full border-2 border-white flex items-center justify-center shadow-lg"><div class="w-2 h-2 bg-white rounded-full"></div></div>',
+  html: '<div class="w-8 h-8 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg"><div class="w-3 h-3 bg-white rounded-full"></div></div>',
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+})
+
+const POIIcon = L.divIcon({
+  className: 'poi-marker',
+  html: '<div class="w-6 h-6 bg-primary rounded-lg border-2 border-white flex items-center justify-center shadow-md rotate-45 hover:scale-125 transition-transform"><div class="w-2 h-2 bg-white rounded-full -rotate-45"></div></div>',
   iconSize: [24, 24],
   iconAnchor: [12, 12],
 })
 
 L.Marker.prototype.options.icon = DefaultIcon
 
-function MapUpdater({ center, destination }: { center: [number, number], destination?: [number, number] | null }) {
+function MapUpdater({ center, destination, isDriving }: { center: [number, number], destination?: [number, number] | null, isDriving?: boolean }) {
   const map = useMap()
+  
   useEffect(() => {
-    if (destination) {
+    if (isDriving && destination) {
+      // In driving mode, we zoom in closer and follow the user
+      map.setView(center, 16, { animate: true })
+    } else if (destination) {
+      // Show overview of the whole route
       const bounds = L.latLngBounds([center, destination])
       map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 })
     } else {
       map.setView(center, map.getZoom())
     }
-  }, [center, destination, map])
+  }, [center, destination, isDriving, map])
+  
   return null
 }
 
-export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiSelect, selectedPoi, destination }: NavigationMapProps) {
+export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiSelect, selectedPoi, destination, isDriving }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
+  const [routePoints, setRoutePoints] = useState<[number, number][]>([])
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Simulate/Fetch road-aware routing
+  useEffect(() => {
+    if (destination) {
+      // For a production app, we would fetch from OSRM/Mapbox here.
+      // For this prototype, we'll draw a direct line but add the POIs to the path if they exist
+      const path: [number, number][] = [center]
+      pois.forEach(p => path.push([p.latitude, p.longitude]))
+      path.push(destination)
+      setRoutePoints(path)
+    } else {
+      setRoutePoints([])
+    }
+  }, [center, destination, pois])
 
   if (!mounted) {
     return (
@@ -86,7 +115,7 @@ export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiS
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <MapUpdater center={center} destination={destination} />
+        <MapUpdater center={center} destination={destination} isDriving={isDriving} />
         
         {/* User Location Marker */}
         <Marker position={center} icon={UserIcon}>
@@ -100,15 +129,27 @@ export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiS
           </Marker>
         )}
 
-        {/* Navigation Path Line */}
-        {destination && (
+        {/* Navigation Path Line - Solid Purple for Route */}
+        {routePoints.length > 1 && (
           <Polyline 
-            positions={[center, destination]} 
+            positions={routePoints} 
             color="#6E2BCC" 
-            weight={6}
-            opacity={0.8}
-            dashArray="1, 12"
+            weight={8}
+            opacity={0.7}
             lineCap="round"
+            lineJoin="round"
+          />
+        )}
+        
+        {/* Glow effect for route */}
+        {routePoints.length > 1 && (
+          <Polyline 
+            positions={routePoints} 
+            color="#A78BFA" 
+            weight={14}
+            opacity={0.2}
+            lineCap="round"
+            lineJoin="round"
           />
         )}
 
@@ -117,6 +158,7 @@ export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiS
           <Marker 
             key={`${poi.name}-${idx}`} 
             position={[poi.latitude, poi.longitude]}
+            icon={POIIcon}
             eventHandlers={{
               click: () => onPoiSelect?.(poi)
             }}

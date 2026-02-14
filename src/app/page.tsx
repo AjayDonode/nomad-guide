@@ -14,7 +14,8 @@ import {
   Menu,
   Loader2,
   MapPin,
-  X
+  X,
+  Play
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,6 +31,7 @@ import { Badge } from '@/components/ui/badge'
 import { recommendPois } from '@/ai/flows/recommend-pois-flow'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 // Dynamic imports to prevent SSR errors with browser-only libraries
 const NavigationMap = dynamic(
@@ -67,6 +69,7 @@ export default function DrivingDashboard() {
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
+  const [isDriving, setIsDriving] = useState(false)
   const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoi, setSelectedPoi] = useState<any>(null)
@@ -86,11 +89,11 @@ export default function DrivingDashboard() {
   // Debounced search for address suggestions
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (searchQuery.length > 2 && !destination) {
+      if (searchQuery.length > 2 && !destination && !isDriving) {
         setIsSearching(true)
         try {
           const response = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&viewbox=${userLocation[1]-1},${userLocation[0]+1},${userLocation[1]+1},${userLocation[0]-1}`
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5`
           )
           const data = await response.json()
           setSuggestions(data)
@@ -105,7 +108,7 @@ export default function DrivingDashboard() {
     }, 500)
 
     return () => clearTimeout(timer)
-  }, [searchQuery, userLocation, destination])
+  }, [searchQuery, destination, isDriving])
 
   const handleSelectLocation = async (suggestion: SearchSuggestion) => {
     const destLat = parseFloat(suggestion.lat)
@@ -115,6 +118,7 @@ export default function DrivingDashboard() {
     setDestination([destLat, destLon])
     setSuggestions([])
     setIsLoading(true)
+    setIsDriving(false) // Don't start driving mode immediately
 
     try {
       // Get AI recommendations along the route
@@ -130,13 +134,8 @@ export default function DrivingDashboard() {
         setRecommendedPois(result.recommendedPois)
         setSelectedPoi(result.recommendedPois[0])
         toast({
-          title: "Route Set",
-          description: `Navigating to destination. Found ${result.recommendedPois.length} story points.`
-        })
-      } else {
-        toast({
-          title: "Navigation Active",
-          description: "No specific story points found for this route."
+          title: "Destination Selected",
+          description: `Route plotted. Found ${result.recommendedPois.length} discovery points. Press GO to start.`
         })
       }
     } catch (error) {
@@ -151,31 +150,54 @@ export default function DrivingDashboard() {
     }
   }
 
+  const startDriving = () => {
+    setIsDriving(true)
+    toast({
+      title: "Navigation Started",
+      description: "Driving mode active. Follow the route to discover story points."
+    })
+  }
+
   const clearSearch = () => {
     setSearchQuery("")
     setDestination(null)
     setRecommendedPois([])
     setSelectedPoi(null)
     setSuggestions([])
+    setIsDriving(false)
   }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-sans">
       {/* Top Header Overlay */}
-      <div className="fixed top-0 left-0 right-0 z-50 p-4 pointer-events-none">
+      <div className="fixed top-0 left-0 right-0 z-[110] p-4">
         <div className="max-w-md mx-auto flex items-center justify-between gap-4">
-          <div className="flex-1 glass-morphism p-3 rounded-2xl pointer-events-auto flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/40">
-              <Navigation className="w-6 h-6 rotate-45" />
+          <div className="flex-1 glass-morphism p-3 rounded-2xl flex items-center gap-3">
+            <div className={cn(
+              "w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors",
+              isDriving ? "bg-green-500 shadow-green-500/40" : "bg-primary shadow-primary/40"
+            )}>
+              <Navigation className={cn("w-6 h-6 transition-transform", isDriving ? "rotate-0" : "rotate-45")} />
             </div>
-            <div>
-              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Status</div>
+            <div className="flex-1">
+              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">
+                {isDriving ? 'Navigating' : 'Status'}
+              </div>
               <div className="text-lg font-bold">
-                {isLoading ? 'Plotting Route...' : destination ? 'Navigation Active' : 'Ready to Drive'}
+                {isLoading ? 'Plotting...' : isDriving ? 'Drive Mode Active' : destination ? 'Route Ready' : 'NomadGuide AI'}
               </div>
             </div>
+            
+            {destination && !isDriving && !isLoading && (
+              <Button 
+                onClick={startDriving}
+                className="bg-green-500 hover:bg-green-600 text-white font-bold px-6 rounded-xl h-12 shadow-lg shadow-green-500/20 animate-pulse"
+              >
+                <Play className="w-4 h-4 mr-2 fill-current" /> GO
+              </Button>
+            )}
           </div>
-          <Button variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl pointer-events-auto">
+          <Button variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl">
             <Settings className="w-6 h-6" />
           </Button>
         </div>
@@ -189,58 +211,74 @@ export default function DrivingDashboard() {
           onPoiSelect={(poi) => setSelectedPoi(poi)}
           selectedPoi={selectedPoi}
           destination={destination}
+          isDriving={isDriving}
         />
 
-        {/* Search & Autocomplete UI */}
-        <div className="absolute top-24 left-4 right-4 z-[100] lg:max-w-md lg:mx-auto">
-          <div className="relative group">
-            <div className="relative">
-              {isLoading || isSearching ? (
-                <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary animate-spin" />
-              ) : (
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-              )}
-              <Input 
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value)
-                  if (destination) setDestination(null)
-                }}
-                placeholder="Search destination..." 
-                className="pl-12 pr-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl shadow-2xl text-lg"
-              />
-              {searchQuery && (
-                <button 
-                  onClick={clearSearch}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-muted-foreground" />
-                </button>
+        {/* Search & Autocomplete UI - Hidden during driving mode */}
+        {!isDriving && (
+          <div className="absolute top-24 left-4 right-4 z-[100] lg:max-w-md lg:mx-auto transition-all">
+            <div className="relative group">
+              <div className="relative">
+                {isLoading || isSearching ? (
+                  <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary animate-spin" />
+                ) : (
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                )}
+                <Input 
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value)
+                    if (destination) setDestination(null)
+                  }}
+                  placeholder="Search destination..." 
+                  className="pl-12 pr-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl shadow-2xl text-lg"
+                />
+                {searchQuery && (
+                  <button 
+                    onClick={clearSearch}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded-full transition-colors"
+                  >
+                    <X className="w-5 h-5 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+
+              {/* Suggestions List */}
+              {suggestions.length > 0 && (
+                <Card className="mt-2 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+                  <ScrollArea className="max-h-[300px]">
+                    {suggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.place_id}
+                        onClick={() => handleSelectLocation(suggestion)}
+                        className="w-full p-4 flex items-start gap-3 hover:bg-white/5 text-left border-b border-white/5 last:border-0 transition-colors"
+                      >
+                        <MapPin className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                        <div>
+                          <div className="font-bold text-sm line-clamp-1">{suggestion.display_name.split(',')[0]}</div>
+                          <div className="text-xs text-muted-foreground line-clamp-1">{suggestion.display_name}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </ScrollArea>
+                </Card>
               )}
             </div>
-
-            {/* Suggestions List */}
-            {suggestions.length > 0 && (
-              <Card className="mt-2 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl overflow-hidden shadow-2xl">
-                <ScrollArea className="max-h-[300px]">
-                  {suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.place_id}
-                      onClick={() => handleSelectLocation(suggestion)}
-                      className="w-full p-4 flex items-start gap-3 hover:bg-white/5 text-left border-b border-white/5 last:border-0 transition-colors"
-                    >
-                      <MapPin className="w-5 h-5 text-primary mt-0.5 shrink-0" />
-                      <div>
-                        <div className="font-bold text-sm line-clamp-1">{suggestion.display_name.split(',')[0]}</div>
-                        <div className="text-xs text-muted-foreground line-clamp-1">{suggestion.display_name}</div>
-                      </div>
-                    </button>
-                  ))}
-                </ScrollArea>
-              </Card>
-            )}
           </div>
-        </div>
+        )}
+
+        {/* Stop Button - Only visible during driving */}
+        {isDriving && (
+          <div className="absolute bottom-10 left-4 z-40">
+             <Button 
+              onClick={() => setIsDriving(false)}
+              variant="destructive"
+              className="h-14 w-14 rounded-2xl shadow-xl flex items-center justify-center"
+            >
+              <X className="w-6 h-6" />
+            </Button>
+          </div>
+        )}
 
         {/* Side Controls */}
         <div className="absolute right-4 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-3">
@@ -263,13 +301,13 @@ export default function DrivingDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge className="bg-accent text-accent-foreground font-bold">{selectedPoi.category}</Badge>
-                        <span className="text-sm text-muted-foreground font-medium italic">Discover Point</span>
+                        <span className="text-sm text-muted-foreground font-medium italic">Story Point</span>
                       </div>
                       <h2 className="text-xl font-headline font-bold truncate">{selectedPoi.name}</h2>
                     </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-2xl font-bold text-primary">Nearby</span>
-                      <span className="text-xs text-muted-foreground uppercase tracking-tighter">Waypoint</span>
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className="text-lg font-bold text-primary">Discovery</span>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Waypoint</span>
                     </div>
                   </div>
                 </div>
