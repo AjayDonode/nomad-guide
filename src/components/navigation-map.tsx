@@ -6,6 +6,16 @@ import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
 
+export interface RouteStep {
+  maneuver: {
+    type: string
+    modifier?: string
+    location: [number, number]
+  }
+  distance: number
+  name: string
+}
+
 interface POI {
   name: string
   latitude: number
@@ -22,6 +32,7 @@ interface NavigationMapProps {
   destination?: [number, number] | null
   isDriving?: boolean
   isCompassActive?: boolean
+  onNextStepUpdate?: (step: RouteStep | null) => void
 }
 
 // Fix for default Leaflet icon
@@ -108,7 +119,8 @@ export function NavigationMap({
   selectedPoi, 
   destination, 
   isDriving,
-  isCompassActive = false
+  isCompassActive = false,
+  onNextStepUpdate
 }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
@@ -121,7 +133,6 @@ export function NavigationMap({
   // Calculate bearing based on route
   useEffect(() => {
     if (routePoints.length > 5) {
-      // Look ahead to calculate bearing for the icon even if map isn't rotating
       const nextPoint = routePoints[5]
       if (nextPoint) {
         const newBearing = calculateBearing(center, nextPoint)
@@ -139,22 +150,34 @@ export function NavigationMap({
           const start = `${center[1]},${center[0]}`
           const end = `${destination[1]},${destination[0]}`
           const response = await fetch(
-            `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson`
+            `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson&steps=true`
           )
           const data = await response.json()
           if (data.routes && data.routes[0]) {
-            const coords = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
+            const route = data.routes[0]
+            const coords = route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
             setRoutePoints(coords)
+            
+            // Extract the first non-departure step for next turn info
+            if (route.legs && route.legs[0] && route.legs[0].steps) {
+              const steps = route.legs[0].steps as RouteStep[]
+              // The first step is usually "depart", the second is the actual first maneuver
+              const nextStep = steps.find(s => s.maneuver.type !== 'depart') || null
+              if (onNextStepUpdate) onNextStepUpdate(nextStep)
+            }
           } else {
             setRoutePoints([center, destination])
+            if (onNextStepUpdate) onNextStepUpdate(null)
           }
         } catch (error) {
           setRoutePoints([center, destination])
+          if (onNextStepUpdate) onNextStepUpdate(null)
         }
       }
       fetchRoute()
     } else {
       setRoutePoints([])
+      if (onNextStepUpdate) onNextStepUpdate(null)
     }
   }, [center, destination])
 
@@ -166,7 +189,6 @@ export function NavigationMap({
     )
   }
 
-  // Rotation style for compass mode
   const rotationStyle = isCompassActive && isDriving ? {
     transform: `rotate(${-bearing}deg)`,
     transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',

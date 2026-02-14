@@ -18,7 +18,11 @@ import {
   Play,
   VolumeX,
   Sparkles,
-  Info
+  Info,
+  CornerUpLeft,
+  CornerUpRight,
+  MoveUp,
+  RotateCcw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,6 +39,7 @@ import { recommendPois } from '@/ai/flows/recommend-pois-flow'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import type { RouteStep } from '@/components/navigation-map'
 
 // Dynamic imports to prevent SSR errors with browser-only libraries
 const NavigationMap = dynamic(
@@ -78,6 +83,22 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c;
 }
 
+const TurnIcon = ({ type, modifier }: { type: string, modifier?: string }) => {
+  const iconClass = "w-5 h-5 text-accent"
+  
+  if (type === 'turn') {
+    if (modifier?.includes('left')) return <CornerUpLeft className={iconClass} />
+    if (modifier?.includes('right')) return <CornerUpRight className={iconClass} />
+  }
+  if (type === 'u-turn') return <RotateCcw className={iconClass} />
+  if (type === 'off ramp' || type === 'fork') {
+    if (modifier?.includes('left')) return <CornerUpLeft className={iconClass} />
+    return <CornerUpRight className={iconClass} />
+  }
+  
+  return <MoveUp className={iconClass} />
+}
+
 export default function DrivingDashboard() {
   const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
@@ -92,6 +113,7 @@ export default function DrivingDashboard() {
   const [destination, setDestination] = useState<[number, number] | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [autoNarrate, setAutoNarrate] = useState(true)
+  const [nextStep, setNextStep] = useState<RouteStep | null>(null)
 
   // Track narrated POIs to avoid repeating
   const narratedPois = useRef<Set<string>>(new Set())
@@ -178,10 +200,6 @@ export default function DrivingDashboard() {
       
       if (result.recommendedPois && result.recommendedPois.length > 0) {
         setRecommendedPois(result.recommendedPois)
-        // toast({
-        //   title: "Destination Selected",
-        //   description: `Route plotted. AI has discovered ${result.recommendedPois.length} story points along your way.`
-        // })
       }
     } catch (error) {
       console.error(error)
@@ -210,14 +228,20 @@ export default function DrivingDashboard() {
     setSelectedPoi(null)
     setSuggestions([])
     setIsDriving(false)
+    setNextStep(null)
     narratedPois.current.clear()
+  }
+
+  const formatDistance = (meters: number) => {
+    if (meters > 1000) return `${(meters / 1000).toFixed(1)} km`
+    return `${Math.round(meters)} m`
   }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-body selection:bg-primary/30 selection:text-primary">
       {/* Top Header Overlay */}
       <div className="fixed top-0 left-0 right-0 z-[110] p-4">
-        <div className="max-w-md mx-auto flex items-center justify-between gap-4">
+        <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
           <div className="flex-1 glass-morphism p-3 rounded-2xl flex items-center gap-3">
             <div className={cn(
               "w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors",
@@ -225,13 +249,32 @@ export default function DrivingDashboard() {
             )}>
               <Navigation className={cn("w-6 h-6 transition-transform duration-500", isDriving ? "rotate-0" : "rotate-45")} />
             </div>
-            <div className="flex-1">
-              <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
-                {isDriving ? 'Navigation Active' : 'Status'}
+            
+            <div className="flex-1 flex items-center gap-4">
+              <div>
+                <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
+                  {isDriving ? 'Navigation Active' : 'Status'}
+                </div>
+                <div className="text-lg font-headline font-bold leading-tight truncate">
+                  {isLoading ? 'Plotting...' : isDriving ? 'Following Route' : destination ? 'Ready' : 'NomadGuide AI'}
+                </div>
               </div>
-              <div className="text-lg font-headline font-bold leading-tight truncate max-w-[150px]">
-                {isLoading ? 'Plotting...' : isDriving ? 'Following Route' : destination ? 'Ready' : 'NomadGuide AI'}
-              </div>
+
+              {isDriving && nextStep && (
+                <div className="flex items-center gap-3 border-l border-white/10 pl-4 animate-in fade-in slide-in-from-left-2">
+                  <div className="bg-accent/20 p-2 rounded-xl border border-accent/20">
+                    <TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-accent font-bold leading-none mb-1">
+                      Next Turn
+                    </div>
+                    <div className="text-sm font-headline font-bold leading-none">
+                      {formatDistance(nextStep.distance)}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             {destination && !isDriving && !isLoading && (
@@ -270,6 +313,7 @@ export default function DrivingDashboard() {
           destination={destination}
           isDriving={isDriving}
           isCompassActive={isCompassActive}
+          onNextStepUpdate={setNextStep}
         />
 
         {/* Search & Autocomplete UI */}
