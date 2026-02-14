@@ -61,10 +61,12 @@ export default function DrivingDashboard() {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
+      const watchId = navigator.geolocation.watchPosition(
         (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
-        (err) => console.log("Location access denied", err)
+        (err) => console.log("Location access denied", err),
+        { enableHighAccuracy: true }
       )
+      return () => navigator.geolocation.clearWatch(watchId)
     }
   }, [])
 
@@ -75,12 +77,11 @@ export default function DrivingDashboard() {
     setIsLoading(true)
     try {
       // Simulate finding a destination coordinate near current location for prototype
-      // In a production app, we would use a geocoding service here
-      const destLat = userLocation[0] + (Math.random() - 0.5) * 0.1
-      const destLng = userLocation[1] + (Math.random() - 0.5) * 0.1
+      const destLat = userLocation[0] + (Math.random() - 0.5) * 0.05
+      const destLng = userLocation[1] + (Math.random() - 0.5) * 0.05
 
       const result = await recommendPois({
-        userInterests: ["history", "culture", "landmarks"],
+        userInterests: ["history", "culture", "landmarks", "viewpoints"],
         routeWaypoints: [
           { latitude: userLocation[0], longitude: userLocation[1] },
           { latitude: destLat, longitude: destLng }
@@ -91,13 +92,13 @@ export default function DrivingDashboard() {
         setRecommendedPois(result.recommendedPois)
         setSelectedPoi(result.recommendedPois[0])
         toast({
-          title: "Route Optimized",
-          description: `Identified ${result.recommendedPois.length} AI-curated stops for your journey.`
+          title: "Navigation Active",
+          description: `Discovered ${result.recommendedPois.length} story points along your route.`
         })
       } else {
         toast({
-          title: "No Landmarks Found",
-          description: "Try a different route or update your interests."
+          title: "Search Results",
+          description: "No specific landmarks found. Try another destination."
         })
       }
     } catch (error) {
@@ -122,8 +123,8 @@ export default function DrivingDashboard() {
               <Navigation className="w-6 h-6 rotate-45" />
             </div>
             <div>
-              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Status</div>
-              <div className="text-lg font-bold">{isLoading ? 'AI Routing...' : 'Ready to Drive'}</div>
+              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Navigation</div>
+              <div className="text-lg font-bold">{isLoading ? 'Recalculating...' : recommendedPois.length > 0 ? 'Route Active' : 'Ready to Drive'}</div>
             </div>
           </div>
           <Button variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl pointer-events-auto">
@@ -137,7 +138,8 @@ export default function DrivingDashboard() {
         <NavigationMap 
           center={userLocation} 
           pois={recommendedPois} 
-          onPoiSelect={(poi) => setSelectedPoi(poi)} 
+          onPoiSelect={(poi) => setSelectedPoi(poi)}
+          selectedPoi={selectedPoi}
         />
 
         {/* Search Bar */}
@@ -151,7 +153,7 @@ export default function DrivingDashboard() {
             <Input 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search destination..." 
+              placeholder="Where to? (e.g., Palace of Fine Arts)" 
               className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl shadow-2xl text-lg"
               disabled={isLoading}
             />
@@ -179,13 +181,13 @@ export default function DrivingDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge className="bg-accent text-accent-foreground font-bold">{selectedPoi.category}</Badge>
-                        <span className="text-sm text-muted-foreground font-medium">Coming up</span>
+                        <span className="text-sm text-muted-foreground font-medium italic">Discovered Stop</span>
                       </div>
                       <h2 className="text-xl font-headline font-bold truncate">{selectedPoi.name}</h2>
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-2xl font-bold text-primary">4m</span>
-                      <span className="text-xs text-muted-foreground uppercase tracking-tighter">ETA</span>
+                      <span className="text-2xl font-bold text-primary">0.4m</span>
+                      <span className="text-xs text-muted-foreground uppercase tracking-tighter">Distance</span>
                     </div>
                   </div>
                 </div>
@@ -195,8 +197,8 @@ export default function DrivingDashboard() {
                   <div className="p-6 space-y-8">
                     <SheetHeader className="text-left">
                       <div className="flex items-center justify-between">
-                        <SheetTitle className="text-2xl font-headline font-bold">Immersive Discovery</SheetTitle>
-                        <Badge variant="outline" className="text-accent border-accent/30">Auto-Playing</Badge>
+                        <SheetTitle className="text-2xl font-headline font-bold">Landmark Insight</SheetTitle>
+                        <Badge variant="outline" className="text-accent border-accent/30">Narration Ready</Badge>
                       </div>
                     </SheetHeader>
 
@@ -209,7 +211,7 @@ export default function DrivingDashboard() {
 
                       <div className="space-y-4">
                         <h3 className="text-lg font-bold flex items-center gap-2">
-                          <Mic2 className="w-5 h-5 text-primary" /> Narration
+                          <Mic2 className="w-5 h-5 text-primary" /> Why Stop Here?
                         </h3>
                         <div className="bg-card/30 rounded-2xl p-4 italic text-muted-foreground leading-relaxed border border-white/5">
                           {selectedPoi.reason || selectedPoi.description}
@@ -219,7 +221,7 @@ export default function DrivingDashboard() {
                     
                     <div className="pb-8">
                       <Button className="w-full h-16 rounded-2xl bg-accent text-accent-foreground font-bold text-lg shadow-lg shadow-accent/20">
-                        START FULL AR EXPERIENCE
+                        OPEN IN FULL AR VIEW
                       </Button>
                     </div>
                   </div>
