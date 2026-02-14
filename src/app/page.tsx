@@ -22,7 +22,8 @@ import {
   CornerUpLeft,
   CornerUpRight,
   MoveUp,
-  RotateCcw
+  RotateCcw,
+  SquareArrowOutUpRight
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,8 +34,17 @@ import {
   SheetTitle, 
   SheetTrigger 
 } from '@/components/ui/sheet'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { recommendPois } from '@/ai/flows/recommend-pois-flow'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
@@ -86,15 +96,14 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 const TurnIcon = ({ type, modifier }: { type: string, modifier?: string }) => {
   const iconClass = "w-5 h-5 text-accent"
   
-  if (type === 'turn') {
+  if (modifier === 'uturn' || type === 'u-turn') return <RotateCcw className={iconClass} />
+  
+  if (type === 'turn' || type === 'ramp' || type === 'merge' || type === 'fork') {
     if (modifier?.includes('left')) return <CornerUpLeft className={iconClass} />
     if (modifier?.includes('right')) return <CornerUpRight className={iconClass} />
   }
-  if (type === 'u-turn') return <RotateCcw className={iconClass} />
-  if (type === 'off ramp' || type === 'fork') {
-    if (modifier?.includes('left')) return <CornerUpLeft className={iconClass} />
-    return <CornerUpRight className={iconClass} />
-  }
+
+  if (type === 'off ramp') return <SquareArrowOutUpRight className={iconClass} />
   
   return <MoveUp className={iconClass} />
 }
@@ -114,6 +123,10 @@ export default function DrivingDashboard() {
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
+
+  // Settings state
+  const [pointerType, setPointerType] = useState<'car' | 'arrow' | 'dot'>('arrow')
+  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric')
 
   // Track narrated POIs to avoid repeating
   const narratedPois = useRef<Set<string>>(new Set())
@@ -233,6 +246,14 @@ export default function DrivingDashboard() {
   }
 
   const formatDistance = (meters: number) => {
+    if (unitSystem === 'imperial') {
+      const feet = meters * 3.28084
+      if (feet > 528) {
+        return `${(feet / 5280).toFixed(1)} mi`
+      }
+      return `${Math.round(feet)} ft`
+    }
+    
     if (meters > 1000) return `${(meters / 1000).toFixed(1)} km`
     return `${Math.round(meters)} m`
   }
@@ -286,17 +307,75 @@ export default function DrivingDashboard() {
               </Button>
             )}
           </div>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => setAutoNarrate(!autoNarrate)}
-            className={cn(
-              "glass-morphism h-12 w-12 rounded-2xl transition-all",
-              autoNarrate ? "text-accent border-accent/30" : "text-muted-foreground"
-            )}
-          >
-            {autoNarrate ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
-          </Button>
+
+          <div className="flex gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setAutoNarrate(!autoNarrate)}
+              className={cn(
+                "glass-morphism h-12 w-12 rounded-2xl transition-all border-none",
+                autoNarrate ? "text-accent" : "text-muted-foreground"
+              )}
+            >
+              {autoNarrate ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
+            </Button>
+
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl text-muted-foreground border-none">
+                  <Settings className="w-6 h-6" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-card/95 border-white/10 text-white rounded-3xl backdrop-blur-2xl">
+                <DialogHeader>
+                  <DialogTitle className="font-headline font-bold text-xl">App Settings</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                  <div className="space-y-3">
+                    <Label className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Navigation Pointer</Label>
+                    <RadioGroup value={pointerType} onValueChange={(val: any) => setPointerType(val)} className="grid grid-cols-3 gap-2">
+                      <div>
+                        <RadioGroupItem value="car" id="p-car" className="peer sr-only" />
+                        <Label htmlFor="p-car" className="flex flex-col items-center justify-between rounded-xl border-2 border-white/5 bg-white/5 p-4 hover:bg-white/10 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 transition-all cursor-pointer">
+                          <Navigation className="mb-2 h-6 w-6 text-primary" />
+                          <span className="text-[10px] font-bold">CAR</span>
+                        </Label>
+                      </div>
+                      <div>
+                        <RadioGroupItem value="arrow" id="p-arrow" className="peer sr-only" />
+                        <Label htmlFor="p-arrow" className="flex flex-col items-center justify-between rounded-xl border-2 border-white/5 bg-white/5 p-4 hover:bg-white/10 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 transition-all cursor-pointer">
+                          <Sparkles className="mb-2 h-6 w-6 text-primary" />
+                          <span className="text-[10px] font-bold">PLANE</span>
+                        </Label>
+                      </div>
+                      <div>
+                        <RadioGroupItem value="dot" id="p-dot" className="peer sr-only" />
+                        <Label htmlFor="p-dot" className="flex flex-col items-center justify-between rounded-xl border-2 border-white/5 bg-white/5 p-4 hover:bg-white/10 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 transition-all cursor-pointer">
+                          <MapPin className="mb-2 h-6 w-6 text-primary" />
+                          <span className="text-[10px] font-bold">DOT</span>
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Distance Units</Label>
+                    <RadioGroup value={unitSystem} onValueChange={(val: any) => setUnitSystem(val)} className="flex gap-4">
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="metric" id="u-metric" />
+                        <Label htmlFor="u-metric">Metric (km/m)</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="imperial" id="u-imperial" />
+                        <Label htmlFor="u-imperial">Imperial (mi/ft)</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </div>
 
@@ -314,6 +393,7 @@ export default function DrivingDashboard() {
           isDriving={isDriving}
           isCompassActive={isCompassActive}
           onNextStepUpdate={setNextStep}
+          pointerType={pointerType}
         />
 
         {/* Search & Autocomplete UI */}

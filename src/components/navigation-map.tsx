@@ -33,6 +33,7 @@ interface NavigationMapProps {
   isDriving?: boolean
   isCompassActive?: boolean
   onNextStepUpdate?: (step: RouteStep | null) => void
+  pointerType?: 'car' | 'arrow' | 'dot'
 }
 
 // Fix for default Leaflet icon
@@ -44,28 +45,44 @@ const DefaultIcon = L.icon({
 })
 
 // Dynamic User Icon that changes and rotates
-const UserIcon = (isDriving: boolean, bearing: number) => L.divIcon({
-  className: 'user-location-marker',
-  html: `
-    <div class="relative flex items-center justify-center">
-      ${isDriving ? `
+const UserIcon = (isDriving: boolean, bearing: number, pointerType: 'car' | 'arrow' | 'dot' = 'arrow') => {
+  let innerHtml = ''
+  
+  if (pointerType === 'car') {
+    innerHtml = `
+      <svg viewBox="0 0 24 24" class="w-10 h-10 text-primary drop-shadow-[0_0_8px_rgba(110,43,204,0.6)]" fill="currentColor">
+        <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z" />
+      </svg>
+    `
+  } else if (pointerType === 'dot') {
+    innerHtml = `
+      <div class="w-7 h-7 bg-primary rounded-full border-4 border-white shadow-xl flex items-center justify-center">
+        <div class="w-2 h-2 bg-white rounded-full"></div>
+      </div>
+    `
+  } else {
+    // Default Arrow / Paper Plane
+    innerHtml = `
+      <svg viewBox="0 0 24 24" class="w-10 h-10 text-primary drop-shadow-[0_0_12px_rgba(110,43,204,0.9)]" fill="currentColor">
+        <path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z" />
+      </svg>
+    `
+  }
+
+  return L.divIcon({
+    className: 'user-location-marker',
+    html: `
+      <div class="relative flex items-center justify-center">
         <div class="relative w-12 h-12 flex items-center justify-center transition-transform duration-500 ease-out" style="transform: rotate(${bearing}deg)">
-          <div class="absolute inset-0 bg-primary/30 rounded-full animate-ping"></div>
-          <div class="absolute inset-2 bg-primary/20 rounded-full animate-pulse"></div>
-          <svg viewBox="0 0 24 24" class="w-10 h-10 text-primary drop-shadow-[0_0_12px_rgba(110,43,204,0.9)]" fill="currentColor">
-            <path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z" />
-          </svg>
+          ${isDriving ? '<div class="absolute inset-0 bg-primary/30 rounded-full animate-ping"></div>' : ''}
+          ${innerHtml}
         </div>
-      ` : `
-        <div class="w-7 h-7 bg-blue-500 rounded-full border-4 border-white shadow-[0_0_20px_rgba(59,130,246,0.8)] flex items-center justify-center animate-pulse">
-          <div class="w-2.5 h-2.5 bg-white rounded-full"></div>
-        </div>
-      `}
-    </div>
-  `,
-  iconSize: [48, 48],
-  iconAnchor: [24, 24],
-})
+      </div>
+    `,
+    iconSize: [48, 48],
+    iconAnchor: [24, 24],
+  })
+}
 
 const DestIcon = L.divIcon({
   className: 'dest-marker',
@@ -120,7 +137,8 @@ export function NavigationMap({
   destination, 
   isDriving,
   isCompassActive = false,
-  onNextStepUpdate
+  onNextStepUpdate,
+  pointerType = 'arrow'
 }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
@@ -210,7 +228,7 @@ export function NavigationMap({
           />
           <MapUpdater center={center} destination={destination} isDriving={isDriving} pois={pois} />
           
-          <Marker position={center} icon={UserIcon(!!isDriving, bearing)} />
+          <Marker position={center} icon={UserIcon(!!isDriving, bearing, pointerType)} />
 
           {destination && (
             <Marker position={destination} icon={DestIcon} />
