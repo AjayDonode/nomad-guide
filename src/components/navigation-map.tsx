@@ -19,6 +19,7 @@ interface NavigationMapProps {
   pois?: POI[]
   onPoiSelect?: (poi: POI) => void
   selectedPoi?: POI | null
+  destination?: [number, number] | null
 }
 
 // Fix for default Leaflet icon not showing correctly in Next.js
@@ -36,17 +37,29 @@ const UserIcon = L.divIcon({
   iconAnchor: [8, 8],
 })
 
+const DestIcon = L.divIcon({
+  className: 'dest-marker',
+  html: '<div class="w-6 h-6 bg-primary rounded-full border-2 border-white flex items-center justify-center shadow-lg"><div class="w-2 h-2 bg-white rounded-full"></div></div>',
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+})
+
 L.Marker.prototype.options.icon = DefaultIcon
 
-function MapUpdater({ center }: { center: [number, number] }) {
+function MapUpdater({ center, destination }: { center: [number, number], destination?: [number, number] | null }) {
   const map = useMap()
   useEffect(() => {
-    map.setView(center, map.getZoom())
-  }, [center, map])
+    if (destination) {
+      const bounds = L.latLngBounds([center, destination])
+      map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 })
+    } else {
+      map.setView(center, map.getZoom())
+    }
+  }, [center, destination, map])
   return null
 }
 
-export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiSelect, selectedPoi }: NavigationMapProps) {
+export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiSelect, selectedPoi, destination }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -73,21 +86,29 @@ export function NavigationMap({ center = [37.7749, -122.4194], pois = [], onPoiS
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <MapUpdater center={center} />
+        <MapUpdater center={center} destination={destination} />
         
         {/* User Location Marker */}
         <Marker position={center} icon={UserIcon}>
-          <Popup>You are here</Popup>
+          <Popup>Current Position</Popup>
         </Marker>
 
-        {/* Route Line to selected POI */}
-        {selectedPoi && (
+        {/* Destination Marker */}
+        {destination && (
+          <Marker position={destination} icon={DestIcon}>
+            <Popup>Destination</Popup>
+          </Marker>
+        )}
+
+        {/* Navigation Path Line */}
+        {destination && (
           <Polyline 
-            positions={[center, [selectedPoi.latitude, selectedPoi.longitude]]} 
+            positions={[center, destination]} 
             color="#6E2BCC" 
-            weight={4}
-            opacity={0.6}
-            dashArray="10, 10"
+            weight={6}
+            opacity={0.8}
+            dashArray="1, 12"
+            lineCap="round"
           />
         )}
 

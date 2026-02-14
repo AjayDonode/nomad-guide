@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { 
   Search, 
@@ -12,7 +12,9 @@ import {
   Mic2,
   Volume2,
   Menu,
-  Loader2
+  Loader2,
+  MapPin,
+  X
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +29,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { recommendPois } from '@/ai/flows/recommend-pois-flow'
 import { useToast } from '@/hooks/use-toast'
+import { Card } from '@/components/ui/card'
 
 // Dynamic imports to prevent SSR errors with browser-only libraries
 const NavigationMap = dynamic(
@@ -51,13 +54,23 @@ const AudioTourController = dynamic(
   { ssr: false }
 )
 
+interface SearchSuggestion {
+  display_name: string
+  lat: string
+  lon: string
+  place_id: number
+}
+
 export default function DrivingDashboard() {
   const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
   const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoi, setSelectedPoi] = useState<any>(null)
+  const [destination, setDestination] = useState<[number, number] | null>(null)
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
@@ -70,21 +83,46 @@ export default function DrivingDashboard() {
     }
   }, [])
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!searchQuery.trim()) return
+  // Debounced search for address suggestions
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (searchQuery.length > 2 && !destination) {
+        setIsSearching(true)
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&viewbox=${userLocation[1]-1},${userLocation[0]+1},${userLocation[1]+1},${userLocation[0]-1}`
+          )
+          const data = await response.json()
+          setSuggestions(data)
+        } catch (error) {
+          console.error("Search failed", error)
+        } finally {
+          setIsSearching(false)
+        }
+      } else {
+        setSuggestions([])
+      }
+    }, 500)
 
+    return () => clearTimeout(timer)
+  }, [searchQuery, userLocation, destination])
+
+  const handleSelectLocation = async (suggestion: SearchSuggestion) => {
+    const destLat = parseFloat(suggestion.lat)
+    const destLon = parseFloat(suggestion.lon)
+    
+    setSearchQuery(suggestion.display_name)
+    setDestination([destLat, destLon])
+    setSuggestions([])
     setIsLoading(true)
-    try {
-      // Simulate finding a destination coordinate near current location for prototype
-      const destLat = userLocation[0] + (Math.random() - 0.5) * 0.05
-      const destLng = userLocation[1] + (Math.random() - 0.5) * 0.05
 
+    try {
+      // Get AI recommendations along the route
       const result = await recommendPois({
-        userInterests: ["history", "culture", "landmarks", "viewpoints"],
+        userInterests: ["history", "culture", "landmarks", "viewpoints", "architecture"],
         routeWaypoints: [
           { latitude: userLocation[0], longitude: userLocation[1] },
-          { latitude: destLat, longitude: destLng }
+          { latitude: destLat, longitude: destLon }
         ]
       })
       
@@ -92,25 +130,33 @@ export default function DrivingDashboard() {
         setRecommendedPois(result.recommendedPois)
         setSelectedPoi(result.recommendedPois[0])
         toast({
-          title: "Navigation Active",
-          description: `Discovered ${result.recommendedPois.length} story points along your route.`
+          title: "Route Set",
+          description: `Navigating to destination. Found ${result.recommendedPois.length} story points.`
         })
       } else {
         toast({
-          title: "Search Results",
-          description: "No specific landmarks found. Try another destination."
+          title: "Navigation Active",
+          description: "No specific story points found for this route."
         })
       }
     } catch (error) {
       console.error(error)
       toast({
         variant: "destructive",
-        title: "Navigation Error",
-        description: "AI routing service is currently unavailable."
+        title: "Routing Error",
+        description: "Could not generate AI route insights."
       })
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const clearSearch = () => {
+    setSearchQuery("")
+    setDestination(null)
+    setRecommendedPois([])
+    setSelectedPoi(null)
+    setSuggestions([])
   }
 
   return (
@@ -123,8 +169,10 @@ export default function DrivingDashboard() {
               <Navigation className="w-6 h-6 rotate-45" />
             </div>
             <div>
-              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Navigation</div>
-              <div className="text-lg font-bold">{isLoading ? 'Recalculating...' : recommendedPois.length > 0 ? 'Route Active' : 'Ready to Drive'}</div>
+              <div className="text-xs font-headline uppercase tracking-widest text-muted-foreground">Status</div>
+              <div className="text-lg font-bold">
+                {isLoading ? 'Plotting Route...' : destination ? 'Navigation Active' : 'Ready to Drive'}
+              </div>
             </div>
           </div>
           <Button variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl pointer-events-auto">
@@ -140,24 +188,58 @@ export default function DrivingDashboard() {
           pois={recommendedPois} 
           onPoiSelect={(poi) => setSelectedPoi(poi)}
           selectedPoi={selectedPoi}
+          destination={destination}
         />
 
-        {/* Search Bar */}
-        <div className="absolute top-24 left-4 right-4 z-40 lg:max-w-md lg:mx-auto">
-          <form onSubmit={handleSearch} className="relative group">
-            {isLoading ? (
-              <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary animate-spin" />
-            ) : (
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+        {/* Search & Autocomplete UI */}
+        <div className="absolute top-24 left-4 right-4 z-[100] lg:max-w-md lg:mx-auto">
+          <div className="relative group">
+            <div className="relative">
+              {isLoading || isSearching ? (
+                <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary animate-spin" />
+              ) : (
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              )}
+              <Input 
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  if (destination) setDestination(null)
+                }}
+                placeholder="Search destination..." 
+                className="pl-12 pr-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl shadow-2xl text-lg"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={clearSearch}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+
+            {/* Suggestions List */}
+            {suggestions.length > 0 && (
+              <Card className="mt-2 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+                <ScrollArea className="max-h-[300px]">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.place_id}
+                      onClick={() => handleSelectLocation(suggestion)}
+                      className="w-full p-4 flex items-start gap-3 hover:bg-white/5 text-left border-b border-white/5 last:border-0 transition-colors"
+                    >
+                      <MapPin className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                      <div>
+                        <div className="font-bold text-sm line-clamp-1">{suggestion.display_name.split(',')[0]}</div>
+                        <div className="text-xs text-muted-foreground line-clamp-1">{suggestion.display_name}</div>
+                      </div>
+                    </button>
+                  ))}
+                </ScrollArea>
+              </Card>
             )}
-            <Input 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Where to? (e.g., Palace of Fine Arts)" 
-              className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl shadow-2xl text-lg"
-              disabled={isLoading}
-            />
-          </form>
+          </div>
         </div>
 
         {/* Side Controls */}
@@ -181,13 +263,13 @@ export default function DrivingDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge className="bg-accent text-accent-foreground font-bold">{selectedPoi.category}</Badge>
-                        <span className="text-sm text-muted-foreground font-medium italic">Discovered Stop</span>
+                        <span className="text-sm text-muted-foreground font-medium italic">Discover Point</span>
                       </div>
                       <h2 className="text-xl font-headline font-bold truncate">{selectedPoi.name}</h2>
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-2xl font-bold text-primary">0.4m</span>
-                      <span className="text-xs text-muted-foreground uppercase tracking-tighter">Distance</span>
+                      <span className="text-2xl font-bold text-primary">Nearby</span>
+                      <span className="text-xs text-muted-foreground uppercase tracking-tighter">Waypoint</span>
                     </div>
                   </div>
                 </div>
@@ -211,7 +293,7 @@ export default function DrivingDashboard() {
 
                       <div className="space-y-4">
                         <h3 className="text-lg font-bold flex items-center gap-2">
-                          <Mic2 className="w-5 h-5 text-primary" /> Why Stop Here?
+                          <Mic2 className="w-5 h-5 text-primary" /> Guide Commentary
                         </h3>
                         <div className="bg-card/30 rounded-2xl p-4 italic text-muted-foreground leading-relaxed border border-white/5">
                           {selectedPoi.reason || selectedPoi.description}
