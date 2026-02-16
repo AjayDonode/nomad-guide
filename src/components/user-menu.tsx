@@ -8,7 +8,8 @@ import {
   Settings, 
   Shield, 
   Mail,
-  Calendar
+  Calendar,
+  LayoutDashboard
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -30,8 +31,10 @@ import { useFirebase, useUser, useDoc, useMemoFirebase } from '@/firebase';
 import { signOut } from 'firebase/auth';
 import { doc } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
+import { useRouter } from 'next/navigation';
 
 export function UserMenu() {
+  const router = useRouter();
   const { auth, firestore } = useFirebase();
   const { user } = useUser();
   const [isProfileOpen, setIsProfileOpen] = React.useState(false);
@@ -77,6 +80,20 @@ export function UserMenu() {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-white/5" />
+          
+          {isAdmin && (
+            <>
+              <DropdownMenuItem 
+                onClick={() => router.push('/admin')}
+                className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10 font-bold"
+              >
+                <LayoutDashboard className="mr-2 h-4 w-4" />
+                <span>Admin Panel</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-white/5" />
+            </>
+          )}
+
           <DropdownMenuItem 
             onClick={() => setIsProfileOpen(true)}
             className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10"
