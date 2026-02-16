@@ -39,6 +39,17 @@
       },
       "required": ["uid", "email"]
     },
+    "FavoriteTrip": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "FavoriteTrip",
+      "type": "object",
+      "description": "A trip saved by a user to their favorites list.",
+      "properties": {
+        "tripId": { "type": "string" },
+        "savedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tripId"]
+    },
     "Trip": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Trip",
@@ -86,6 +97,10 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "User profile records."
+    },
+    "/users/{userId}/favorites/{tripId}": {
+      "schema": "FavoriteTrip",
+      "description": "User's saved trips."
     },
     "/trips/{tripId}": {
       "schema": "Trip",

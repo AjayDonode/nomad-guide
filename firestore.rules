@@ -2,34 +2,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if the user is authenticated.
     function isSignedIn() {
       return request.auth != null && request.auth.uid != null;
     }
 
-    // User profile rules: Users can only read and write their own profile.
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
+      
+      match /favorites/{tripId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
-    // Trip rules: Define access to the tour itineraries.
     match /trips/{tripId} {
-      // Rule 1: Allow any authenticated user to read trips.
-      // This broad permission is necessary for the query engine to allow list operations.
-      // Data privacy is enforced by the application's query filters.
       allow read: if isSignedIn();
-      
-      // Rule 2: Only the trip owner (the admin who created it) can modify or create.
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
-      // Sub-collection rules for points of interest within a trip.
       match /trip_pois/{poiId} {
-        // POIs inherit read access from the trip.
         allow read: if isSignedIn();
-        
-        // POI write access is restricted to the trip's owner.
-        // We look up the parent trip's adminId to verify ownership.
         allow write: if isSignedIn() && 
           get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid;
       }

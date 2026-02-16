@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { 
   Search, 
@@ -23,7 +23,10 @@ import {
   MoveUp,
   RotateCcw,
   SquareArrowOutUpRight,
-  Route
+  Route,
+  Heart,
+  History,
+  Navigation2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,7 +46,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
-import { recommendPois } from '@/ai/flows/recommend-pois-flow'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -51,7 +53,7 @@ import type { RouteStep } from '@/components/navigation-map'
 import { useUser, useFirebase, useCollection, useMemoFirebase } from '@/firebase'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
-import { collection, query, orderBy } from 'firebase/firestore'
+import { collection, query, orderBy, doc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore'
 
 // Dynamic imports
 const NavigationMap = dynamic(
@@ -75,13 +77,6 @@ const AudioTourController = dynamic(
   () => import('@/components/audio-tour-controller').then((mod) => mod.AudioTourController),
   { ssr: false }
 )
-
-interface SearchSuggestion {
-  display_name: string
-  lat: string
-  lon: string
-  place_id: number
-}
 
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
@@ -112,9 +107,8 @@ export default function DrivingDashboard() {
   const { user } = useUser()
   
   const [searchQuery, setSearchQuery] = useState("")
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
+  const [dropdownSearch, setDropdownSearch] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
   const [isDriving, setIsDriving] = useState(false)
   const [isCompassActive, setIsCompassActive] = useState(false)
   const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
@@ -128,12 +122,19 @@ export default function DrivingDashboard() {
 
   const narratedPois = useRef<Set<string>>(new Set())
 
-  // Fetch admin-planned trips
+  // Fetch all trips
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore) return null
     return query(collection(firestore, 'trips'))
   }, [firestore])
-  const { data: trips } = useCollection(tripsQuery)
+  const { data: allTrips } = useCollection(tripsQuery)
+
+  // Fetch user favorites
+  const favoritesQuery = useMemoFirebase(() => {
+    if (!firestore || !user) return null
+    return query(collection(firestore, 'users', user.uid, 'favorites'))
+  }, [firestore, user])
+  const { data: favorites } = useCollection(favoritesQuery)
 
   // Fetch POIs for the active trip
   const tripPoisQuery = useMemoFirebase(() => {
@@ -153,18 +154,44 @@ export default function DrivingDashboard() {
     }
   }, [])
 
+  // Categorize Trips Logic
+  const categorizedTrips = useMemo(() => {
+    if (!allTrips) return { nearby: [], favorites: [], searchResults: [] }
+
+    const favoriteIds = new Set(favorites?.map(f => f.tripId) || [])
+    
+    const tripsWithDistance = allTrips.map(trip => ({
+      ...trip,
+      distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
+    })).sort((a, b) => a.distance - b.distance)
+
+    const nearby = tripsWithDistance.filter(t => t.distance < 50) // Within 50km
+    const userFavs = tripsWithDistance.filter(t => favoriteIds.has(t.id))
+    
+    const searchResults = searchQuery.length > 0 
+      ? tripsWithDistance.filter(t => t.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      : []
+
+    return { nearby, favorites: userFavs, searchResults }
+  }, [allTrips, favorites, userLocation, searchQuery])
+
+  // Filter Journeys inside dropdown
+  const filteredJourneys = useMemo(() => {
+    if (!allTrips) return []
+    return allTrips.filter(t => t.name.toLowerCase().includes(dropdownSearch.toLowerCase()))
+  }, [allTrips, dropdownSearch])
+
   // Update route data when trip POIs load
   useEffect(() => {
     if (activeTripId && tripPois && tripPois.length > 0) {
-      const activeTrip = trips?.find(t => t.id === activeTripId)
+      const activeTrip = allTrips?.find(t => t.id === activeTripId)
       if (activeTrip) {
         setRecommendedPois(tripPois)
         setDestination([activeTrip.endLatitude, activeTrip.endLongitude])
-        setSearchQuery(activeTrip.name)
         setIsLoading(false)
       }
     }
-  }, [tripPois, activeTripId, trips])
+  }, [tripPois, activeTripId, allTrips])
 
   useEffect(() => {
     if (!isDriving || !recommendedPois.length || !autoNarrate) return
@@ -183,62 +210,27 @@ export default function DrivingDashboard() {
     checkProximity()
   }, [userLocation, isDriving, recommendedPois, autoNarrate, toast])
 
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (searchQuery.length > 2 && !destination && !isDriving && !activeTripId) {
-        setIsSearching(true)
-        try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5`)
-          const data = await response.json()
-          setSuggestions(data)
-        } catch (error) {
-          console.error("Search failed", error)
-        } finally {
-          setIsSearching(false)
-        }
-      } else {
-        setSuggestions([])
-      }
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [searchQuery, destination, isDriving, activeTripId])
-
-  const handleSelectLocation = async (suggestion: SearchSuggestion) => {
-    const destLat = parseFloat(suggestion.lat)
-    const destLon = parseFloat(suggestion.lon)
-    setSearchQuery(suggestion.display_name)
-    setDestination([destLat, destLon])
-    setSuggestions([])
-    setIsLoading(true)
-    setIsDriving(false)
-    setActiveTripId(null)
-    narratedPois.current.clear()
-
-    try {
-      const result = await recommendPois({
-        userInterests: ["history", "culture", "landmarks"],
-        routeWaypoints: [
-          { latitude: userLocation[0], longitude: userLocation[1] },
-          { latitude: destLat, longitude: destLon }
-        ]
-      })
-      if (result.recommendedPois) setRecommendedPois(result.recommendedPois)
-    } catch (error) {
-      console.error(error)
-      toast({ variant: "destructive", title: "Routing Error", description: "Could not fetch AI insights." })
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   const handleSelectTrip = (trip: any) => {
     setIsLoading(true)
     setIsDriving(false)
     setDestination(null)
     setRecommendedPois([])
     setActiveTripId(trip.id)
+    setSearchQuery(trip.name)
     narratedPois.current.clear()
     toast({ title: "Trip Selected", description: `Following ${trip.name}` })
+  }
+
+  const toggleFavorite = async (e: React.MouseEvent, tripId: string) => {
+    e.stopPropagation()
+    if (!user) return
+    const isFav = favorites?.some(f => f.tripId === tripId)
+    const favRef = doc(firestore!, 'users', user.uid, 'favorites', tripId)
+    if (isFav) {
+      await deleteDoc(favRef)
+    } else {
+      await setDoc(favRef, { tripId, savedAt: serverTimestamp() })
+    }
   }
 
   const startDriving = () => {
@@ -269,7 +261,7 @@ export default function DrivingDashboard() {
                   {isDriving ? 'Navigation Active' : activeTripId ? 'Following Planned Journey' : 'Status'}
                 </div>
                 <div className="text-lg font-headline font-bold leading-tight truncate">
-                  {isDriving ? 'Following Route' : activeTripId ? searchQuery : destination ? 'Ready' : 'NomadGuide AI'}
+                  {isDriving ? 'Following Route' : activeTripId ? searchQuery : 'NomadGuide AI'}
                 </div>
               </div>
               {isDriving && nextStep && (
@@ -283,7 +275,7 @@ export default function DrivingDashboard() {
               )}
             </div>
             
-            {(destination || activeTripId) && !isDriving && !isLoading && (
+            {activeTripId && !isDriving && !isLoading && (
               <Button onClick={startDriving} className="bg-green-500 hover:bg-green-600 text-white font-headline font-bold px-6 rounded-xl h-12 shadow-lg animate-pulse">
                 <Play className="w-4 h-4 mr-2" /> GO
               </Button>
@@ -299,24 +291,80 @@ export default function DrivingDashboard() {
                   <ChevronDown className="w-4 h-4 opacity-50" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-64 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl p-2" align="end">
-                <DropdownMenuLabel className="font-headline font-bold text-xs uppercase tracking-widest p-2">Featured Trips</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/5" />
-                <ScrollArea className="h-[300px]">
-                  {trips?.map((trip) => (
-                    <DropdownMenuItem 
-                      key={trip.id} 
-                      onClick={() => handleSelectTrip(trip)}
-                      className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer p-3 flex flex-col items-start gap-1"
-                    >
-                      <span className="font-bold text-sm">{trip.name}</span>
-                      <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
-                    </DropdownMenuItem>
-                  ))}
-                  {trips?.length === 0 && (
-                    <div className="p-4 text-center text-xs text-muted-foreground italic">No journeys planned yet.</div>
-                  )}
-                </ScrollArea>
+              <DropdownMenuContent className="w-72 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl p-2" align="end">
+                <div className="p-2">
+                  <div className="relative mb-4">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input 
+                      placeholder="Find Journeys..." 
+                      value={dropdownSearch}
+                      onChange={(e) => setDropdownSearch(e.target.value)}
+                      className="pl-9 h-10 bg-white/5 border-white/10 text-xs rounded-xl"
+                    />
+                  </div>
+
+                  <ScrollArea className="h-[400px]">
+                    {dropdownSearch.length > 0 ? (
+                      <div className="space-y-1">
+                        <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2">Search Results</DropdownMenuLabel>
+                        {filteredJourneys.map((trip) => (
+                           <DropdownMenuItem 
+                              key={trip.id} 
+                              onClick={() => handleSelectTrip(trip)}
+                              className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between"
+                            >
+                              <div className="flex flex-col gap-0.5">
+                                <span className="font-bold text-sm">{trip.name}</span>
+                                <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
+                              </div>
+                            </DropdownMenuItem>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {categorizedTrips.favorites.length > 0 && (
+                          <div className="mb-4">
+                            <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-primary px-2 flex items-center gap-2">
+                              <Heart className="w-3 h-3 fill-current" /> Saved Journeys
+                            </DropdownMenuLabel>
+                            {categorizedTrips.favorites.map((trip) => (
+                              <DropdownMenuItem 
+                                key={trip.id} 
+                                onClick={() => handleSelectTrip(trip)}
+                                className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between group"
+                              >
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="font-bold text-sm">{trip.name}</span>
+                                  <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
+                                </div>
+                              </DropdownMenuItem>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="mb-2">
+                          <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-accent px-2 flex items-center gap-2">
+                            <Navigation2 className="w-3 h-3" /> Nearby You
+                          </DropdownMenuLabel>
+                          {categorizedTrips.nearby.map((trip) => (
+                            <DropdownMenuItem 
+                              key={trip.id} 
+                              onClick={() => handleSelectTrip(trip)}
+                              className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between"
+                            >
+                              <div className="flex flex-col gap-0.5">
+                                <span className="font-bold text-sm">{trip.name}</span>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="h-4 text-[8px] bg-white/5">{trip.distance.toFixed(1)} km away</Badge>
+                                </div>
+                              </div>
+                            </DropdownMenuItem>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </ScrollArea>
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -352,39 +400,56 @@ export default function DrivingDashboard() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input 
                 value={searchQuery} 
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  if (activeTripId) setActiveTripId(null);
-                }} 
-                placeholder="Where to next?" 
-                className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl text-lg" 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                placeholder="Search Curated Journeys..." 
+                className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl text-lg shadow-2xl" 
               />
-              {suggestions.length > 0 && (
+              
+              {searchQuery.length > 0 && (
                 <Card className="mt-2 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl shadow-2xl border-none">
                   <ScrollArea className="max-h-[300px]">
-                    {suggestions.map((suggestion) => (
-                      <button key={suggestion.place_id} onClick={() => handleSelectLocation(suggestion)} className="w-full p-4 flex items-start gap-3 hover:bg-white/5 text-left border-b border-white/5 last:border-0 transition-colors">
-                        <MapPin className="w-5 h-5 text-primary mt-0.5 shrink-0" />
-                        <div>
-                          <div className="font-bold text-sm truncate">{suggestion.display_name.split(',')[0]}</div>
-                          <div className="text-xs text-muted-foreground truncate">{suggestion.display_name}</div>
-                        </div>
-                      </button>
-                    ))}
+                    {categorizedTrips.searchResults.length > 0 ? (
+                      categorizedTrips.searchResults.map((trip) => (
+                        <button key={trip.id} onClick={() => handleSelectTrip(trip)} className="w-full p-4 flex items-center justify-between hover:bg-white/5 text-left border-b border-white/5 last:border-0 transition-colors">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                                <Route className="w-5 h-5 text-primary" />
+                            </div>
+                            <div>
+                              <div className="font-bold text-sm truncate">{trip.name}</div>
+                              <div className="text-xs text-muted-foreground truncate">{trip.description}</div>
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="icon" onClick={(e) => toggleFavorite(e, trip.id)} className={cn("text-muted-foreground", favorites?.some(f => f.tripId === trip.id) && "text-primary")}>
+                            <Heart className={cn("w-4 h-4", favorites?.some(f => f.tripId === trip.id) && "fill-current")} />
+                          </Button>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-8 text-center text-sm text-muted-foreground italic">
+                        No curated journeys match your search.
+                      </div>
+                    )}
                   </ScrollArea>
                 </Card>
               )}
             </div>
-            {(destination || activeTripId) && !isDriving && recommendedPois.length > 0 && (
+
+            {activeTripId && !isDriving && recommendedPois.length > 0 && searchQuery.length === 0 && (
               <div className="mt-4">
                 <Card className="bg-card/80 backdrop-blur-xl border-white/10 rounded-3xl p-4 shadow-2xl border-none overflow-hidden relative">
-                  <div className="flex items-center gap-2 mb-3">
-                    {activeTripId ? <MapIcon className="w-4 h-4 text-primary" /> : <Sparkles className="w-4 h-4 text-primary" />}
-                    <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">
-                      {activeTripId ? 'Journey Itinerary' : 'AI Insights'}
-                    </span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <MapIcon className="w-4 h-4 text-primary" />
+                      <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">
+                        Journey Itinerary
+                      </span>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveTripId(null)}>
+                      <X className="w-3 h-3" />
+                    </Button>
                   </div>
-                  <ScrollArea className="max-h-[160px]">
+                  <ScrollArea className="max-h-[220px]">
                     <div className="space-y-2">
                       {recommendedPois.map((poi, idx) => (
                         <div key={idx} className="flex items-start gap-3 p-2 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10" onClick={() => { setSelectedPoi(poi); setIsSheetOpen(true); }}>
