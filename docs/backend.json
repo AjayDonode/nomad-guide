@@ -50,6 +50,8 @@
         "description": { "type": "string" },
         "startLatitude": { "type": "number" },
         "startLongitude": { "type": "number" },
+        "endLatitude": { "type": "number" },
+        "endLongitude": { "type": "number" },
         "adminId": { "type": "string", "description": "The UID of the admin who created this trip." },
         "isAdminTrip": { "type": "boolean", "description": "Flag indicating if this trip is restricted to admin visibility." },
         "createdAt": { "type": "string", "format": "date-time" },

@@ -12,7 +12,8 @@ import {
   ArrowLeft,
   Navigation,
   Loader2,
-  Lock
+  Lock,
+  Flag
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -79,8 +80,6 @@ export default function AdminDashboard() {
     }
   }, [user, isUserLoading, router])
 
-  // Fetch all trips created by this admin
-  // Simplified query: removed orderBy to avoid potential permission/index issues
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null
     return query(
@@ -99,7 +98,6 @@ export default function AdminDashboard() {
     )
   }
 
-  // Double check admin role
   if (user && profile && !profile.isAdmin) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background p-6 text-center">
@@ -222,11 +220,33 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     name: "New Discovery Route",
     description: "",
     startLatitude: 37.7749,
-    startLongitude: -122.4194
+    startLongitude: -122.4194,
+    endLatitude: 37.7833,
+    endLongitude: -122.4167
   })
   const [isSaving, setIsSaving] = useState(false)
 
-  // Subcollection query for POIs
+  // Fetch trip data if editing
+  const tripRef = useMemoFirebase(() => {
+    if (!firestore || !tripId) return null
+    return doc(firestore, 'trips', tripId)
+  }, [firestore, tripId])
+
+  const { data: existingTrip } = useDoc(tripRef)
+
+  useEffect(() => {
+    if (existingTrip) {
+      setTripData({
+        name: existingTrip.name || "New Discovery Route",
+        description: existingTrip.description || "",
+        startLatitude: existingTrip.startLatitude || 37.7749,
+        startLongitude: existingTrip.startLongitude || -122.4194,
+        endLatitude: existingTrip.endLatitude || 37.7833,
+        endLongitude: existingTrip.endLongitude || -122.4167
+      })
+    }
+  }, [existingTrip])
+
   const poiQuery = useMemoFirebase(() => {
     if (!firestore || !tripId) return null
     return query(
@@ -242,7 +262,6 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     
     const id = tripId || doc(collection(firestore, 'trips')).id
     
-    // Build payload to avoid 'undefined' which Firestore rejects
     const payload: any = {
       ...tripData,
       id,
@@ -280,7 +299,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         tripId,
         adminId: user.uid,
         name: `Stop #${nextIndex}`,
-        description: "What makes this place special?",
+        description: "",
         latitude: lat,
         longitude: lng,
         orderIndex: nextIndex,
@@ -329,7 +348,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
       <div className="flex-1 flex overflow-hidden">
         {/* Detail Panel */}
-        <aside className="w-[400px] border-r border-white/5 flex flex-col bg-card/20">
+        <aside className="w-[450px] border-r border-white/5 flex flex-col bg-card/20">
           <ScrollArea className="flex-1">
             <div className="p-8 space-y-10">
               <section className="space-y-4">
@@ -354,10 +373,10 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                   </div>
                 )}
 
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {pois?.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map((poi, idx) => (
                     <Card key={poi.id} className="bg-white/5 border-white/5 rounded-3xl overflow-hidden group">
-                      <CardHeader className="p-4 flex flex-row items-center gap-4 space-y-0">
+                      <CardHeader className="p-4 flex flex-row items-center gap-4 space-y-0 pb-2">
                         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
                           {idx + 1}
                         </div>
@@ -382,15 +401,39 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </CardHeader>
+                      <CardContent className="px-4 pb-4">
+                         <Textarea 
+                            defaultValue={poi.description || ""}
+                            onBlur={(e) => {
+                              updateDocumentNonBlocking(doc(firestore!, 'trips', tripId!, 'trip_pois', poi.id), {
+                                description: e.target.value
+                              })
+                            }}
+                            placeholder="Add point specific narrative details..."
+                            className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[80px] focus:border-primary/30"
+                         />
+                      </CardContent>
                     </Card>
                   ))}
 
                   {tripId && (
-                    <div className="flex items-center justify-center p-8 border-2 border-dashed border-white/5 rounded-3xl">
-                      <p className="text-xs text-muted-foreground text-center flex flex-col gap-2 items-center">
-                        <MapIcon className="w-5 h-5 opacity-20" />
-                        Click on the map to add a discovery point
-                      </p>
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-center justify-center p-8 border-2 border-dashed border-white/5 rounded-3xl">
+                        <p className="text-xs text-muted-foreground text-center flex flex-col gap-2 items-center">
+                          <MapIcon className="w-5 h-5 opacity-20" />
+                          Click on the map to add a discovery point
+                        </p>
+                      </div>
+                      
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+                         <div className="flex items-center gap-2">
+                            <Flag className="w-4 h-4 text-green-500" />
+                            <span className="text-xs font-bold uppercase tracking-widest">Trip End Logic</span>
+                         </div>
+                         <p className="text-[10px] text-muted-foreground leading-relaxed">
+                            Drag the checkered flag on the map to set the final destination. The route will automatically update to flow through all stop points and conclude at the end point.
+                         </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -403,9 +446,11 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         <section className="flex-1 relative">
           <AdminMap 
             center={[tripData.startLatitude, tripData.startLongitude]} 
+            endPoint={[tripData.endLatitude, tripData.endLongitude]}
             pois={pois || []}
             onMapClick={handleAddPoi}
             onStartPointSet={(lat, lng) => setTripData({...tripData, startLatitude: lat, startLongitude: lng})}
+            onEndPointSet={(lat, lng) => setTripData({...tripData, endLatitude: lat, endLongitude: lng})}
           />
         </section>
       </div>

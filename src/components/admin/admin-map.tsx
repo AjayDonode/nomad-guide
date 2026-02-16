@@ -5,7 +5,7 @@ import React, { useEffect, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
-import { Map as MapIcon } from 'lucide-react'
+import { Map as MapIcon, Flag } from 'lucide-react'
 
 interface POI {
   id: string
@@ -17,15 +17,24 @@ interface POI {
 
 interface AdminMapProps {
   center: [number, number]
+  endPoint?: [number, number]
   pois: POI[]
   onMapClick?: (lat: number, lng: number) => void
   onStartPointSet?: (lat: number, lng: number) => void
+  onEndPointSet?: (lat: number, lng: number) => void
 }
 
 // Icons
 const StartIcon = L.divIcon({
   className: 'start-marker',
   html: '<div class="w-8 h-8 bg-white rounded-full border-4 border-primary flex items-center justify-center shadow-xl"><div class="w-2 h-2 bg-primary rounded-full"></div></div>',
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+})
+
+const EndIcon = L.divIcon({
+  className: 'end-marker',
+  html: '<div class="w-8 h-8 bg-black rounded-full border-4 border-green-500 flex items-center justify-center shadow-xl"><svg viewBox="0 0 24 24" class="w-4 h-4 text-white" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg></div>',
   iconSize: [32, 32],
   iconAnchor: [16, 16],
 })
@@ -46,23 +55,27 @@ function MapEvents({ onMapClick }: { onMapClick?: (lat: number, lng: number) => 
   return null
 }
 
-function MapUpdater({ center, pois }: { center: [number, number], pois: POI[] }) {
+function MapUpdater({ center, endPoint, pois }: { center: [number, number], endPoint?: [number, number], pois: POI[] }) {
   const map = useMap()
   
   useEffect(() => {
-    if (pois.length > 0) {
-      const markers = [center, ...pois.map(p => [p.latitude, p.longitude] as [number, number])]
+    if (pois.length > 0 || endPoint) {
+      const markers = [
+        center, 
+        ...(endPoint ? [endPoint] : []), 
+        ...pois.map(p => [p.latitude, p.longitude] as [number, number])
+      ]
       const bounds = L.latLngBounds(markers)
       map.fitBounds(bounds, { padding: [100, 100], maxZoom: 15 })
     } else {
       map.setView(center, 14)
     }
-  }, [center, pois, map])
+  }, [center, endPoint, pois, map])
   
   return null
 }
 
-export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMapProps) {
+export function AdminMap({ center, endPoint, pois, onMapClick, onStartPointSet, onEndPointSet }: AdminMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
 
@@ -70,21 +83,22 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMap
     setMounted(true)
   }, [])
 
-  // Fetch route when POIs change
+  // Fetch route when POIs or endpoints change
   useEffect(() => {
     const fetchRoute = async () => {
-      if (pois.length === 0) {
+      const allPoints = [
+        [center[1], center[0]],
+        ...pois.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => [p.longitude, p.latitude]),
+        ...(endPoint ? [[endPoint[1], endPoint[0]]] : [])
+      ]
+
+      if (allPoints.length < 2) {
         setRoutePoints([])
         return
       }
 
       try {
-        // Build sequence of points starting with Trip Start
-        const waypoints = [
-          [center[1], center[0]],
-          ...pois.map(p => [p.longitude, p.latitude])
-        ].map(p => p.join(',')).join(';')
-
+        const waypoints = allPoints.map(p => p.join(',')).join(';')
         const response = await fetch(
           `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`
         )
@@ -96,13 +110,13 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMap
         }
       } catch (error) {
         console.error("Route calculation failed", error)
-        // Fallback to straight lines if OSRM fails
-        setRoutePoints([center, ...pois.map(p => [p.latitude, p.longitude] as [number, number])])
+        // Fallback to straight lines
+        setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
       }
     }
 
     fetchRoute()
-  }, [center, pois])
+  }, [center, endPoint, pois])
 
   if (!mounted) return null
 
@@ -120,7 +134,7 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMap
         />
         
         <MapEvents onMapClick={onMapClick} />
-        <MapUpdater center={center} pois={pois} />
+        <MapUpdater center={center} endPoint={endPoint} pois={pois} />
 
         {/* Start Point */}
         <Marker 
@@ -139,6 +153,26 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMap
             <div className="text-black font-headline font-bold">Trip Start</div>
           </Popup>
         </Marker>
+
+        {/* End Point */}
+        {endPoint && (
+          <Marker 
+            position={endPoint} 
+            icon={EndIcon}
+            draggable
+            eventHandlers={{
+              dragend: (e) => {
+                const marker = e.target
+                const position = marker.getLatLng()
+                onEndPointSet?.(position.lat, position.lng)
+              }
+            }}
+          >
+            <Popup>
+              <div className="text-black font-headline font-bold">Trip End</div>
+            </Popup>
+          </Marker>
+        )}
 
         {/* Points of Interest */}
         {pois.map((poi, idx) => (
@@ -175,7 +209,7 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMap
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Designer Mode</div>
-          <div className="text-xs font-bold">Click map to add stops</div>
+          <div className="text-xs font-bold">Click map to add stops • Drag markers to move</div>
         </div>
       </div>
     </div>
