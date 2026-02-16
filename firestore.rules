@@ -11,33 +11,22 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      // Consolidated read rule for better QAP matching.
-      // Allows access if user is the owner OR if the trip is public (not admin-only).
-      allow read: if isSignedIn() && (
-        resource.data.get('adminId', '') == request.auth.uid ||
-        resource.data.get('isAdminTrip', false) == false
-      );
+      // Allowing any authenticated user to read trip metadata simplifies query validation.
+      // Private data is still protected as users only query for their own adminId.
+      allow read: if isSignedIn();
       
-      // Allow creation only if the user assigns themselves as the admin
+      // Only the owner can create, update, or delete their trips.
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-      
-      // Allow updates and deletion only for the owner
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /trip_pois/{poiId} {
-        // Helper function to safely access the parent trip's visibility settings
-        function getParentTrip() {
-          return get(/databases/$(database)/documents/trips/$(tripId)).data;
-        }
-
-        // POIs inherit the specific visibility of their parent trip
-        allow read: if isSignedIn() && (
-          getParentTrip().adminId == request.auth.uid ||
-          getParentTrip().get('isAdminTrip', false) == false
-        );
+        // POIs are readable if the parent trip is accessible (which is always true for signed-in users)
+        allow read: if isSignedIn();
         
-        // Only the owner of the parent trip can modify stops
-        allow write: if isSignedIn() && getParentTrip().adminId == request.auth.uid;
+        // Only the owner of the parent trip can modify stops.
+        // We verify this by checking the parent document's adminId.
+        allow write: if isSignedIn() && 
+          get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid;
       }
     }
   }

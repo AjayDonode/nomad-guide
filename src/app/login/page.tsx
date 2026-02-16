@@ -39,8 +39,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user && !isLoading) {
-      // If the user is logged in, check if they are intended to be an admin
-      // We push them to /admin if they just logged into an admin portal
+      // If the user is logged in, redirect them
       router.push(isAdminRoute ? '/admin' : '/');
     }
   }, [user, isLoading, isAdminRoute, router]);
@@ -65,13 +64,12 @@ export default function LoginPage() {
       const userSnap = await getDoc(userRef);
       const existingData = userSnap.exists() ? userSnap.data() : {};
 
-      // Build user document safely
+      // Build user document safely without undefined values
       const userData: any = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || '',
         displayName: name || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-        // Preserve isAdmin if it was already true, or set it if this is an admin login
-        isAdmin: existingData.isAdmin || isAdminRoute,
+        isAdmin: !!(existingData.isAdmin || isAdminRoute),
         photoURL: firebaseUser.photoURL || null,
         updatedAt: serverTimestamp()
       };
