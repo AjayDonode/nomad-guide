@@ -51,6 +51,7 @@
         "startLatitude": { "type": "number" },
         "startLongitude": { "type": "number" },
         "adminId": { "type": "string" },
+        "isAdminTrip": { "type": "boolean", "description": "Flag indicating if this trip is restricted to admin visibility." },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -69,7 +70,9 @@
         "adminId": { "type": "string" },
         "name": { "type": "string" },
         "latitude": { "type": "number" },
-        "longitude": { "type": "number" }
+        "longitude": { "type": "number" },
+        "category": { "type": "string" },
+        "description": { "type": "string" }
       },
       "required": ["id", "tripId", "adminId", "orderIndex"]
     }

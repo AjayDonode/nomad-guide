@@ -15,11 +15,32 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      allow read: if isSignedIn() && (resource.data.adminId == request.auth.uid || !resource.data.isAdminTrip);
-      allow write: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
+      // Allow read if user is the admin OR if it's a public trip (not an admin-restricted one)
+      // The use of get() with a default value ensures rules don't fail on missing fields.
+      allow read: if isSignedIn() && (
+        resource.data.adminId == request.auth.uid || 
+        resource.data.get('isAdminTrip', false) == false
+      );
+      
+      // Allow write only if the user is the authenticated admin for this specific trip
+      allow write: if isSignedIn() && (
+        (request.method == 'create' && request.resource.data.adminId == request.auth.uid) ||
+        (resource.data.adminId == request.auth.uid)
+      );
 
       match /trip_pois/{poiId} {
-        allow read, write: if isSignedIn() && (resource.data.adminId == request.auth.uid || request.resource.data.adminId == request.auth.uid);
+        // Allow read if user is the admin of the POI or if the trip itself is public
+        allow read: if isSignedIn() && (
+          resource.data.adminId == request.auth.uid ||
+          get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid ||
+          get(/databases/$(database)/documents/trips/$(tripId)).data.get('isAdminTrip', false) == false
+        );
+        
+        // Allow write only if the user is the admin
+        allow write: if isSignedIn() && (
+          (request.method == 'create' && request.resource.data.adminId == request.auth.uid) ||
+          (resource.data.adminId == request.auth.uid)
+        );
       }
     }
   }
