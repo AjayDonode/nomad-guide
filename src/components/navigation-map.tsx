@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
@@ -22,6 +22,7 @@ interface POI {
   longitude: number
   category: string
   description: string
+  orderIndex?: number
 }
 
 interface NavigationMapProps {
@@ -34,64 +35,30 @@ interface NavigationMapProps {
   isCompassActive?: boolean
   onNextStepUpdate?: (step: RouteStep | null) => void
   pointerType?: 'car' | 'arrow' | 'dot'
+  isTripMode?: boolean
 }
 
-// Fix for default Leaflet icon
-const DefaultIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-})
-
-// Dynamic User Icon that changes and rotates
+// Custom Icons
 const UserIcon = (isDriving: boolean, isReady: boolean, bearing: number, pointerType: 'car' | 'arrow' | 'dot' = 'arrow') => {
   let innerHtml = ''
-  
-  // Determine active visual type based on state
-  // "by default it should be dot ... and while navigating it should change to car or arrow"
   let activeType = pointerType;
-  if (!isDriving && !isReady) {
-    activeType = 'dot';
-  } else if (activeType === 'dot') {
-    // If navigating but setting is dot, force arrow to show direction
-    activeType = 'arrow';
-  }
+  if (!isDriving && !isReady) activeType = 'dot';
+  else if (activeType === 'dot') activeType = 'arrow';
 
-  const iconColor = isDriving ? 'text-green-400' : isReady ? 'text-primary' : 'text-primary'
+  const iconColor = isDriving ? 'text-green-400' : 'text-primary'
   const glowIntensity = isDriving ? 'drop-shadow-[0_0_15px_rgba(34,197,94,0.8)]' : isReady ? 'drop-shadow-[0_0_10px_rgba(110,43,204,0.6)]' : ''
 
   if (activeType === 'car') {
-    innerHtml = `
-      <svg viewBox="0 0 24 24" class="w-10 h-10 ${iconColor} ${glowIntensity}" fill="currentColor">
-        <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z" />
-      </svg>
-    `
+    innerHtml = `<svg viewBox="0 0 24 24" class="w-10 h-10 ${iconColor} ${glowIntensity}" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z" /></svg>`
   } else if (activeType === 'dot') {
-    innerHtml = `
-      <div class="w-7 h-7 ${isDriving ? 'bg-green-500' : 'bg-primary'} rounded-full border-4 border-white shadow-xl flex items-center justify-center">
-        <div class="w-2 h-2 bg-white rounded-full ${isDriving ? 'animate-pulse' : ''}"></div>
-      </div>
-    `
+    innerHtml = `<div class="w-7 h-7 ${isDriving ? 'bg-green-500' : 'bg-primary'} rounded-full border-4 border-white shadow-xl flex items-center justify-center"><div class="w-2 h-2 bg-white rounded-full ${isDriving ? 'animate-pulse' : ''}"></div></div>`
   } else {
-    // Default Arrow / Paper Plane
-    innerHtml = `
-      <svg viewBox="0 0 24 24" class="w-10 h-10 ${iconColor} ${glowIntensity}" fill="currentColor">
-        <path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z" />
-      </svg>
-    `
+    innerHtml = `<svg viewBox="0 0 24 24" class="w-10 h-10 ${iconColor} ${glowIntensity}" fill="currentColor"><path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z" /></svg>`
   }
 
   return L.divIcon({
     className: 'user-location-marker',
-    html: `
-      <div class="relative flex items-center justify-center">
-        <div class="relative w-12 h-12 flex items-center justify-center transition-all duration-500 ease-out" style="transform: rotate(${activeType === 'dot' ? 0 : bearing}deg)">
-          ${isDriving ? `<div class="absolute inset-0 bg-green-500/30 rounded-full animate-ping"></div>` : isReady ? `<div class="absolute inset-0 bg-primary/20 rounded-full animate-pulse"></div>` : ''}
-          ${innerHtml}
-        </div>
-      </div>
-    `,
+    html: `<div class="relative flex items-center justify-center"><div class="relative w-12 h-12 flex items-center justify-center transition-all duration-500 ease-out" style="transform: rotate(${activeType === 'dot' ? 0 : bearing}deg)">${isDriving ? `<div class="absolute inset-0 bg-green-500/30 rounded-full animate-ping"></div>` : isReady ? `<div class="absolute inset-0 bg-primary/20 rounded-full animate-pulse"></div>` : ''}${innerHtml}</div></div>`,
     iconSize: [48, 48],
     iconAnchor: [24, 24],
   })
@@ -99,19 +66,17 @@ const UserIcon = (isDriving: boolean, isReady: boolean, bearing: number, pointer
 
 const DestIcon = L.divIcon({
   className: 'dest-marker',
-  html: '<div class="w-8 h-8 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg"><div class="w-3 h-3 bg-white rounded-full"></div></div>',
+  html: '<div class="w-8 h-8 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg"><svg viewBox="0 0 24 24" class="w-4 h-4 text-white" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg></div>',
   iconSize: [32, 32],
   iconAnchor: [16, 16],
 })
 
-const POIIcon = (isSelected: boolean) => L.divIcon({
+const POIIcon = (isSelected: boolean, idx?: number) => L.divIcon({
   className: 'poi-marker',
-  html: `<div class="w-8 h-8 ${isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125"><div class="w-2 h-2 bg-white rounded-full animate-ping"></div></div>`,
+  html: `<div class="w-8 h-8 ${isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125 font-bold text-white text-[10px]">${idx !== undefined ? idx + 1 : ''}</div>`,
   iconSize: [32, 32],
   iconAnchor: [16, 16],
 })
-
-L.Marker.prototype.options.icon = DefaultIcon
 
 function calculateBearing(start: [number, number], end: [number, number]) {
   const startLat = (start[0] * Math.PI) / 180;
@@ -151,7 +116,8 @@ export function NavigationMap({
   isDriving,
   isCompassActive = false,
   onNextStepUpdate,
-  pointerType = 'arrow'
+  pointerType = 'arrow',
+  isTripMode = false
 }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
@@ -161,13 +127,11 @@ export function NavigationMap({
     setMounted(true)
   }, [])
 
-  // Calculate bearing based on route
   useEffect(() => {
     if (routePoints.length > 5) {
       const nextPoint = routePoints[5]
       if (nextPoint) {
-        const newBearing = calculateBearing(center, nextPoint)
-        setBearing(newBearing)
+        setBearing(calculateBearing(center, nextPoint))
       }
     } else {
       setBearing(0)
@@ -178,10 +142,14 @@ export function NavigationMap({
     if (destination) {
       const fetchRoute = async () => {
         try {
-          const start = `${center[1]},${center[0]}`
-          const end = `${destination[1]},${destination[0]}`
+          const waypoints = [
+            `${center[1]},${center[0]}`,
+            ...pois.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => `${p.longitude},${p.latitude}`),
+            `${destination[1]},${destination[0]}`
+          ].join(';')
+
           const response = await fetch(
-            `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson&steps=true`
+            `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`
           )
           const data = await response.json()
           if (data.routes && data.routes[0]) {
@@ -189,20 +157,16 @@ export function NavigationMap({
             const coords = route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
             setRoutePoints(coords)
             
-            // Extract the first non-departure step for next turn info
             if (route.legs && route.legs[0] && route.legs[0].steps) {
               const steps = route.legs[0].steps as RouteStep[]
-              // The first step is usually "depart", the second is the actual first maneuver
               const nextStep = steps.find(s => s.maneuver.type !== 'depart') || null
               if (onNextStepUpdate) onNextStepUpdate(nextStep)
             }
           } else {
             setRoutePoints([center, destination])
-            if (onNextStepUpdate) onNextStepUpdate(null)
           }
         } catch (error) {
           setRoutePoints([center, destination])
-          if (onNextStepUpdate) onNextStepUpdate(null)
         }
       }
       fetchRoute()
@@ -210,15 +174,9 @@ export function NavigationMap({
       setRoutePoints([])
       if (onNextStepUpdate) onNextStepUpdate(null)
     }
-  }, [center, destination])
+  }, [center, destination, pois])
 
-  if (!mounted) {
-    return (
-      <div className="w-full h-full bg-background flex items-center justify-center">
-        <div className="text-muted-foreground animate-pulse">Initializing Map...</div>
-      </div>
-    )
-  }
+  if (!mounted) return null
 
   const rotationStyle = isCompassActive && isDriving ? {
     transform: `rotate(${-bearing}deg)`,
@@ -243,40 +201,21 @@ export function NavigationMap({
           
           <Marker position={center} icon={UserIcon(!!isDriving, !!destination, bearing, pointerType)} />
 
-          {destination && (
-            <Marker position={destination} icon={DestIcon} />
-          )}
+          {destination && <Marker position={destination} icon={DestIcon} />}
 
           {routePoints.length > 1 && (
-            <Polyline 
-              positions={routePoints} 
-              color="#6E2BCC" 
-              weight={8}
-              opacity={0.8}
-              lineCap="round"
-              lineJoin="round"
-            />
-          )}
-          
-          {routePoints.length > 1 && (
-            <Polyline 
-              positions={routePoints} 
-              color="#A78BFA" 
-              weight={14}
-              opacity={0.3}
-              lineCap="round"
-              lineJoin="round"
-            />
+            <>
+              <Polyline positions={routePoints} color="#6E2BCC" weight={8} opacity={0.8} lineCap="round" lineJoin="round" />
+              <Polyline positions={routePoints} color="#A78BFA" weight={14} opacity={0.3} lineCap="round" lineJoin="round" />
+            </>
           )}
 
           {pois.map((poi, idx) => (
             <Marker 
               key={`${poi.name}-${idx}`} 
               position={[poi.latitude, poi.longitude]}
-              icon={POIIcon(selectedPoi?.name === poi.name)}
-              eventHandlers={{
-                click: () => onPoiSelect?.(poi)
-              }}
+              icon={POIIcon(selectedPoi?.name === poi.name, isTripMode ? idx : undefined)}
+              eventHandlers={{ click: () => onPoiSelect?.(poi) }}
             >
               <Popup>
                 <div className="text-black p-1">

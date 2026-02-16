@@ -1,30 +1,29 @@
 
 "use client"
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { 
   Search, 
-  Settings, 
   Navigation,
   Compass, 
-  AudioWaveform, 
   Mic2,
   Volume2,
-  Menu,
   Loader2,
   MapPin,
   X,
   Play,
   VolumeX,
   Sparkles,
-  Info,
+  LogIn,
+  Map as MapIcon,
+  ChevronDown,
   CornerUpLeft,
   CornerUpRight,
   MoveUp,
   RotateCcw,
   SquareArrowOutUpRight,
-  LogIn
+  Route
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,28 +31,27 @@ import {
   Sheet, 
   SheetContent, 
   SheetHeader, 
-  SheetTitle, 
-  SheetTrigger 
+  SheetTitle 
 } from '@/components/ui/sheet'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/dialog"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
-import { Label } from '@/components/ui/label'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { recommendPois } from '@/ai/flows/recommend-pois-flow'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { RouteStep } from '@/components/navigation-map'
-import { useUser } from '@/firebase'
+import { useUser, useFirebase, useCollection, useMemoFirebase } from '@/firebase'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
+import { collection, query, orderBy } from 'firebase/firestore'
 
 // Dynamic imports
 const NavigationMap = dynamic(
@@ -110,7 +108,9 @@ const TurnIcon = ({ type, modifier }: { type: string, modifier?: string }) => {
 export default function DrivingDashboard() {
   const { toast } = useToast()
   const router = useRouter()
-  const { user, isUserLoading } = useUser()
+  const { firestore } = useFirebase()
+  const { user } = useUser()
+  
   const [searchQuery, setSearchQuery] = useState("")
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -124,10 +124,23 @@ export default function DrivingDashboard() {
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
-  const [pointerType, setPointerType] = useState<'car' | 'arrow' | 'dot'>('arrow')
-  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric')
+  const [activeTripId, setActiveTripId] = useState<string | null>(null)
 
   const narratedPois = useRef<Set<string>>(new Set())
+
+  // Fetch admin-planned trips
+  const tripsQuery = useMemoFirebase(() => {
+    if (!firestore) return null
+    return query(collection(firestore, 'trips'))
+  }, [firestore])
+  const { data: trips } = useCollection(tripsQuery)
+
+  // Fetch POIs for the active trip
+  const tripPoisQuery = useMemoFirebase(() => {
+    if (!firestore || !activeTripId) return null
+    return query(collection(firestore, 'trips', activeTripId, 'trip_pois'), orderBy('orderIndex'))
+  }, [firestore, activeTripId])
+  const { data: tripPois } = useCollection(tripPoisQuery)
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
@@ -139,6 +152,19 @@ export default function DrivingDashboard() {
       return () => navigator.geolocation.clearWatch(watchId)
     }
   }, [])
+
+  // Update route data when trip POIs load
+  useEffect(() => {
+    if (activeTripId && tripPois && tripPois.length > 0) {
+      const activeTrip = trips?.find(t => t.id === activeTripId)
+      if (activeTrip) {
+        setRecommendedPois(tripPois)
+        setDestination([activeTrip.endLatitude, activeTrip.endLongitude])
+        setSearchQuery(activeTrip.name)
+        setIsLoading(false)
+      }
+    }
+  }, [tripPois, activeTripId, trips])
 
   useEffect(() => {
     if (!isDriving || !recommendedPois.length || !autoNarrate) return
@@ -159,7 +185,7 @@ export default function DrivingDashboard() {
 
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (searchQuery.length > 2 && !destination && !isDriving) {
+      if (searchQuery.length > 2 && !destination && !isDriving && !activeTripId) {
         setIsSearching(true)
         try {
           const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5`)
@@ -175,7 +201,7 @@ export default function DrivingDashboard() {
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [searchQuery, destination, isDriving])
+  }, [searchQuery, destination, isDriving, activeTripId])
 
   const handleSelectLocation = async (suggestion: SearchSuggestion) => {
     const destLat = parseFloat(suggestion.lat)
@@ -185,6 +211,7 @@ export default function DrivingDashboard() {
     setSuggestions([])
     setIsLoading(true)
     setIsDriving(false)
+    setActiveTripId(null)
     narratedPois.current.clear()
 
     try {
@@ -204,6 +231,16 @@ export default function DrivingDashboard() {
     }
   }
 
+  const handleSelectTrip = (trip: any) => {
+    setIsLoading(true)
+    setIsDriving(false)
+    setDestination(null)
+    setRecommendedPois([])
+    setActiveTripId(trip.id)
+    narratedPois.current.clear()
+    toast({ title: "Trip Selected", description: `Following ${trip.name}` })
+  }
+
   const startDriving = () => {
     if (!user) {
       toast({ title: "Auth Required", description: "Please sign in to start navigation." })
@@ -214,17 +251,13 @@ export default function DrivingDashboard() {
   }
 
   const formatDistance = (meters: number) => {
-    if (unitSystem === 'imperial') {
-      const feet = meters * 3.28084
-      return feet > 528 ? `${(feet / 5280).toFixed(1)} mi` : `${Math.round(feet)} ft`
-    }
     return meters > 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`
   }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-body selection:bg-primary/30">
       <div className="fixed top-0 left-0 right-0 z-[110] p-4">
-        <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
           <div className="flex-1 glass-morphism p-3 rounded-2xl flex items-center gap-3">
             <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors", isDriving ? "bg-green-500" : "bg-primary")}>
               <Navigation className={cn("w-6 h-6 transition-transform duration-500", isDriving ? "rotate-0" : "rotate-45")} />
@@ -233,10 +266,10 @@ export default function DrivingDashboard() {
             <div className="flex-1 flex items-center gap-4">
               <div>
                 <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
-                  {isDriving ? 'Navigation Active' : 'Status'}
+                  {isDriving ? 'Navigation Active' : activeTripId ? 'Following Planned Journey' : 'Status'}
                 </div>
                 <div className="text-lg font-headline font-bold leading-tight truncate">
-                  {isDriving ? 'Following Route' : destination ? 'Ready' : 'NomadGuide AI'}
+                  {isDriving ? 'Following Route' : activeTripId ? searchQuery : destination ? 'Ready' : 'NomadGuide AI'}
                 </div>
               </div>
               {isDriving && nextStep && (
@@ -250,7 +283,7 @@ export default function DrivingDashboard() {
               )}
             </div>
             
-            {destination && !isDriving && !isLoading && (
+            {(destination || activeTripId) && !isDriving && !isLoading && (
               <Button onClick={startDriving} className="bg-green-500 hover:bg-green-600 text-white font-headline font-bold px-6 rounded-xl h-12 shadow-lg animate-pulse">
                 <Play className="w-4 h-4 mr-2" /> GO
               </Button>
@@ -258,6 +291,35 @@ export default function DrivingDashboard() {
           </div>
 
           <div className="flex gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="glass-morphism h-12 px-4 rounded-2xl flex items-center gap-2">
+                  <Route className="w-5 h-5 text-primary" />
+                  <span className="hidden sm:inline text-xs font-bold uppercase tracking-widest">Journeys</span>
+                  <ChevronDown className="w-4 h-4 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl p-2" align="end">
+                <DropdownMenuLabel className="font-headline font-bold text-xs uppercase tracking-widest p-2">Featured Trips</DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-white/5" />
+                <ScrollArea className="h-[300px]">
+                  {trips?.map((trip) => (
+                    <DropdownMenuItem 
+                      key={trip.id} 
+                      onClick={() => handleSelectTrip(trip)}
+                      className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer p-3 flex flex-col items-start gap-1"
+                    >
+                      <span className="font-bold text-sm">{trip.name}</span>
+                      <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
+                    </DropdownMenuItem>
+                  ))}
+                  {trips?.length === 0 && (
+                    <div className="p-4 text-center text-xs text-muted-foreground italic">No journeys planned yet.</div>
+                  )}
+                </ScrollArea>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button variant="ghost" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("glass-morphism h-12 w-12 rounded-2xl", autoNarrate ? "text-accent" : "text-muted-foreground")}>
               {autoNarrate ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
             </Button>
@@ -273,15 +335,32 @@ export default function DrivingDashboard() {
       </div>
 
       <main className="relative flex-1 h-full">
-        <NavigationMap center={userLocation} pois={recommendedPois} destination={destination} isDriving={isDriving} isCompassActive={isCompassActive} onNextStepUpdate={setNextStep} pointerType={pointerType} onPoiSelect={(poi) => { setSelectedPoi(poi); setIsSheetOpen(true); }} />
+        <NavigationMap 
+          center={userLocation} 
+          pois={recommendedPois} 
+          destination={destination} 
+          isDriving={isDriving} 
+          isCompassActive={isCompassActive} 
+          onNextStepUpdate={setNextStep} 
+          onPoiSelect={(poi) => { setSelectedPoi(poi); setIsSheetOpen(true); }}
+          isTripMode={!!activeTripId}
+        />
 
         {!isDriving && (
           <div className="absolute top-24 left-4 right-4 z-[100] lg:max-w-md lg:mx-auto">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-              <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Where to next?" className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl text-lg" />
+              <Input 
+                value={searchQuery} 
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (activeTripId) setActiveTripId(null);
+                }} 
+                placeholder="Where to next?" 
+                className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl text-lg" 
+              />
               {suggestions.length > 0 && (
-                <Card className="mt-2 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl overflow-hidden shadow-2xl border-none">
+                <Card className="mt-2 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl shadow-2xl border-none">
                   <ScrollArea className="max-h-[300px]">
                     {suggestions.map((suggestion) => (
                       <button key={suggestion.place_id} onClick={() => handleSelectLocation(suggestion)} className="w-full p-4 flex items-start gap-3 hover:bg-white/5 text-left border-b border-white/5 last:border-0 transition-colors">
@@ -296,12 +375,14 @@ export default function DrivingDashboard() {
                 </Card>
               )}
             </div>
-            {destination && !isDriving && recommendedPois.length > 0 && (
+            {(destination || activeTripId) && !isDriving && recommendedPois.length > 0 && (
               <div className="mt-4">
                 <Card className="bg-card/80 backdrop-blur-xl border-white/10 rounded-3xl p-4 shadow-2xl border-none overflow-hidden relative">
                   <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                    <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">AI Insights</span>
+                    {activeTripId ? <MapIcon className="w-4 h-4 text-primary" /> : <Sparkles className="w-4 h-4 text-primary" />}
+                    <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">
+                      {activeTripId ? 'Journey Itinerary' : 'AI Insights'}
+                    </span>
                   </div>
                   <ScrollArea className="max-h-[160px]">
                     <div className="space-y-2">
