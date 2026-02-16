@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -127,7 +128,7 @@ export default function DrivingDashboard() {
     if (!isDriving || !recommendedPois.length) return null;
     const next = recommendedPois.find(poi => !narratedPois.current.has(poi.name));
     return next?.name || "Final Destination";
-  }, [isDriving, recommendedPois, selectedPoi]);
+  }, [isDriving, recommendedPois]);
 
   // Fetch all trips
   const tripsQuery = useMemoFirebase(() => {

@@ -15,12 +15,15 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      allow read: if isSignedIn();
+      // Explicitly allow get and list for authenticated users
+      allow get, list: if isSignedIn();
+      
+      // Strict ownership for creating, updating, and deleting
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /trip_pois/{poiId} {
-        allow read: if isSignedIn();
+        allow get, list: if isSignedIn();
         allow write: if isSignedIn() && 
           get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid;
       }
