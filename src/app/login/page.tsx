@@ -54,22 +54,28 @@ export default function LoginPage() {
         userCredential = await signInWithEmailAndPassword(auth, email, password);
       }
 
-      const user = userCredential.user;
+      const firebaseUser = userCredential.user;
+
+      // Safely build user document to avoid 'undefined' values which Firestore rejects
+      const userData: any = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || '',
+        displayName: name || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+        isAdmin: isAdminRoute,
+        photoURL: firebaseUser.photoURL || null,
+        updatedAt: serverTimestamp()
+      };
+
+      if (isSignUp) {
+        userData.createdAt = serverTimestamp();
+      }
 
       // Sync user data to Firestore
-      await setDoc(doc(firestore, 'users', user.uid), {
-        uid: user.uid,
-        email: user.email,
-        displayName: name || user.displayName || user.email?.split('@')[0],
-        isAdmin: isAdminRoute, // Flag as admin if logging in via admin route
-        photoURL: user.photoURL,
-        updatedAt: serverTimestamp(),
-        createdAt: isSignUp ? serverTimestamp() : undefined
-      }, { merge: true });
+      await setDoc(doc(firestore, 'users', firebaseUser.uid), userData, { merge: true });
 
       toast({
         title: isSignUp ? "Account Created" : "Welcome Back",
-        description: `Successfully signed in as ${user.email}`,
+        description: `Successfully signed in as ${firebaseUser.email}`,
       });
 
     } catch (error: any) {

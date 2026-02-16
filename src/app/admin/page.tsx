@@ -244,16 +244,22 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     
     const id = tripId || doc(collection(firestore, 'trips')).id
     
+    // Build payload to avoid 'undefined' which Firestore rejects
+    const payload: any = {
+      ...tripData,
+      id,
+      adminId: user.uid,
+      isAdminTrip: true,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (!tripId) {
+      payload.createdAt = serverTimestamp();
+    }
+    
     setDocumentNonBlocking(
       doc(firestore, 'trips', id),
-      {
-        ...tripData,
-        id,
-        adminId: user.uid,
-        isAdminTrip: true,
-        updatedAt: serverTimestamp(),
-        createdAt: tripId ? undefined : serverTimestamp()
-      },
+      payload,
       { merge: true }
     )
 
