@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState } from 'react'
@@ -42,7 +41,8 @@ import {
 import { 
   setDocumentNonBlocking, 
   addDocumentNonBlocking, 
-  deleteDocumentNonBlocking 
+  deleteDocumentNonBlocking,
+  updateDocumentNonBlocking
 } from '@/firebase/non-blocking-updates'
 import dynamic from 'next/dynamic'
 import { ScrollArea } from '@/components/ui/scroll-area'
