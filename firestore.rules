@@ -1,0 +1,168 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * NomadGuide AI - Admin Trip Designer Security Rules
+     *
+     * CORE PHILOSOPHY:
+     * This ruleset implements a strict Admin-Ownership model. Access to all entities—Trips, Points of 
+     * Interest, and Assets—is restricted to the administrator who created them. This is enforced 
+     * through a mandatory 'adminId' field on every document.
+     *
+     * DATA STRUCTURE:
+     * - Top-Level Collections: /trips, /points_of_interest, /image_assets, /narration_assets, 
+     *   /three_d_model_assets, /sound_effect_assets.
+     * - Subcollections: /trips/{tripId}/trip_pois/{tripPoiId}.
+     *
+     * KEY SECURITY DECISIONS:
+     * 1. Authorization Independence: Every document, including those in subcollections (TripPoi), 
+     *    contains a denormalized 'adminId'. This allows rules to verify ownership locally within 
+     *    the document, avoiding expensive and slow get() calls to parent documents.
+     * 2. Prototyping Flexibility: Rules focus strictly on authorization (who can access) and 
+     *    relational integrity (ensuring child documents belong to the correct parent) rather 
+     *    than strict data type validation.
+     * 3. Relational Consistency: On creation of nested documents (TripPoi), the rules force the 
+     *    internal 'tripId' and 'adminId' fields to match the path and the current user's identity.
+     * 4. State Safety: All update and delete operations require the document to exist (resource != null) 
+     *    and the current user to be the verified owner.
+     */
+
+    // --- GLOBAL HELPER FUNCTIONS ---
+
+    /**
+     * @description Checks if the request is from an authenticated user.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * @description Checks if the provided adminId matches the authenticated user's UID.
+     */
+    function isOwner(adminId) {
+      return isSignedIn() && request.auth.uid == adminId;
+    }
+
+    /**
+     * @description Combines ownership check with a check that the document exists. 
+     * Used for update and delete operations.
+     */
+    function isExistingOwner(adminId) {
+      return resource != null && isOwner(adminId);
+    }
+
+    // --- COLLECTION RULES ---
+
+    /**
+     * @description Management of Trip plans by administrators.
+     * @path /trips/{tripId}
+     * @allow (create) if auth.uid matches adminId field.
+     * @deny (update) if adminId field is changed to a different user.
+     * @principle Ownership-based access control.
+     */
+    match /trips/{tripId} {
+      allow get: if isOwner(resource.data.adminId);
+      allow list: if false; // Top-level list denied; use path-based user-scoping for listing if required.
+      
+      allow create: if isOwner(request.resource.data.adminId);
+      allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
+      allow delete: if isExistingOwner(resource.data.adminId);
+
+      /**
+       * @description Management of Points of Interest stops within a specific Trip.
+       * @path /trips/{tripId}/trip_pois/{tripPoiId}
+       * @allow (create) if adminId matches auth.uid AND tripId matches the path.
+       * @deny (create) if the tripPoi is being assigned to a different tripId than the path.
+       * @principle Relational integrity and denormalized ownership.
+       */
+      match /trip_pois/{tripPoiId} {
+        allow get: if isOwner(resource.data.adminId);
+        allow list: if isOwner(get(/databases/$(database)/documents/trips/$(tripId)).data.adminId);
+        
+        allow create: if isOwner(request.resource.data.adminId) && request.resource.data.tripId == tripId;
+        allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId && request.resource.data.tripId == resource.data.tripId;
+        allow delete: if isExistingOwner(resource.data.adminId);
+      }
+    }
+
+    /**
+     * @description Reusable library of Points of Interest.
+     * @path /points_of_interest/{poiId}
+     * @allow (get) if the user is the owner of the POI.
+     * @deny (update) if a non-owner attempts to modify the POI.
+     * @principle Ownership-based access control for shared resources.
+     */
+    match /points_of_interest/{poiId} {
+      allow get: if isOwner(resource.data.adminId);
+      allow list: if false; // Listing restricted to maintain privacy of personal libraries.
+      
+      allow create: if isOwner(request.resource.data.adminId);
+      allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
+      allow delete: if isExistingOwner(resource.data.adminId);
+    }
+
+    /**
+     * @description Image Assets used across trips and POIs.
+     * @path /image_assets/{imageId}
+     * @allow (create) if auth.uid matches adminId.
+     * @deny (delete) if requested by a user who did not upload the asset.
+     * @principle Resource ownership validation.
+     */
+    match /image_assets/{imageId} {
+      allow get: if isOwner(resource.data.adminId);
+      allow list: if false;
+      
+      allow create: if isOwner(request.resource.data.adminId);
+      allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
+      allow delete: if isExistingOwner(resource.data.adminId);
+    }
+
+    /**
+     * @description Narration Assets (AI audio) used for POIs.
+     * @path /narration_assets/{narrationId}
+     * @allow (get) if auth.uid matches adminId.
+     * @deny (create) if adminId does not match auth.uid.
+     * @principle Resource ownership validation.
+     */
+    match /narration_assets/{narrationId} {
+      allow get: if isOwner(resource.data.adminId);
+      allow list: if false;
+      
+      allow create: if isOwner(request.resource.data.adminId);
+      allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
+      allow delete: if isExistingOwner(resource.data.adminId);
+    }
+
+    /**
+     * @description 3D Model Assets for immersive previews.
+     * @path /three_d_model_assets/{modelId}
+     * @allow (create) if auth.uid matches adminId.
+     * @principle Resource ownership validation.
+     */
+    match /three_d_model_assets/{modelId} {
+      allow get: if isOwner(resource.data.adminId);
+      allow list: if false;
+      
+      allow create: if isOwner(request.resource.data.adminId);
+      allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
+      allow delete: if isExistingOwner(resource.data.adminId);
+    }
+
+    /**
+     * @description Sound Effect Assets for ambient tour audio.
+     * @path /sound_effect_assets/{soundEffectId}
+     * @allow (create) if auth.uid matches adminId.
+     * @principle Resource ownership validation.
+     */
+    match /sound_effect_assets/{soundEffectId} {
+      allow get: if isOwner(resource.data.adminId);
+      allow list: if false;
+      
+      allow create: if isOwner(request.resource.data.adminId);
+      allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
+      allow delete: if isExistingOwner(resource.data.adminId);
+    }
+
+  }
+}
