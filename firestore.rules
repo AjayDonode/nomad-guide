@@ -6,36 +6,39 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
     match /trips/{tripId} {
-      // For 'list' operations (queries), the rule must be query-agnostic or match the filter.
-      // We allow read if the user is signed in. The query filter in the code (where adminId == uid)
-      // combined with the resource check ensures security.
-      allow read: if isSignedIn() && (
-        resource.data.adminId == request.auth.uid || 
-        resource.data.get('isAdminTrip', false) == false
-      );
+      // Split rules for better query-to-rule matching
       
+      // 1. Allow owners to read (list/get) their own trips
+      allow read: if isSignedIn() && resource.data.adminId == request.auth.uid;
+      
+      // 2. Allow everyone signed in to see public (non-admin-only) trips
+      allow read: if isSignedIn() && resource.data.get('isAdminTrip', false) == false;
+      
+      // 3. Allow creation if the user is assigning themselves as the admin
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
+      
+      // 4. Allow updates and deletion only for the owner
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /trip_pois/{poiId} {
-        // Inherit permissions from parent trip or allow if the POI itself is owned
+        // Helper function to access the parent trip's data
+        function getParentTrip() {
+          return get(/databases/$(database)/documents/trips/$(tripId)).data;
+        }
+
+        // POIs inherit the visibility of their parent trip
         allow read: if isSignedIn() && (
-          resource.data.adminId == request.auth.uid ||
-          get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid ||
-          get(/databases/$(database)/documents/trips/$(tripId)).data.get('isAdminTrip', false) == false
+          getParentTrip().adminId == request.auth.uid ||
+          getParentTrip().get('isAdminTrip', false) == false
         );
         
-        allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-        allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
+        // Only the owner of the parent trip can modify POIs
+        allow write: if isSignedIn() && getParentTrip().adminId == request.auth.uid;
       }
     }
   }
