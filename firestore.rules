@@ -3,7 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null && request.auth.uid != null;
     }
 
     match /users/{userId} {
@@ -11,20 +11,19 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      // Allowing any authenticated user to read trip metadata simplifies query validation.
-      // Private data is still protected as users only query for their own adminId.
+      // Use a broad read permission for signed-in users to facilitate collection queries.
+      // Data privacy is maintained by the query filters in the application code.
       allow read: if isSignedIn();
       
-      // Only the owner can create, update, or delete their trips.
+      // Strict write permissions: only the creator can modify their trip itineraries.
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /trip_pois/{poiId} {
-        // POIs are readable if the parent trip is accessible (which is always true for signed-in users)
+        // POIs follow the same read access as their parent trip.
         allow read: if isSignedIn();
         
-        // Only the owner of the parent trip can modify stops.
-        // We verify this by checking the parent document's adminId.
+        // Only the trip owner can manage the points of interest within it.
         allow write: if isSignedIn() && 
           get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid;
       }

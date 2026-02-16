@@ -43,7 +43,7 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Trip",
       "type": "object",
-      "description": "Represents a planned tour itinerary designed by an administrator.",
+      "description": "Represents a planned tour itinerary. Accessible by all authenticated users, but editable only by the owner.",
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
