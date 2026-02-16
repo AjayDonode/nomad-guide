@@ -122,6 +122,13 @@ export default function DrivingDashboard() {
 
   const narratedPois = useRef<Set<string>>(new Set())
 
+  // Calculate the current target stop based on what hasn't been narrated yet
+  const upcomingStopName = useMemo(() => {
+    if (!isDriving || !recommendedPois.length) return null;
+    const next = recommendedPois.find(poi => !narratedPois.current.has(poi.name));
+    return next?.name || "Final Destination";
+  }, [isDriving, recommendedPois, selectedPoi]);
+
   // Fetch all trips
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore) return null
@@ -275,10 +282,10 @@ export default function DrivingDashboard() {
             <div className="flex-1 flex items-center gap-4">
               <div>
                 <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
-                  {isDriving ? 'Navigation Active' : activeTripId ? 'Selected Trip' : 'Status'}
+                  {isDriving ? 'Next Stop' : activeTripId ? 'Selected Trip' : 'Status'}
                 </div>
                 <div className="text-lg font-headline font-bold leading-tight truncate max-w-[120px] sm:max-w-[200px]">
-                  {isDriving ? 'Following Route' : activeTripId ? activeTripName : 'NomadGuide AI'}
+                  {isDriving ? (upcomingStopName || 'Following Route') : activeTripId ? activeTripName : 'NomadGuide AI'}
                 </div>
               </div>
               {isDriving && nextStep && (
