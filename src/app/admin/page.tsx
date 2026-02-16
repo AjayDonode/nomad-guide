@@ -35,7 +35,6 @@ import {
   collection, 
   query, 
   where, 
-  orderBy,
   doc,
   serverTimestamp
 } from 'firebase/firestore'
@@ -81,12 +80,12 @@ export default function AdminDashboard() {
   }, [user, isUserLoading, router])
 
   // Fetch all trips created by this admin
+  // Simplified query: removed orderBy to avoid potential permission/index issues
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null
     return query(
       collection(firestore, 'trips'),
-      where('adminId', '==', user.uid),
-      orderBy('createdAt', 'desc')
+      where('adminId', '==', user.uid)
     )
   }, [firestore, user])
 
@@ -231,8 +230,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const poiQuery = useMemoFirebase(() => {
     if (!firestore || !tripId) return null
     return query(
-      collection(firestore, 'trips', tripId, 'trip_pois'),
-      orderBy('orderIndex', 'asc')
+      collection(firestore, 'trips', tripId, 'trip_pois')
     )
   }, [firestore, tripId])
 
@@ -357,7 +355,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 )}
 
                 <div className="space-y-4">
-                  {pois?.map((poi, idx) => (
+                  {pois?.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map((poi, idx) => (
                     <Card key={poi.id} className="bg-white/5 border-white/5 rounded-3xl overflow-hidden group">
                       <CardHeader className="p-4 flex flex-row items-center gap-4 space-y-0">
                         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
