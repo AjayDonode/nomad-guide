@@ -48,20 +48,33 @@ service cloud.firestore {
      * @description Management of Trip plans by administrators.
      */
     match /trips/{tripId} {
-      allow get, list: if isOwner(resource.data.adminId);
+      // Allow reading and listing if the user is the owner of the document(s)
+      allow read: if isOwner(resource.data.adminId);
       
+      // Allow creation if the user sets themselves as the owner
       allow create: if isOwner(request.resource.data.adminId);
-      allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
+      
+      // Allow updates if the user is the current owner and doesn't change ownership
+      allow update: if isExistingOwner(resource.data.adminId) 
+                   && request.resource.data.adminId == resource.data.adminId;
+                   
+      // Allow deletion only by the owner
       allow delete: if isExistingOwner(resource.data.adminId);
 
       /**
        * @description Management of Points of Interest stops within a specific Trip.
+       * Note: 'adminId' is denormalized into these documents for Authorization Independence.
        */
       match /trip_pois/{tripPoiId} {
-        allow get, list: if isOwner(resource.data.adminId);
+        allow read: if isOwner(resource.data.adminId);
         
-        allow create: if isOwner(request.resource.data.adminId) && request.resource.data.tripId == tripId;
-        allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId && request.resource.data.tripId == resource.data.tripId;
+        allow create: if isOwner(request.resource.data.adminId) 
+                     && request.resource.data.tripId == tripId;
+                     
+        allow update: if isExistingOwner(resource.data.adminId) 
+                     && request.resource.data.adminId == resource.data.adminId 
+                     && request.resource.data.tripId == resource.data.tripId;
+                     
         allow delete: if isExistingOwner(resource.data.adminId);
       }
     }
@@ -70,8 +83,7 @@ service cloud.firestore {
      * @description Reusable library of Points of Interest.
      */
     match /points_of_interest/{poiId} {
-      allow get, list: if isOwner(resource.data.adminId);
-      
+      allow read: if isOwner(resource.data.adminId);
       allow create: if isOwner(request.resource.data.adminId);
       allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
       allow delete: if isExistingOwner(resource.data.adminId);
@@ -81,8 +93,7 @@ service cloud.firestore {
      * @description Image Assets used across trips and POIs.
      */
     match /image_assets/{imageId} {
-      allow get, list: if isOwner(resource.data.adminId);
-      
+      allow read: if isOwner(resource.data.adminId);
       allow create: if isOwner(request.resource.data.adminId);
       allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
       allow delete: if isExistingOwner(resource.data.adminId);
@@ -92,8 +103,7 @@ service cloud.firestore {
      * @description Narration Assets (AI audio) used for POIs.
      */
     match /narration_assets/{narrationId} {
-      allow get, list: if isOwner(resource.data.adminId);
-      
+      allow read: if isOwner(resource.data.adminId);
       allow create: if isOwner(request.resource.data.adminId);
       allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
       allow delete: if isExistingOwner(resource.data.adminId);
@@ -103,8 +113,7 @@ service cloud.firestore {
      * @description 3D Model Assets for immersive previews.
      */
     match /three_d_model_assets/{modelId} {
-      allow get, list: if isOwner(resource.data.adminId);
-      
+      allow read: if isOwner(resource.data.adminId);
       allow create: if isOwner(request.resource.data.adminId);
       allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
       allow delete: if isExistingOwner(resource.data.adminId);
@@ -114,8 +123,7 @@ service cloud.firestore {
      * @description Sound Effect Assets for ambient tour audio.
      */
     match /sound_effect_assets/{soundEffectId} {
-      allow get, list: if isOwner(resource.data.adminId);
-      
+      allow read: if isOwner(resource.data.adminId);
       allow create: if isOwner(request.resource.data.adminId);
       allow update: if isExistingOwner(resource.data.adminId) && request.resource.data.adminId == resource.data.adminId;
       allow delete: if isExistingOwner(resource.data.adminId);

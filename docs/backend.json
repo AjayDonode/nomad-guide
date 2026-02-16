@@ -183,6 +183,10 @@
           "type": "number",
           "description": "The sequential order of this POI within the trip, starting from 1."
         },
+        "adminId": {
+          "type": "string",
+          "description": "Denormalized adminId from the parent Trip for secure, query-agnostic authorization."
+        },
         "customNarrationText": {
           "type": "string",
           "description": "Optional override text for AI narration specific to this POI within this particular trip, if different from the POI's default."
@@ -219,6 +223,7 @@
         "tripId",
         "poiId",
         "orderIndex",
+        "adminId",
         "createdAt",
         "updatedAt"
       ]
@@ -466,7 +471,7 @@
           "schema": {
             "$ref": "#/backend/entities/Trip"
           },
-          "description": "Top-level collection for Trip entities. Access is controlled by the 'adminId' field within each document. This ensures only the creating/modifying admin can manage the trip.",
+          "description": "Top-level collection for Trip entities. Access is controlled by the 'adminId' field within each document.",
           "params": [
             {
               "name": "tripId",
@@ -482,7 +487,7 @@
           "schema": {
             "$ref": "#/backend/entities/TripPoi"
           },
-          "description": "Subcollection for TripPoi entities, representing individual points of interest within a specific trip. Each TripPoi document MUST include the 'adminId' denormalized from its parent Trip for Authorization Independence, enabling direct ownership checks without 'get()' calls.",
+          "description": "Subcollection for TripPoi entities. Each document includes 'adminId' for secure listing.",
           "params": [
             {
               "name": "tripId",
@@ -490,92 +495,12 @@
             },
             {
               "name": "tripPoiId",
-              "description": "Unique identifier for the TripPoi (stop) within the Trip."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/points_of_interest/{poiId}",
-        "definition": {
-          "entityName": "PointOfInterest",
-          "schema": {
-            "$ref": "#/backend/entities/PointOfInterest"
-          },
-          "description": "Top-level collection for PointOfInterest entities, defining reusable locations. Access is controlled by the 'adminId' field, allowing only the creating/modifying admin to manage POIs.",
-          "params": [
-            {
-              "name": "poiId",
-              "description": "Unique identifier for the PointOfInterest."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/image_assets/{imageId}",
-        "definition": {
-          "entityName": "ImageAsset",
-          "schema": {
-            "$ref": "#/backend/entities/ImageAsset"
-          },
-          "description": "Collection for ImageAsset entities. Access is controlled by the 'adminId' field, ensuring only the uploading admin can manage image assets. Can be linked to Trips or POIs.",
-          "params": [
-            {
-              "name": "imageId",
-              "description": "Unique identifier for the ImageAsset."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/narration_assets/{narrationId}",
-        "definition": {
-          "entityName": "NarrationAsset",
-          "schema": {
-            "$ref": "#/backend/entities/NarrationAsset"
-          },
-          "description": "Collection for NarrationAsset entities. Access is controlled by the 'adminId' field, ensuring only the creating/uploading admin can manage narration assets. Can be linked to POIs or TripPois.",
-          "params": [
-            {
-              "name": "narrationId",
-              "description": "Unique identifier for the NarrationAsset."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/three_d_model_assets/{modelId}",
-        "definition": {
-          "entityName": "ThreeDModelAsset",
-          "schema": {
-            "$ref": "#/backend/entities/ThreeDModelAsset"
-          },
-          "description": "Collection for ThreeDModelAsset entities. Access is controlled by the 'adminId' field, ensuring only the uploading admin can manage 3D model assets. Can be linked to POIs.",
-          "params": [
-            {
-              "name": "modelId",
-              "description": "Unique identifier for the ThreeDModelAsset."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/sound_effect_assets/{soundEffectId}",
-        "definition": {
-          "entityName": "SoundEffectAsset",
-          "schema": {
-            "$ref": "#/backend/entities/SoundEffectAsset"
-          },
-          "description": "Collection for SoundEffectAsset entities. Access is controlled by the 'adminId' field, ensuring only the uploading admin can manage sound effect assets. Can be linked to POIs.",
-          "params": [
-            {
-              "name": "soundEffectId",
-              "description": "Unique identifier for the SoundEffectAsset."
+              "description": "Unique identifier for the TripPoi."
             }
           ]
         }
       }
     ],
-    "reasoning": "The recommended Firestore structure for NomadGuide AI's admin trip designer tool prioritizes secure, scalable, and debuggable authorization rules by adhering strictly to the core design principles.\n\n**Authorization Independence (CRITICAL):** This structure explicitly eliminates `get()` calls in security rules. For top-level entities like `Trip`, `PointOfInterest`, `ImageAsset`, `NarrationAsset`, `ThreeDModelAsset`, and `SoundEffectAsset`, the `adminId` field is directly embedded within each document. This allows security rules to evaluate ownership (e.g., `request.auth.uid == resource.data.adminId`) solely based on the document itself, without needing to retrieve parent data. Crucially, for `TripPoi` documents, which logically belong to a `Trip`, the `adminId` of the parent `Trip` is denormalized and stored within each `TripPoi` document (e.g., `/trips/{tripId}/trip_pois/{tripPoiId}` documents will include `adminId` from their respective `Trip`). This denormalization ensures that `TripPoi` documents can be created, read, updated, or deleted atomically and with authorization checked directly on the `TripPoi` document's `adminId` field, making rules simple to write, robust to changes, and easy to debug. This also enables atomic creation of a Trip and its initial POIs in a single batched write.\n\n**QAPs (Query-Agnostic Rules):** The design inherently supports secure `list` operations. By embedding the `adminId` directly into every document for admin-managed collections (`/trips`, `/points_of_interest`, `/image_assets`, etc.) and the denormalized `adminId` into `TripPoi` documents, security rules can enforce authorization on individual documents returned by a query (e.g., `allow list: if resource.data.adminId == request.auth.uid`). This means rules do not need to act as post-query filters, maintaining performance and ensuring that only authorized data is ever returned, fulfilling the QAP mandate.\n\n**Structural Segregation (Homogeneous Security Posture):** Each collection is designed to hold documents with a consistent security posture. All primary entities (`Trip`, `PointOfInterest`, and various `*Asset` types) reside in top-level collections, reflecting their admin-managed nature. The `TripPoi` entity, representing a stop within a trip, is naturally segregated into a subcollection (`/trips/{tripId}/trip_pois`). This segregation simplifies rules, as the same authorization logic applies uniformly to all documents within a given collection or subcollection, moving complexity from rule logic to data structure.\n\n**Access Modeling:**\n*   **DBAC (Database Access Control):** While not explicitly mapped as a `firestorePath` due to schema constraints, the architecture implicitly supports a top-level collection like `/roles_admin/{adminUid}`. The existence of a document with the user's UID in this collection would grant administrator privileges, facilitating role checks in security rules without relying on custom claims.\n*   **Path-Based & Hierarchical Ownership:** The `adminId` field in documents combined with top-level and hierarchical paths (`/trips/{tripId}/trip_pois/{tripPoiId}`) establishes clear, path-based ownership for admin-created content. This makes ownership-based security rules extremely straightforward and efficient.\n\n**Data Clarity and Predictability:** Semantic naming conventions are consistently applied for collections (`trips`, `points_of_interest`, `image_assets`, `trip_pois`) and wildcards (`{tripId}`, `{poiId}`, `{assetId}`). Standardized fields like `adminId`, `createdAt`, and `updatedAt` ensure predictable schemas and facilitate consistent rule writing across the application."
+    "reasoning": "Standardized ownership model with 'adminId' present in all primary and subcollection documents to satisfy Query-Agnostic Rules (QAPs) without cross-document lookups."
   }
 }
