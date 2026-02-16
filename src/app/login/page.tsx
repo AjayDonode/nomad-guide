@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { 
   useFirebase, 
   useUser 
@@ -12,7 +12,7 @@ import {
   createUserWithEmailAndPassword,
   updateProfile
 } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,6 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const { auth, firestore } = useFirebase();
   const { user, isUserLoading } = useUser();
   const { toast } = useToast();
@@ -33,10 +34,13 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const isAdminRoute = searchParams.get('role') === 'admin';
+  // Check if we are on an admin route or have an admin flag
+  const isAdminRoute = pathname.includes('/admin') || searchParams.get('role') === 'admin';
 
   useEffect(() => {
     if (user && !isLoading) {
+      // If the user is logged in, check if they are intended to be an admin
+      // We push them to /admin if they just logged into an admin portal
       router.push(isAdminRoute ? '/admin' : '/');
     }
   }, [user, isLoading, isAdminRoute, router]);
@@ -56,12 +60,18 @@ export default function LoginPage() {
 
       const firebaseUser = userCredential.user;
 
-      // Safely build user document to avoid 'undefined' values which Firestore rejects
+      // Check for existing profile to avoid overwriting isAdmin: true
+      const userRef = doc(firestore, 'users', firebaseUser.uid);
+      const userSnap = await getDoc(userRef);
+      const existingData = userSnap.exists() ? userSnap.data() : {};
+
+      // Build user document safely
       const userData: any = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || '',
         displayName: name || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-        isAdmin: isAdminRoute,
+        // Preserve isAdmin if it was already true, or set it if this is an admin login
+        isAdmin: existingData.isAdmin || isAdminRoute,
         photoURL: firebaseUser.photoURL || null,
         updatedAt: serverTimestamp()
       };
@@ -71,7 +81,7 @@ export default function LoginPage() {
       }
 
       // Sync user data to Firestore
-      await setDoc(doc(firestore, 'users', firebaseUser.uid), userData, { merge: true });
+      await setDoc(userRef, userData, { merge: true });
 
       toast({
         title: isSignUp ? "Account Created" : "Welcome Back",
