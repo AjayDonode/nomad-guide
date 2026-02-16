@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
+import { Map as MapIcon } from 'lucide-react'
 
 interface POI {
   id: string
