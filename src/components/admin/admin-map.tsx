@@ -13,6 +13,7 @@ interface POI {
   latitude: number
   longitude: number
   category: string
+  orderIndex?: number
 }
 
 interface AdminMapProps {

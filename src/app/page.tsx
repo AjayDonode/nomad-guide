@@ -175,8 +175,8 @@ export default function DrivingDashboard() {
     return { nearby, favorites: userFavs, searchResults }
   }, [allTrips, favorites, userLocation, searchQuery])
 
-  // Filter Journeys inside dropdown
-  const filteredJourneys = useMemo(() => {
+  // Filter Trips inside dropdown
+  const filteredTrips = useMemo(() => {
     if (!allTrips) return []
     return allTrips.filter(t => t.name.toLowerCase().includes(dropdownSearch.toLowerCase()))
   }, [allTrips, dropdownSearch])
@@ -258,7 +258,7 @@ export default function DrivingDashboard() {
             <div className="flex-1 flex items-center gap-4">
               <div>
                 <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
-                  {isDriving ? 'Navigation Active' : activeTripId ? 'Following Planned Journey' : 'Status'}
+                  {isDriving ? 'Navigation Active' : activeTripId ? 'Selected Trip' : 'Status'}
                 </div>
                 <div className="text-lg font-headline font-bold leading-tight truncate">
                   {isDriving ? 'Following Route' : activeTripId ? searchQuery : 'NomadGuide AI'}
@@ -287,7 +287,7 @@ export default function DrivingDashboard() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="glass-morphism h-12 px-4 rounded-2xl flex items-center gap-2">
                   <Route className="w-5 h-5 text-primary" />
-                  <span className="hidden sm:inline text-xs font-bold uppercase tracking-widest">Journeys</span>
+                  <span className="hidden sm:inline text-xs font-bold uppercase tracking-widest">Trips</span>
                   <ChevronDown className="w-4 h-4 opacity-50" />
                 </Button>
               </DropdownMenuTrigger>
@@ -296,7 +296,7 @@ export default function DrivingDashboard() {
                   <div className="relative mb-4">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input 
-                      placeholder="Find Journeys..." 
+                      placeholder="Find Trips..." 
                       value={dropdownSearch}
                       onChange={(e) => setDropdownSearch(e.target.value)}
                       className="pl-9 h-10 bg-white/5 border-white/10 text-xs rounded-xl"
@@ -307,7 +307,7 @@ export default function DrivingDashboard() {
                     {dropdownSearch.length > 0 ? (
                       <div className="space-y-1">
                         <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2">Search Results</DropdownMenuLabel>
-                        {filteredJourneys.map((trip) => (
+                        {filteredTrips.map((trip) => (
                            <DropdownMenuItem 
                               key={trip.id} 
                               onClick={() => handleSelectTrip(trip)}
@@ -325,7 +325,7 @@ export default function DrivingDashboard() {
                         {categorizedTrips.favorites.length > 0 && (
                           <div className="mb-4">
                             <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-primary px-2 flex items-center gap-2">
-                              <Heart className="w-3 h-3 fill-current" /> Saved Journeys
+                              <Heart className="w-3 h-3 fill-current" /> Saved Trips
                             </DropdownMenuLabel>
                             {categorizedTrips.favorites.map((trip) => (
                               <DropdownMenuItem 
@@ -344,7 +344,7 @@ export default function DrivingDashboard() {
 
                         <div className="mb-2">
                           <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-accent px-2 flex items-center gap-2">
-                            <Navigation2 className="w-3 h-3" /> Nearby You
+                            <Navigation2 className="w-3 h-3" /> Nearby Trips
                           </DropdownMenuLabel>
                           {categorizedTrips.nearby.map((trip) => (
                             <DropdownMenuItem 
@@ -401,7 +401,7 @@ export default function DrivingDashboard() {
               <Input 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
-                placeholder="Search Curated Journeys..." 
+                placeholder="Search Curated Trips..." 
                 className="pl-12 h-14 bg-card/80 backdrop-blur-xl border-white/10 rounded-2xl text-lg shadow-2xl" 
               />
               
@@ -427,7 +427,7 @@ export default function DrivingDashboard() {
                       ))
                     ) : (
                       <div className="p-8 text-center text-sm text-muted-foreground italic">
-                        No curated journeys match your search.
+                        No curated trips match your search.
                       </div>
                     )}
                   </ScrollArea>
@@ -442,7 +442,7 @@ export default function DrivingDashboard() {
                     <div className="flex items-center gap-2">
                       <MapIcon className="w-4 h-4 text-primary" />
                       <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">
-                        Journey Itinerary
+                        Trip Itinerary
                       </span>
                     </div>
                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveTripId(null)}>

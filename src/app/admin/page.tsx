@@ -134,7 +134,10 @@ export default function AdminDashboard() {
           </div>
           
           <Button 
-            onClick={() => setIsCreating(true)}
+            onClick={() => {
+              setIsCreating(true)
+              setEditingTripId(null)
+            }}
             className="w-full h-12 rounded-xl font-headline font-bold bg-white text-black hover:bg-white/90"
           >
             <Plus className="w-4 h-4 mr-2" /> New Trip Plan
@@ -144,7 +147,7 @@ export default function AdminDashboard() {
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-2">
             <div className="px-2 mb-2">
-              <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Active Projects</span>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Active Trips</span>
             </div>
             {isTripsLoading ? (
               <div className="p-4 flex flex-col gap-4">
@@ -183,7 +186,7 @@ export default function AdminDashboard() {
         <div className="p-4 border-t border-white/5">
           <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-white rounded-xl h-11" onClick={() => router.push('/')}>
             <MapIcon className="w-4 h-4 mr-3" />
-            <span className="text-xs font-bold">Back to Discovery View</span>
+            <span className="text-xs font-bold">Back to Map View</span>
           </Button>
         </div>
       </aside>
@@ -217,7 +220,7 @@ export default function AdminDashboard() {
 function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () => void }) {
   const { firestore, user } = useFirebase()
   const [tripData, setTripData] = useState({
-    name: "New Discovery Route",
+    name: "New Discovery Trip",
     description: "",
     startLatitude: 37.7749,
     startLongitude: -122.4194,
@@ -237,7 +240,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   useEffect(() => {
     if (existingTrip) {
       setTripData({
-        name: existingTrip.name || "New Discovery Route",
+        name: existingTrip.name || "New Discovery Trip",
         description: existingTrip.description || "",
         startLatitude: existingTrip.startLatitude || 37.7749,
         startLongitude: existingTrip.startLongitude || -122.4194,
@@ -341,7 +344,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
             className="bg-primary hover:bg-primary/90 text-white font-headline font-bold px-8 rounded-xl h-11"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-            Save Itinerary
+            Save Trip
           </Button>
         </div>
       </header>
@@ -352,11 +355,11 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           <ScrollArea className="flex-1">
             <div className="p-8 space-y-10">
               <section className="space-y-4">
-                <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Route Strategy</Label>
+                <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Trip Strategy</Label>
                 <Textarea 
                   value={tripData.description}
                   onChange={(e) => setTripData({...tripData, description: e.target.value})}
-                  placeholder="Describe the mood and purpose of this tour..."
+                  placeholder="Describe the mood and purpose of this trip..."
                   className="bg-white/5 border-white/10 rounded-2xl min-h-[120px] focus:border-primary/50 transition-colors"
                 />
               </section>

@@ -88,7 +88,7 @@ export function UserMenu() {
                 className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10 font-bold"
               >
                 <LayoutDashboard className="mr-2 h-4 w-4" />
-                <span>Admin Panel</span>
+                <span>Admin Dashboard</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/5" />
             </>
@@ -119,7 +119,7 @@ export function UserMenu() {
       <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
         <DialogContent className="bg-card/95 border-white/10 text-white rounded-[2.5rem] backdrop-blur-2xl max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-headline font-bold text-2xl">Member Profile</DialogTitle>
+            <DialogTitle className="font-headline font-bold text-2xl">User Profile</DialogTitle>
           </DialogHeader>
           <div className="py-6 space-y-8">
             <div className="flex flex-col items-center text-center space-y-4">
@@ -138,7 +138,7 @@ export function UserMenu() {
               </div>
               <div>
                 <h3 className="text-xl font-headline font-bold">{displayName}</h3>
-                <p className="text-sm text-muted-foreground">NomadGuide Discovery Member</p>
+                <p className="text-sm text-muted-foreground">NomadGuide Member</p>
               </div>
             </div>
 
