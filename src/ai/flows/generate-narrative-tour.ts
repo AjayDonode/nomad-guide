@@ -26,6 +26,8 @@ const GenerateNarrativeTourInputSchema = z.object({
       'Current location context (e.g., driving on a scenic route, walking through a bustling market).' + 
       'This helps in adapting the narration tone and content.'
     ),
+  nextPoiName: z.string().optional().describe('The name of the next POI in the itinerary.'),
+  nextPoiDistance: z.string().optional().describe('Formatted distance to the next POI (e.g., "5 km").'),
   language: z.string().default('en-US').describe('The desired language for the narration (e.g., "en-US", "es-ES").'),
 });
 export type GenerateNarrativeTourInput = z.infer<typeof GenerateNarrativeTourInputSchema>;
@@ -47,16 +49,24 @@ const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
   input: { schema: GenerateNarrativeTourInputSchema },
   output: { schema: z.string().describe('The generated narrative text.') },
-  prompt: `You are an expert tour guide, skilled in creating engaging and personalized audio narratives.
+  prompt: `You are an expert female tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
 Generate a concise and captivating audio narration for a Point of Interest (POI) based on the provided details, user preferences, and location context.
 
 POI Name: {{{poiName}}}
 POI Description: {{{poiDescription}}}
 User Preferences (narration style, emphasis): {{{userPreferences}}}
 Location Context (how the user is experiencing the POI): {{{locationContext}}}
+{{#if nextPoiName}}
+Next stop in the journey: {{{nextPoiName}}} (approximately {{{nextPoiDistance}}} away).
+{{/if}}
 Desired Language: {{{language}}}
 
-Craft a narrative that is immersive, informative, and adapted to the user's current situation and preferences. The narration should be approximately 60-90 seconds long when spoken.
+Craft a narrative that is immersive and informative. 
+- Start with a welcoming hook about {{{poiName}}}.
+- Share the most interesting parts of the description in an engaging way.
+- Near the end, briefly mention that our journey will continue towards {{{nextPoiName}}} in about {{{nextPoiDistance}}}.
+- The narration should be approximately 60-90 seconds long when spoken. 
+- Use a natural, flowing storytelling style.
 `,
 });
 
@@ -79,9 +89,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Algenib' },
-            // You can also consider using the language from input if the voice supports it, e.g.,
-            // languageCode: input.language,
+            prebuiltVoiceConfig: { voiceName: 'Kore' }, // 'Kore' is a female-sounding voice
           },
         },
       },

@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -114,6 +113,7 @@ export default function DrivingDashboard() {
   const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoi, setSelectedPoi] = useState<any>(null)
+  const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
   const [destination, setDestination] = useState<[number, number] | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [autoNarrate, setAutoNarrate] = useState(true)
@@ -195,15 +195,35 @@ export default function DrivingDashboard() {
 
   useEffect(() => {
     if (!isDriving || !recommendedPois.length || !autoNarrate) return
+    
     const checkProximity = () => {
-      recommendedPois.forEach(poi => {
+      recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
+        
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
-        if (dist < 0.2) {
+        
+        // Trigger narration approximately 1 minute before reaching (assume 50km/h avg -> 800m)
+        if (dist < 0.8) {
           narratedPois.current.add(poi.name)
+          
+          // Find next POI in sequence for context
+          const nextPoi = recommendedPois[index + 1] || null
+          if (nextPoi) {
+             const nextDist = getDistance(poi.latitude, poi.longitude, nextPoi.latitude, nextPoi.longitude)
+             setNextPoiInfo({
+               poi: nextPoi,
+               distance: nextDist > 1 ? `${nextDist.toFixed(1)} km` : `${Math.round(nextDist * 1000)} m`
+             })
+          } else {
+             setNextPoiInfo(null)
+          }
+
           setSelectedPoi(poi)
           setIsSheetOpen(true)
-          toast({ title: "Proximity Trigger", description: `Approaching ${poi.name}.` })
+          toast({ 
+            title: "Upcoming Stop", 
+            description: `Approaching ${poi.name}. Starting narration.` 
+          })
         }
       })
     }
@@ -499,7 +519,12 @@ export default function DrivingDashboard() {
                     <div className="h-56 rounded-3xl overflow-hidden border border-white/5">
                       <Landmark3DPreview landmarkId={selectedPoi.name} />
                     </div>
-                    <AudioTourController poi={selectedPoi} autoStart={isSheetOpen && autoNarrate} />
+                    <AudioTourController 
+                      poi={selectedPoi} 
+                      nextPoi={nextPoiInfo?.poi} 
+                      nextPoiDistance={nextPoiInfo?.distance}
+                      autoStart={isSheetOpen && autoNarrate} 
+                    />
                     <div className="space-y-4">
                       <h3 className="text-sm font-headline uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                         <Mic2 className="w-4 h-4 text-primary" /> Story Context

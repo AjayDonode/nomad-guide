@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -7,13 +6,16 @@ import { Play, Pause, SkipForward, SkipBack, Volume2, Music, Mic2, Loader2, Rota
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
+import { cn } from '@/lib/utils'
 
 interface AudioTourControllerProps {
   poi?: any
+  nextPoi?: any
+  nextPoiDistance?: string
   autoStart?: boolean
 }
 
-export function AudioTourController({ poi, autoStart = false }: AudioTourControllerProps) {
+export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart = false }: AudioTourControllerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [volume, setVolume] = useState(0.8)
@@ -37,9 +39,11 @@ export function AudioTourController({ poi, autoStart = false }: AudioTourControl
     try {
       const result = await generateNarrativeTour({
         poiName: poi.name,
-        poiDescription: poi.description,
-        userPreferences: "captivating, historical, and slightly mysterious",
+        poiDescription: poi.description || "A fascinating historical landmark.",
+        userPreferences: "captivating, informative, and professional female guide",
         locationContext: "approaching the site while driving",
+        nextPoiName: nextPoi?.name,
+        nextPoiDistance: nextPoiDistance,
         language: "en-US"
       })
       setAudioUrl(result.audioDataUri)
@@ -122,7 +126,7 @@ export function AudioTourController({ poi, autoStart = false }: AudioTourControl
     <div className="glass-morphism p-5 rounded-[2rem] flex flex-col gap-5 border-white/5">
       <div className="flex items-center justify-between">
         <div className="flex flex-col">
-          <span className="text-[10px] text-muted-foreground font-headline uppercase tracking-[0.2em] mb-1">AI Narrator</span>
+          <span className="text-[10px] text-muted-foreground font-headline uppercase tracking-[0.2em] mb-1">NomadGuide AI Narrator</span>
           <span className="text-lg font-headline font-bold truncate max-w-[200px] leading-tight">
             {isGenerating ? "Synthesizing Story..." : poi?.name || "Ready to discovery"}
           </span>
