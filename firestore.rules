@@ -11,33 +11,32 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      // Split rules for better query-to-rule matching
+      // Consolidated read rule for better QAP matching.
+      // Allows access if user is the owner OR if the trip is public (not admin-only).
+      allow read: if isSignedIn() && (
+        resource.data.get('adminId', '') == request.auth.uid ||
+        resource.data.get('isAdminTrip', false) == false
+      );
       
-      // 1. Allow owners to read (list/get) their own trips
-      allow read: if isSignedIn() && resource.data.adminId == request.auth.uid;
-      
-      // 2. Allow everyone signed in to see public (non-admin-only) trips
-      allow read: if isSignedIn() && resource.data.get('isAdminTrip', false) == false;
-      
-      // 3. Allow creation if the user is assigning themselves as the admin
+      // Allow creation only if the user assigns themselves as the admin
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
       
-      // 4. Allow updates and deletion only for the owner
+      // Allow updates and deletion only for the owner
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /trip_pois/{poiId} {
-        // Helper function to access the parent trip's data
+        // Helper function to safely access the parent trip's visibility settings
         function getParentTrip() {
           return get(/databases/$(database)/documents/trips/$(tripId)).data;
         }
 
-        // POIs inherit the visibility of their parent trip
+        // POIs inherit the specific visibility of their parent trip
         allow read: if isSignedIn() && (
           getParentTrip().adminId == request.auth.uid ||
           getParentTrip().get('isAdminTrip', false) == false
         );
         
-        // Only the owner of the parent trip can modify POIs
+        // Only the owner of the parent trip can modify stops
         allow write: if isSignedIn() && getParentTrip().adminId == request.auth.uid;
       }
     }

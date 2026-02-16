@@ -50,10 +50,10 @@
         "description": { "type": "string" },
         "startLatitude": { "type": "number" },
         "startLongitude": { "type": "number" },
-        "adminId": { "type": "string" },
+        "adminId": { "type": "string", "description": "The UID of the admin who created this trip." },
         "isAdminTrip": { "type": "boolean", "description": "Flag indicating if this trip is restricted to admin visibility." },
         "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time"
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "adminId"]
     },
@@ -81,31 +81,17 @@
     "providers": ["password", "google.com"]
   },
   "firestore": {
-    "structure": [
-      {
-        "path": "/users/{userId}",
-        "definition": {
-          "entityName": "User",
-          "schema": { "$ref": "#/backend/entities/User" },
-          "description": "User profile records."
-        }
-      },
-      {
-        "path": "/trips/{tripId}",
-        "definition": {
-          "entityName": "Trip",
-          "schema": { "$ref": "#/backend/entities/Trip" },
-          "description": "Top-level collection for Trip entities."
-        }
-      },
-      {
-        "path": "/trips/{tripId}/trip_pois/{tripPoiId}",
-        "definition": {
-          "entityName": "TripPoi",
-          "schema": { "$ref": "#/backend/entities/TripPoi" },
-          "description": "Stops within a trip."
-        }
-      }
-    ]
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile records."
+    },
+    "/trips/{tripId}": {
+      "schema": "Trip",
+      "description": "Top-level collection for Trip entities."
+    },
+    "/trips/{tripId}/trip_pois/{tripPoiId}": {
+      "schema": "TripPoi",
+      "description": "Stops within a trip."
+    }
   }
 }
