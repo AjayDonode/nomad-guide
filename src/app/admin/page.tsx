@@ -1,6 +1,7 @@
+
 "use client"
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { 
   Plus, 
   Map as MapIcon, 
@@ -28,7 +29,7 @@ import {
   useUser, 
   useCollection,
   useMemoFirebase,
-  initiateAnonymousSignIn
+  useDoc
 } from '@/firebase'
 import { 
   collection, 
@@ -49,18 +50,35 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { useRouter } from 'next/navigation'
+import { UserMenu } from '@/components/user-menu'
 
-// Dynamic import for Leaflet map to avoid SSR issues
+// Dynamic import for Leaflet map
 const AdminMap = dynamic(
   () => import('@/components/admin/admin-map').then(mod => mod.AdminMap),
   { ssr: false, loading: () => <div className="w-full h-full bg-muted animate-pulse flex items-center justify-center">Loading Trip Engine...</div> }
 )
 
 export default function AdminDashboard() {
-  const { auth, firestore } = useFirebase()
+  const router = useRouter()
+  const { firestore } = useFirebase()
   const { user, isUserLoading } = useUser()
   const [editingTripId, setEditingTripId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
+
+  // Verify Admin role from Firestore
+  const userDocRef = useMemoFirebase(() => {
+    if (!firestore || !user) return null
+    return doc(firestore, 'users', user.uid)
+  }, [firestore, user])
+  
+  const { data: profile, isLoading: isProfileLoading } = useDoc(userDocRef)
+
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      router.push('/admin/login?role=admin')
+    }
+  }, [user, isUserLoading, router])
 
   // Fetch all trips created by this admin
   const tripsQuery = useMemoFirebase(() => {
@@ -74,7 +92,7 @@ export default function AdminDashboard() {
 
   const { data: trips, isLoading: isTripsLoading } = useCollection(tripsQuery)
 
-  if (isUserLoading) {
+  if (isUserLoading || isProfileLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-background text-white">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -82,40 +100,40 @@ export default function AdminDashboard() {
     )
   }
 
-  if (!user) {
+  // Double check admin role
+  if (user && profile && !profile.isAdmin) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background p-6 text-center">
-        <div className="w-20 h-20 rounded-3xl bg-primary/20 flex items-center justify-center mb-6 shadow-2xl shadow-primary/20">
-          <Lock className="w-10 h-10 text-primary" />
+        <div className="w-20 h-20 rounded-3xl bg-destructive/20 flex items-center justify-center mb-6">
+          <Lock className="w-10 h-10 text-destructive" />
         </div>
-        <h1 className="text-3xl font-headline font-bold mb-2">Admin Portal</h1>
+        <h1 className="text-3xl font-headline font-bold mb-2">Unauthorized</h1>
         <p className="text-muted-foreground mb-8 max-w-sm">
-          Sign in to access the Trip Designer and start crafting immersive narrative tours.
+          You do not have administrative privileges. Please log in with an admin account.
         </p>
-        <Button 
-          onClick={() => initiateAnonymousSignIn(auth)} 
-          size="lg" 
-          className="h-14 px-10 rounded-2xl font-headline font-bold text-lg"
-        >
-          Initialize Admin Session
-        </Button>
+        <Button onClick={() => router.push('/admin/login?role=admin')}>Switch Account</Button>
       </div>
     )
   }
+
+  if (!user) return null
 
   return (
     <div className="h-screen flex bg-background text-white overflow-hidden font-body">
       {/* Sidebar: Trip List */}
       <aside className="w-80 border-r border-white/5 flex flex-col bg-card/30 backdrop-blur-xl">
         <div className="p-6 border-b border-white/5">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-              <Navigation className="w-6 h-6 text-white" />
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
+                <Navigation className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="font-headline font-bold text-lg leading-tight">NomadGuide</h1>
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Studio</span>
+              </div>
             </div>
-            <div>
-              <h1 className="font-headline font-bold text-lg leading-tight">NomadGuide</h1>
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Studio Dashboard</span>
-            </div>
+            <UserMenu />
           </div>
           
           <Button 
@@ -166,9 +184,9 @@ export default function AdminDashboard() {
         </ScrollArea>
         
         <div className="p-4 border-t border-white/5">
-          <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-white rounded-xl h-11">
-            <Settings className="w-4 h-4 mr-3" />
-            <span className="text-xs font-bold">Workspace Settings</span>
+          <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-white rounded-xl h-11" onClick={() => router.push('/')}>
+            <MapIcon className="w-4 h-4 mr-3" />
+            <span className="text-xs font-bold">Back to Discovery View</span>
           </Button>
         </div>
       </aside>
@@ -232,6 +250,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         ...tripData,
         id,
         adminId: user.uid,
+        isAdminTrip: true,
         updatedAt: serverTimestamp(),
         createdAt: tripId ? undefined : serverTimestamp()
       },
@@ -284,8 +303,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
               placeholder="Trip Title..."
             />
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline" className="text-[10px] h-4 uppercase border-white/20">Draft</Badge>
-              <span>Last saved: Just now</span>
+              <Badge variant="outline" className="text-[10px] h-4 uppercase border-white/20">Designer</Badge>
+              <span>Cloud Synced</span>
             </div>
           </div>
         </div>

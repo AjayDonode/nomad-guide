@@ -1,506 +1,108 @@
+
 {
   "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user profile in the system, storing roles and preferences.",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique identifier for the user."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User's email address."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The name displayed in the UI."
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "URL to the user's avatar image."
+        },
+        "isAdmin": {
+          "type": "boolean",
+          "description": "Flag indicating if the user has administrative privileges."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email"]
+    },
     "Trip": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Trip",
       "type": "object",
-      "description": "Represents a planned tour itinerary designed by an administrator, containing a sequence of points of interest and route information.",
+      "description": "Represents a planned tour itinerary designed by an administrator.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the Trip entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "The display name of the trip, as defined by the administrator."
-        },
-        "description": {
-          "type": "string",
-          "description": "A detailed overview or summary of the trip."
-        },
-        "startLatitude": {
-          "type": "number",
-          "description": "The latitude coordinate of the trip's starting point."
-        },
-        "startLongitude": {
-          "type": "number",
-          "description": "The longitude coordinate of the trip's starting point."
-        },
-        "endLatitude": {
-          "type": "number",
-          "description": "The latitude coordinate of the trip's intended ending point."
-        },
-        "endLongitude": {
-          "type": "number",
-          "description": "The longitude coordinate of the trip's intended ending point."
-        },
-        "estimatedTotalDurationMinutes": {
-          "type": "number",
-          "description": "The total estimated duration of the entire trip in minutes, including travel and visit times."
-        },
-        "estimatedTotalDistanceKilometers": {
-          "type": "number",
-          "description": "The total estimated driving distance of the entire trip in kilometers."
-        },
-        "routePolyline": {
-          "type": "string",
-          "description": "An encoded polyline string representing the entire recommended driving route for the trip."
-        },
-        "adminId": {
-          "type": "string",
-          "description": "Reference to the unique identifier of the administrator who created or last modified this trip. (Relationship: AdminUser 1:N Trip)"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the trip record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the trip record was last updated.",
-          "format": "date-time"
-        }
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "startLatitude": { "type": "number" },
+        "startLongitude": { "type": "number" },
+        "adminId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [
-        "id",
-        "name",
-        "startLatitude",
-        "startLongitude",
-        "adminId",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "PointOfInterest": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "PointOfInterest",
-      "type": "object",
-      "description": "Represents a specific location or landmark that can be included in one or more trips, containing rich content and geographical data.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the PointOfInterest entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "The common name of the point of interest."
-        },
-        "description": {
-          "type": "string",
-          "description": "A detailed description providing information about the point of interest."
-        },
-        "latitude": {
-          "type": "number",
-          "description": "The latitude coordinate of the point of interest."
-        },
-        "longitude": {
-          "type": "number",
-          "description": "The longitude coordinate of the point of interest."
-        },
-        "address": {
-          "type": "string",
-          "description": "The human-readable street address of the point of interest."
-        },
-        "type": {
-          "type": "string",
-          "description": "A category or type classification for the POI (e.g., 'historical site', 'museum', 'natural landmark')."
-        },
-        "suggestedVisitDurationMinutes": {
-          "type": "number",
-          "description": "The recommended amount of time a user should spend visiting this point of interest, in minutes."
-        },
-        "defaultNarrationText": {
-          "type": "string",
-          "description": "The default text to be used as a base for AI-generated audio narration for this POI."
-        },
-        "defaultNarrationStyle": {
-          "type": "string",
-          "description": "The default preferred narration style for AI-generated audio for this POI (e.g., 'adventure', 'calm', 'historical')."
-        },
-        "threeDModelAssetId": {
-          "type": "string",
-          "description": "Reference to a ThreeDModelAsset for immersive 3D previews of this POI. (Relationship: PointOfInterest 1:1 ThreeDModelAsset)"
-        },
-        "imageAssetIds": {
-          "type": "array",
-          "description": "References to ImageAsset entities associated with this POI, for visual context. (Relationship: PointOfInterest N:N ImageAsset)",
-          "items": {
-            "type": "string"
-          }
-        },
-        "soundEffectAssetIds": {
-          "type": "array",
-          "description": "References to SoundEffectAsset entities for ambient audio relevant to this POI. (Relationship: PointOfInterest N:N SoundEffectAsset)",
-          "items": {
-            "type": "string"
-          }
-        },
-        "adminId": {
-          "type": "string",
-          "description": "Reference to the unique identifier of the administrator who created or last modified this POI. (Relationship: AdminUser 1:N PointOfInterest)"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the POI record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the POI record was last updated.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "name",
-        "description",
-        "latitude",
-        "longitude",
-        "adminId",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["id", "name", "adminId"]
     },
     "TripPoi": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "TripPoi",
       "type": "object",
-      "description": "A junction entity linking a specific PointOfInterest to a Trip, defining its sequential order and trip-specific details.",
+      "description": "A stop within a trip.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the TripPoi entity, representing a specific stop within a trip."
-        },
-        "tripId": {
-          "type": "string",
-          "description": "Reference to the Trip this POI belongs to. (Relationship: Trip 1:N TripPoi)"
-        },
-        "poiId": {
-          "type": "string",
-          "description": "Reference to the PointOfInterest being visited at this stop. (Relationship: PointOfInterest 1:N TripPoi)"
-        },
-        "orderIndex": {
-          "type": "number",
-          "description": "The sequential order of this POI within the trip, starting from 1."
-        },
-        "adminId": {
-          "type": "string",
-          "description": "Denormalized adminId from the parent Trip for secure, query-agnostic authorization."
-        },
-        "customNarrationText": {
-          "type": "string",
-          "description": "Optional override text for AI narration specific to this POI within this particular trip, if different from the POI's default."
-        },
-        "customNarrationStyle": {
-          "type": "string",
-          "description": "Optional override for the narration style for AI-generated audio for this specific POI within this trip."
-        },
-        "estimatedTravelTimeFromPreviousMinutes": {
-          "type": "number",
-          "description": "The estimated travel time in minutes from the previous stop (or trip start) to this point of interest."
-        },
-        "estimatedTravelDistanceFromPreviousKilometers": {
-          "type": "number",
-          "description": "The estimated travel distance in kilometers from the previous stop (or trip start) to this point of interest."
-        },
-        "segmentPolylineFromPrevious": {
-          "type": "string",
-          "description": "An encoded polyline string representing the specific route segment from the previous stop (or trip start) to this point of interest."
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the trip POI record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the trip POI record was last updated.",
-          "format": "date-time"
-        }
+        "id": { "type": "string" },
+        "tripId": { "type": "string" },
+        "poiId": { "type": "string" },
+        "orderIndex": { "type": "number" },
+        "adminId": { "type": "string" },
+        "name": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" }
       },
-      "required": [
-        "id",
-        "tripId",
-        "poiId",
-        "orderIndex",
-        "adminId",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "ImageAsset": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ImageAsset",
-      "type": "object",
-      "description": "Stores metadata and URLs for images used to enrich points of interest or trip descriptions.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the ImageAsset entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "A descriptive name for the image asset."
-        },
-        "url": {
-          "type": "string",
-          "description": "The URL where the full-resolution image file can be accessed.",
-          "format": "uri"
-        },
-        "thumbnailUrl": {
-          "type": "string",
-          "description": "The URL where a smaller thumbnail version of the image file can be accessed.",
-          "format": "uri"
-        },
-        "altText": {
-          "type": "string",
-          "description": "Alternative text for the image, used for accessibility purposes."
-        },
-        "storagePath": {
-          "type": "string",
-          "description": "The internal storage path or identifier for caching the asset for offline use."
-        },
-        "adminId": {
-          "type": "string",
-          "description": "Reference to the unique identifier of the administrator who uploaded this image asset. (Relationship: AdminUser 1:N ImageAsset)"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the image asset record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the image asset record was last updated.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "name",
-        "url",
-        "adminId",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "NarrationAsset": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "NarrationAsset",
-      "type": "object",
-      "description": "Stores details about pre-generated or cached AI narration audio files, including the source text and audio file location.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the NarrationAsset entity."
-        },
-        "sourceText": {
-          "type": "string",
-          "description": "The original text content that was used to generate this narration audio."
-        },
-        "language": {
-          "type": "string",
-          "description": "The language code of the narration (e.g., 'en-US', 'es-ES')."
-        },
-        "narrationStyle": {
-          "type": "string",
-          "description": "The stylistic choice used for the narration (e.g., 'adventure', 'calm', 'historical')."
-        },
-        "audioUrl": {
-          "type": "string",
-          "description": "The URL where the generated audio file can be accessed.",
-          "format": "uri"
-        },
-        "durationSeconds": {
-          "type": "number",
-          "description": "The duration of the audio narration in seconds."
-        },
-        "storagePath": {
-          "type": "string",
-          "description": "The internal storage path or identifier for caching the narration audio for offline use."
-        },
-        "adminId": {
-          "type": "string",
-          "description": "Reference to the unique identifier of the administrator who initiated the creation/upload of this narration asset. (Relationship: AdminUser 1:N NarrationAsset)"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the narration asset record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the narration asset record was last updated.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "sourceText",
-        "language",
-        "audioUrl",
-        "adminId",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "ThreeDModelAsset": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ThreeDModelAsset",
-      "type": "object",
-      "description": "Stores metadata and URLs for 3D GLTF models used for immersive landmark previews.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the ThreeDModelAsset entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "A descriptive name for the 3D model asset."
-        },
-        "modelUrl": {
-          "type": "string",
-          "description": "The URL where the GLTF model bundle (.gltf or .glb) can be accessed.",
-          "format": "uri"
-        },
-        "thumbnailUrl": {
-          "type": "string",
-          "description": "The URL where a preview image for the 3D model can be accessed.",
-          "format": "uri"
-        },
-        "description": {
-          "type": "string",
-          "description": "A brief description of the 3D model's content or purpose."
-        },
-        "storagePath": {
-          "type": "string",
-          "description": "The internal storage path or identifier for caching the 3D model for offline use."
-        },
-        "adminId": {
-          "type": "string",
-          "description": "Reference to the unique identifier of the administrator who uploaded this 3D model asset. (Relationship: AdminUser 1:N ThreeDModelAsset)"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the 3D model asset record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the 3D model asset record was last updated.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "name",
-        "modelUrl",
-        "adminId",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "SoundEffectAsset": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "SoundEffectAsset",
-      "type": "object",
-      "description": "Stores details about sound effect audio files used to create an adaptive audio experience during tours.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the SoundEffectAsset entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "A descriptive name for the sound effect asset."
-        },
-        "description": {
-          "type": "string",
-          "description": "A description of what the sound effect represents (e.g., 'forest birds', 'city ambiance')."
-        },
-        "audioUrl": {
-          "type": "string",
-          "description": "The URL where the sound effect audio file can be accessed.",
-          "format": "uri"
-        },
-        "durationSeconds": {
-          "type": "number",
-          "description": "The duration of the sound effect audio in seconds."
-        },
-        "storagePath": {
-          "type": "string",
-          "description": "The internal storage path or identifier for caching the sound effect for offline use."
-        },
-        "adminId": {
-          "type": "string",
-          "description": "Reference to the unique identifier of the administrator who uploaded this sound effect asset. (Relationship: AdminUser 1:N SoundEffectAsset)"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the sound effect asset record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp indicating when the sound effect asset record was last updated.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "name",
-        "audioUrl",
-        "adminId",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["id", "tripId", "adminId", "orderIndex"]
     }
   },
   "auth": {
-    "providers": [
-      "password",
-      "anonymous"
-    ]
+    "providers": ["password", "google.com"]
   },
   "firestore": {
     "structure": [
       {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": { "$ref": "#/backend/entities/User" },
+          "description": "User profile records."
+        }
+      },
+      {
         "path": "/trips/{tripId}",
         "definition": {
           "entityName": "Trip",
-          "schema": {
-            "$ref": "#/backend/entities/Trip"
-          },
-          "description": "Top-level collection for Trip entities. Access is controlled by the 'adminId' field within each document.",
-          "params": [
-            {
-              "name": "tripId",
-              "description": "Unique identifier for the Trip."
-            }
-          ]
+          "schema": { "$ref": "#/backend/entities/Trip" },
+          "description": "Top-level collection for Trip entities."
         }
       },
       {
         "path": "/trips/{tripId}/trip_pois/{tripPoiId}",
         "definition": {
           "entityName": "TripPoi",
-          "schema": {
-            "$ref": "#/backend/entities/TripPoi"
-          },
-          "description": "Subcollection for TripPoi entities. Each document includes 'adminId' for secure listing.",
-          "params": [
-            {
-              "name": "tripId",
-              "description": "Unique identifier of the parent Trip."
-            },
-            {
-              "name": "tripPoiId",
-              "description": "Unique identifier for the TripPoi."
-            }
-          ]
+          "schema": { "$ref": "#/backend/entities/TripPoi" },
+          "description": "Stops within a trip."
         }
       }
-    ],
-    "reasoning": "Standardized ownership model with 'adminId' present in all primary and subcollection documents to satisfy Query-Agnostic Rules (QAPs) without cross-document lookups."
+    ]
   }
 }
