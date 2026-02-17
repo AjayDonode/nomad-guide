@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest.
@@ -51,7 +52,7 @@ const narrativePrompt = ai.definePrompt({
 Generate a concise and captivating audio narration for a Point of Interest (POI).
 
 POI Name: {{{poiName}}}
-Provided Description: {{#if poiDescription}}{{{poiDescription}}}{{else}}None provided. Use your knowledge to provide interesting facts about this location.{{/if}}
+Provided Description: {{#if poiDescription}}{{{poiDescription}}}{{else}}None provided. Use your extensive historical and cultural knowledge to provide a deep, fascinating insight into this location as if you were a local historian.{{/if}}
 User Preferences: {{{userPreferences}}}
 Location Context: {{{locationContext}}}
 {{#if nextPoiName}}
@@ -59,8 +60,8 @@ Next stop: {{{nextPoiName}}} ({{{nextPoiDistance}}} away).
 {{/if}}
 
 Instructions:
-- If the Provided Description is empty or brief, use your internal knowledge to share the most interesting historical or cultural facts about {{{poiName}}}.
-- Start with a welcoming hook.
+- If the Provided Description is empty or brief, act as a researcher. Search your internal knowledge base for the most significant historical, cultural, or architectural facts about {{{poiName}}}.
+- Start with a welcoming hook that mentions the location.
 - The narration should be approximately 45-60 seconds long.
 - Near the end, mention that we'll be heading towards {{{nextPoiName}}} next.
 - Use a natural, flowing storytelling style.
