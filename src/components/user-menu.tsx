@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   User as UserIcon, 
   LogOut, 
@@ -12,7 +12,8 @@ import {
   LayoutDashboard,
   Volume2,
   Loader2,
-  Ruler
+  Ruler,
+  Camera
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -46,6 +47,7 @@ export function UserMenu() {
   const { user } = useUser();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const userDocRef = useMemoFirebase(() => {
     if (!firestore || !user) return null;
@@ -58,6 +60,21 @@ export function UserMenu() {
 
   const handleLogout = () => {
     signOut(auth);
+  };
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userDocRef) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      updateDoc(userDocRef, {
+        photoURL: base64String,
+        updatedAt: serverTimestamp()
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleVoiceChange = async (value: string) => {
@@ -104,6 +121,7 @@ export function UserMenu() {
   const isAdmin = profile?.isAdmin || false;
   const voicePreference = profile?.voicePreference || 'female';
   const unitsPreference = profile?.units || 'metric';
+  const photoURL = profile?.photoURL || user.photoURL;
 
   return (
     <>
@@ -111,7 +129,7 @@ export function UserMenu() {
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0 overflow-hidden border border-white/10 hover:border-primary/50 transition-all">
             <Avatar className="h-10 w-10">
-              <AvatarImage src={user.photoURL || undefined} alt={displayName} />
+              <AvatarImage src={photoURL || undefined} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary font-bold">
                 {displayName.substring(0, 2).toUpperCase()}
               </AvatarFallback>
@@ -148,7 +166,7 @@ export function UserMenu() {
             className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10"
           >
             <Settings className="mr-2 h-4 w-4" />
-            <span>Settings</span>
+            <span>Profile & Settings</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-white/5" />
           <DropdownMenuItem 
@@ -162,26 +180,44 @@ export function UserMenu() {
       </DropdownMenu>
 
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="bg-card/95 border-white/10 text-white rounded-[2.5rem] backdrop-blur-2xl max-w-md">
+        <DialogContent className="bg-card/95 border-white/10 text-white rounded-[2.5rem] backdrop-blur-2xl max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="font-headline font-bold text-2xl">NomadGuide Settings</DialogTitle>
+            <DialogTitle className="font-headline font-bold text-2xl">Account Discovery</DialogTitle>
           </DialogHeader>
           <div className="py-6 space-y-8">
+            {/* Profile Section */}
             <div className="flex flex-col items-center text-center space-y-4">
-              <div className="relative">
-                <Avatar className="h-20 w-20 border-2 border-primary ring-4 ring-primary/10">
-                  <AvatarImage src={user.photoURL || undefined} />
-                  <AvatarFallback className="text-xl bg-primary/20 text-primary font-bold">
+              <div 
+                className="relative group cursor-pointer" 
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Avatar className="h-24 w-24 border-2 border-primary ring-4 ring-primary/10 transition-all group-hover:ring-primary/40">
+                  <AvatarImage src={photoURL || undefined} />
+                  <AvatarFallback className="text-2xl bg-primary/20 text-primary font-bold">
                     {displayName.substring(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full bg-black/40">
+                  <Camera className="w-8 h-8 text-white" />
+                </div>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  accept="image/*" 
+                  onChange={handleAvatarUpload} 
+                />
               </div>
-              <div>
-                <h3 className="text-lg font-headline font-bold">{displayName}</h3>
-                <p className="text-xs text-muted-foreground">{user.email}</p>
+              <div className="space-y-1">
+                <h3 className="text-xl font-headline font-bold">{displayName}</h3>
+                <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Mail className="w-3 h-3" />
+                  <span className="text-xs">{user.email}</span>
+                </div>
               </div>
             </div>
 
+            {/* Settings Section */}
             <div className="space-y-6 bg-white/5 p-6 rounded-3xl border border-white/5">
               {/* Voice Preference */}
               <div className="space-y-4">
@@ -239,7 +275,7 @@ export function UserMenu() {
             </div>
 
             <Button variant="outline" className="w-full rounded-2xl h-12 border-white/10 hover:bg-white/5 font-bold" onClick={() => setIsSettingsOpen(false)}>
-              Close Settings
+              Close Discovery
             </Button>
           </div>
         </DialogContent>
