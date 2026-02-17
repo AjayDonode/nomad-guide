@@ -338,7 +338,7 @@ export default function DrivingDashboard() {
                               <Heart className="w-3 h-3 fill-current" /> Saved Trips
                             </DropdownMenuLabel>
                             {categorizedTrips.favorites.map((trip) => (
-                              <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between group">
+                              <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10 flex items-center justify-between group">
                                 <div className="flex flex-col gap-0.5">
                                   <span className="font-bold text-sm">{trip.name}</span>
                                   <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
