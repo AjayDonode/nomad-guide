@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -27,7 +28,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { 
   Sheet, 
-  SheetContent 
+  SheetContent,
+  SheetTitle,
+  SheetDescription
 } from '@/components/ui/sheet'
 import {
   DropdownMenu,
@@ -414,6 +417,10 @@ export default function DrivingDashboard() {
         {activePoi && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
             <SheetContent side="bottom" className="h-[auto] max-h-[75vh] bg-background/95 backdrop-blur-2xl border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
+              <div className="sr-only">
+                <SheetTitle>{activePoi.name}</SheetTitle>
+                <SheetDescription>{activePoi.reason || activePoi.description || 'Discovery stop details'}</SheetDescription>
+              </div>
               <ScrollArea className="h-full">
                 <div className="p-5 pb-8 space-y-5">
                   <div className="flex items-center justify-between mb-2">

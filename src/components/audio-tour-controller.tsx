@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -109,31 +110,31 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
   }, [])
 
   return (
-    <div className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md">
+    <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5 backdrop-blur-md">
       <Button 
         variant="ghost" 
         size="icon" 
-        className="h-8 w-8 rounded-xl hover:bg-white/5 text-muted-foreground"
+        className="h-7 w-7 rounded-lg hover:bg-white/5 text-muted-foreground"
         onClick={handleGenerateAndPlay}
         disabled={isGenerating}
       >
-        <RotateCw className={cn("w-3.5 h-3.5", isGenerating && "animate-spin")} />
+        <RotateCw className={cn("w-3 h-3", isGenerating && "animate-spin")} />
       </Button>
       <Button 
         onClick={togglePlayback}
         disabled={isGenerating}
         size="icon"
         className={cn(
-          "h-10 w-10 rounded-xl transition-all shadow-lg",
+          "h-8 w-8 rounded-lg transition-all shadow-lg",
           isPlaying ? "bg-accent hover:bg-accent/90" : "bg-primary hover:bg-primary/90"
         )}
       >
         {isGenerating ? (
-          <Loader2 className="w-4 h-4 animate-spin text-white" />
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
         ) : isPlaying ? (
-          <Pause className="w-4 h-4 text-white" />
+          <Pause className="w-3.5 h-3.5 text-white" />
         ) : (
-          <Play className="w-4 h-4 ml-0.5 fill-current text-white" />
+          <Play className="w-3.5 h-3.5 ml-0.5 fill-current text-white" />
         )}
       </Button>
     </div>
