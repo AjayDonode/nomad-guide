@@ -21,21 +21,25 @@ interface PoiVisualsProps {
 export function PoiVisuals({ poi }: PoiVisualsProps) {
   const hasImages = poi?.images && poi.images.length > 0
 
+  // Constraining the container height to prevent "all-screen" expansion
+  // h-64 (256px) on mobile, scaling up slightly to h-80 (320px) on medium screens
+  const containerClass = "w-full h-64 sm:h-72 md:h-80 rounded-3xl overflow-hidden border border-white/5 relative bg-black/20 shadow-2xl"
+
   if (!hasImages) {
     return (
-      <div className="h-64 rounded-3xl overflow-hidden border border-white/5 relative bg-black/20">
+      <div className={containerClass}>
         <Landmark3DPreview landmarkId={poi?.name || 'discovery'} />
       </div>
     )
   }
 
   return (
-    <div className="h-64 rounded-3xl overflow-hidden border border-white/5 relative bg-black/20">
-      <Carousel className="w-full h-full">
-        <CarouselContent className="h-64 ml-0">
+    <div className={containerClass}>
+      <Carousel className="w-full h-full" opts={{ loop: true }}>
+        <CarouselContent className="h-full ml-0">
           {poi.images?.map((img, index) => (
             <CarouselItem key={index} className="h-full pl-0 relative">
-              {/* Using unoptimized to handle large base64 data strings safely */}
+              {/* Container for the image to ensure 'fill' property is constrained by parent */}
               <div className="relative w-full h-full">
                 <Image 
                   src={img} 
@@ -44,22 +48,23 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
                   className="object-cover"
                   unoptimized
                   priority={index === 0}
-                  sizes="(max-width: 768px) 100vw, 50vw"
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                 />
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
-              <div className="absolute bottom-4 left-4 z-10">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-white/90 bg-black/60 px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10">
-                  Discovery Photo {index + 1} / {poi.images?.length}
-                </span>
+                {/* Visual overlays for readability and information */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute bottom-4 left-4 z-10">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-white/90 bg-black/60 px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10">
+                    Discovery Photo {index + 1} / {poi.images?.length}
+                  </span>
+                </div>
               </div>
             </CarouselItem>
           ))}
         </CarouselContent>
         {poi.images && poi.images.length > 1 && (
           <>
-            <CarouselPrevious className="left-4 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm" />
-            <CarouselNext className="right-4 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm" />
+            <CarouselPrevious className="left-4 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+            <CarouselNext className="right-4 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
           </>
         )}
       </Carousel>
