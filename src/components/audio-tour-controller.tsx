@@ -20,11 +20,12 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   
   const playerRef = useRef<Tone.Player | null>(null)
-  const currentPoiName = useRef<string | null>(null)
+  const currentPoiId = useRef<string | null>(null)
 
   useEffect(() => {
-    if (autoStart && poi && poi.name !== currentPoiName.current) {
-      currentPoiName.current = poi.name;
+    // If autoStart is enabled and the POI has changed, trigger generation and playback
+    if (autoStart && poi && poi.id !== currentPoiId.current) {
+      currentPoiId.current = poi.id;
       handleGenerateAndPlay();
     }
   }, [autoStart, poi])
@@ -36,7 +37,7 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
       const result = await generateNarrativeTour({
         poiName: poi.name,
         poiDescription: poi.description || "",
-        userPreferences: "captivating, informative, and professional female guide",
+        userPreferences: "captivating, informative, and professional guide",
         locationContext: "approaching the site while driving",
         nextPoiName: nextPoi?.name,
         nextPoiDistance: nextPoiDistance,
@@ -53,15 +54,19 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
   }
 
   const handleGenerateAndPlay = async () => {
+    // Tone context must be resumed in response to user gesture, 
+    // but often it's already running from the 'GO' button in parent.
     if (Tone.getContext().state !== 'running') {
-      await Tone.start()
+      try { await Tone.start() } catch (e) { console.warn("Tone start failed", e) }
     }
+    
     if (playerRef.current) {
       playerRef.current.stop()
       playerRef.current.dispose()
       playerRef.current = null
       setIsPlaying(false)
     }
+
     const url = await handleGenerateNarration()
     if (url) {
       const player = new Tone.Player({
@@ -116,6 +121,7 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
         className="h-6 w-6 rounded-md hover:bg-white/5 text-muted-foreground"
         onClick={handleGenerateAndPlay}
         disabled={isGenerating}
+        title="Regenerate narration"
       >
         <RotateCw className={cn("w-2.5 h-2.5", isGenerating && "animate-spin")} />
       </Button>

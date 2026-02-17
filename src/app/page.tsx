@@ -50,6 +50,8 @@ import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import { collection, query, orderBy } from 'firebase/firestore'
 import { PoiVisuals } from '@/components/poi-visuals'
+import { simpleNarrate } from '@/ai/flows/generate-narrative-tour'
+import * as Tone from 'tone'
 
 // Dynamic imports
 const NavigationMap = dynamic(
@@ -113,6 +115,7 @@ export default function DrivingDashboard() {
   const [activeTripName, setActiveTripName] = useState("")
 
   const narratedPois = useRef<Set<string>>(new Set())
+  const introPlayed = useRef<boolean>(false)
 
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore) return null
@@ -219,16 +222,37 @@ export default function DrivingDashboard() {
     setActiveTripId(trip.id)
     setActiveTripName(trip.name)
     narratedPois.current.clear()
+    introPlayed.current = false
     toast({ title: "Trip Selected", description: `Following ${trip.name}` })
   }
 
-  const startDriving = () => {
+  const startDriving = async () => {
     if (!user) {
       toast({ title: "Auth Required", description: "Please sign in to start navigation." })
       router.push('/login')
       return
     }
+
+    // Tone must be started in response to a user gesture
+    if (Tone.getContext().state !== 'running') {
+      await Tone.start()
+    }
+
     setIsDriving(true)
+
+    // Play intro narration
+    if (!introPlayed.current && autoNarrate) {
+      introPlayed.current = true
+      try {
+        const audioUri = await simpleNarrate(`Let's go explore ${activeTripName}`)
+        const player = new Tone.Player({
+          url: audioUri,
+          onload: () => player.start()
+        }).toDestination()
+      } catch (e) {
+        console.error("Intro failed", e)
+      }
+    }
   }
 
   const formatDistance = (meters: number) => {

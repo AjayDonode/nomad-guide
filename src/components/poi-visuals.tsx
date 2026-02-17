@@ -28,7 +28,7 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
 
   return (
     <div className="space-y-6">
-      {/* Visual Container */}
+      {/* Visual Container - Strictly for Images */}
       {hasImages && (
         <div className={cn("w-full rounded-[2rem] overflow-hidden border border-white/5 relative bg-black/20 shadow-2xl", visualHeightClass)}>
           <Carousel className="w-full h-full" opts={{ loop: true }}>
@@ -64,7 +64,7 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
         </div>
       )}
 
-      {/* Narrative Section */}
+      {/* Unified Narrative Section - Always under the images/top */}
       <div className="space-y-4 px-2">
         <div className="flex items-center justify-between">
            <div>
@@ -86,7 +86,7 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
             <Sparkles className="w-12 h-12 text-white" />
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground font-body italic">
-            "{poi.reason || poi.description || `Learning about the unique history and culture of ${poi.name}...`}"
+            {poi.description || poi.reason || `Experience the rich history and unique character of ${poi.name}. Discover hidden stories and local secrets at this landmark.`}
           </p>
         </div>
       </div>
