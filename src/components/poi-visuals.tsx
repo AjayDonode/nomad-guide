@@ -67,8 +67,8 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
       {/* Unified Narrative Section - Always under the images/top */}
       <div className="space-y-4 px-2">
         <div className="flex items-center justify-between">
-           <div>
-             <h3 className="text-2xl font-headline font-bold text-white mb-1">{poi.name}</h3>
+           <div className="min-w-0 flex-1">
+             <h3 className="text-2xl font-headline font-bold text-white mb-1 truncate">{poi.name}</h3>
              <div className="flex items-center gap-2">
                 <MapPin className="w-3 h-3 text-primary" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -76,7 +76,7 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
                 </span>
              </div>
            </div>
-           <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20">
+           <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20 shrink-0">
               <Sparkles className="w-5 h-5 text-primary" />
            </div>
         </div>

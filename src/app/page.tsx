@@ -3,16 +3,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { 
-  Search, 
   Navigation,
   Compass, 
   Volume2,
-  MapPin,
   X,
   Play,
   VolumeX,
   LogIn,
-  Map as MapIcon,
   ChevronDown,
   CornerUpLeft,
   CornerUpRight,
@@ -21,7 +18,9 @@ import {
   SquareArrowOutUpRight,
   Route,
   Heart,
-  Navigation2
+  Navigation2,
+  Search,
+  Map as MapIcon
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,7 +35,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -45,10 +43,10 @@ import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { RouteStep } from '@/components/navigation-map'
-import { useUser, useFirebase, useCollection, useMemoFirebase } from '@/firebase'
+import { useUser, useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
-import { collection, query, orderBy } from 'firebase/firestore'
+import { collection, query, orderBy, doc } from 'firebase/firestore'
 import { PoiVisuals } from '@/components/poi-visuals'
 import { simpleNarrate } from '@/ai/flows/generate-narrative-tour'
 import * as Tone from 'tone'
@@ -117,6 +115,7 @@ export default function DrivingDashboard() {
   const narratedPois = useRef<Set<string>>(new Set())
   const introPlayed = useRef<boolean>(false)
 
+  // Subscriptions
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore) return null
     return query(collection(firestore, 'trips'))
@@ -135,11 +134,12 @@ export default function DrivingDashboard() {
   }, [firestore, activeTripId])
   const { data: tripPois } = useCollection(tripPoisQuery)
 
-  const activePoi = useMemo(() => {
-    if (!selectedPoiId) return null;
-    const source = (tripPois && tripPois.length > 0) ? tripPois : recommendedPois;
-    return source.find((p: any) => p.id === selectedPoiId) || null;
-  }, [selectedPoiId, tripPois, recommendedPois]);
+  // Use live document for selected POI to ensure images update instantly
+  const activePoiRef = useMemoFirebase(() => {
+    if (!firestore || !activeTripId || !selectedPoiId) return null
+    return doc(firestore, 'trips', activeTripId, 'trip_pois', selectedPoiId)
+  }, [firestore, activeTripId, selectedPoiId])
+  const { data: activePoi } = useDoc(activePoiRef)
 
   const upcomingStopName = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return null;

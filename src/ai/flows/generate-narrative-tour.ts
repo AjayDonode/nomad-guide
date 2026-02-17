@@ -1,10 +1,6 @@
-
 'use server';
 /**
  * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest.
- *
- * - generateNarrativeTour - A function that handles the generation of narrative audio tours.
- * - simpleNarrate - A simple function to convert any text to audio.
  */
 
 import { ai } from '@/ai/genkit';
@@ -52,7 +48,8 @@ export async function simpleNarrate(text: string): Promise<string> {
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
   input: { schema: GenerateNarrativeTourInputSchema },
-  output: { schema: z.string().describe('The generated narrative text.') },
+  // Using an object for the output schema is more robust for LLM responses
+  output: { schema: z.object({ narrationText: z.string() }) },
   prompt: `You are an expert tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
 Generate a concise and captivating audio narration for a Point of Interest (POI).
 
@@ -65,11 +62,11 @@ Next stop: {{{nextPoiName}}} ({{{nextPoiDistance}}} away).
 {{/if}}
 
 Instructions:
-- If the Provided Description is empty or brief, act as a researcher. Provide the most significant historical, cultural, or architectural facts about {{{poiName}}}. Do not mention that you are searching; speak as if you already have this deep knowledge.
-- Start with a welcoming hook that mentions the location.
+- If the Provided Description is empty or brief, act as a researcher. Provide the most significant historical, cultural, or architectural facts about {{{poiName}}}. Speak with authority and intrigue.
+- Start with a welcoming hook.
 - The narration should be approximately 45-60 seconds long.
-- Near the end, mention that we'll be heading towards {{{nextPoiName}}} next.
-- Use a natural, flowing storytelling style.
+- Near the end, mention the next stop: {{{nextPoiName}}}.
+- Respond with a JSON object containing a 'narrationText' field.
 `,
 });
 
@@ -80,14 +77,14 @@ const generateNarrativeTourFlow = ai.defineFlow(
     outputSchema: GenerateNarrativeTourOutputSchema,
   },
   async (input) => {
-    const { output: narrationText } = await narrativePrompt(input);
+    const { output } = await narrativePrompt(input);
 
-    if (!narrationText) {
+    if (!output?.narrationText) {
       throw new Error('Failed to generate narration text.');
     }
 
     const { media } = await ai.generate({
-      model: googleAI.model('gemini-2.5-flash-preview-tts'),
+      model: googleAI.model('gemini-1.5-flash'),
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -96,7 +93,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
           },
         },
       },
-      prompt: narrationText,
+      prompt: output.narrationText,
     });
 
     if (!media) {
@@ -108,7 +105,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
 
     return {
       audioDataUri: 'data:audio/wav;base64,' + wavAudioBase64,
-      generatedText: narrationText,
+      generatedText: output.narrationText,
     };
   }
 );
@@ -121,7 +118,7 @@ const simpleNarrateFlow = ai.defineFlow(
   },
   async (text) => {
     const { media } = await ai.generate({
-      model: googleAI.model('gemini-2.5-flash-preview-tts'),
+      model: googleAI.model('gemini-1.5-flash'),
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
