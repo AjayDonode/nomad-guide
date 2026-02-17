@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -118,36 +119,30 @@ export default function DrivingDashboard() {
 
   const narratedPois = useRef<Set<string>>(new Set())
 
-  // Fetch all trips
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore) return null
     return query(collection(firestore, 'trips'))
   }, [firestore])
   const { data: allTrips } = useCollection(tripsQuery)
 
-  // Fetch user favorites
   const favoritesQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null
     return query(collection(firestore, 'users', user.uid, 'favorites'))
   }, [firestore, user])
   const { data: favorites } = useCollection(favoritesQuery)
 
-  // Fetch POIs for the active trip - this is our live stream for images and updates
   const tripPoisQuery = useMemoFirebase(() => {
     if (!firestore || !activeTripId) return null
     return query(collection(firestore, 'trips', activeTripId, 'trip_pois'), orderBy('orderIndex'))
   }, [firestore, activeTripId])
   const { data: tripPois } = useCollection(tripPoisQuery)
 
-  // Memoize the active POI object by searching for the current selection in the LIVE tripPois list
-  // This ensures that when images are uploaded, they appear instantly in the open sheet
   const activePoi = useMemo(() => {
     if (!selectedPoiId) return null;
     const source = (tripPois && tripPois.length > 0) ? tripPois : recommendedPois;
     return source.find((p: any) => p.id === selectedPoiId) || null;
   }, [selectedPoiId, tripPois, recommendedPois]);
 
-  // Calculate the current target stop based on what hasn't been narrated yet
   const upcomingStopName = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return null;
     const next = recommendedPois.find(poi => !narratedPois.current.has(poi.name));
@@ -165,30 +160,23 @@ export default function DrivingDashboard() {
     }
   }, [])
 
-  // Categorize Trips Logic for Dropdown
   const categorizedTrips = useMemo(() => {
     if (!allTrips) return { nearby: [], favorites: [] }
-
     const favoriteIds = new Set(favorites?.map(f => f.tripId) || [])
-    
     const tripsWithDistance = allTrips.map(trip => ({
       ...trip,
       distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
     })).sort((a, b) => a.distance - b.distance)
-
-    const nearby = tripsWithDistance.filter(t => t.distance < 50) // Within 50km
+    const nearby = tripsWithDistance.filter(t => t.distance < 50)
     const userFavs = tripsWithDistance.filter(t => favoriteIds.has(t.id))
-    
     return { nearby, favorites: userFavs }
   }, [allTrips, favorites, userLocation])
 
-  // Filter Trips inside dropdown
   const filteredTrips = useMemo(() => {
     if (!allTrips) return []
     return allTrips.filter(t => t.name.toLowerCase().includes(dropdownSearch.toLowerCase()))
   }, [allTrips, dropdownSearch])
 
-  // Update route data when trip POIs load
   useEffect(() => {
     if (activeTripId && tripPois && tripPois.length > 0) {
       const activeTrip = allTrips?.find(t => t.id === activeTripId)
@@ -206,14 +194,9 @@ export default function DrivingDashboard() {
     const checkProximity = () => {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
-        
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
-        
-        // Trigger narration approximately 1 minute before reaching (assume 50km/h avg -> 800m)
         if (dist < 0.8) {
           narratedPois.current.add(poi.name)
-          
-          // Find next POI in sequence for context
           const nextPoi = recommendedPois[index + 1] || null
           if (nextPoi) {
              const nextDist = getDistance(poi.latitude, poi.longitude, nextPoi.latitude, nextPoi.longitude)
@@ -224,18 +207,13 @@ export default function DrivingDashboard() {
           } else {
              setNextPoiInfo(null)
           }
-
           setSelectedPoiId(poi.id)
           setIsSheetOpen(true)
-          toast({ 
-            title: "Upcoming Stop", 
-            description: `Approaching ${poi.name}. Starting narration.` 
-          })
         }
       })
     }
     checkProximity()
-  }, [userLocation, isDriving, recommendedPois, autoNarrate, toast])
+  }, [userLocation, isDriving, recommendedPois, autoNarrate])
 
   const handleSelectTrip = (trip: any) => {
     setIsLoading(true)
@@ -263,7 +241,6 @@ export default function DrivingDashboard() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-body selection:bg-primary/30">
-      {/* Fixed Top Navigation Bar */}
       <div className="fixed top-0 left-0 right-0 z-[110] p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
           <div className="flex-1 glass-morphism p-3 rounded-2xl flex items-center gap-3">
@@ -318,17 +295,12 @@ export default function DrivingDashboard() {
                       className="pl-9 h-10 bg-white/5 border-white/10 text-xs rounded-xl"
                     />
                   </div>
-
                   <ScrollArea className="h-[400px]">
                     {dropdownSearch.length > 0 ? (
                       <div className="space-y-1">
                         <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2">Search Results</DropdownMenuLabel>
                         {filteredTrips.map((trip) => (
-                           <DropdownMenuItem 
-                              key={trip.id} 
-                              onClick={() => handleSelectTrip(trip)}
-                              className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between"
-                            >
+                           <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between">
                               <div className="flex flex-col gap-0.5">
                                 <span className="font-bold text-sm">{trip.name}</span>
                                 <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
@@ -344,11 +316,7 @@ export default function DrivingDashboard() {
                               <Heart className="w-3 h-3 fill-current" /> Saved Trips
                             </DropdownMenuLabel>
                             {categorizedTrips.favorites.map((trip) => (
-                              <DropdownMenuItem 
-                                key={trip.id} 
-                                onClick={() => handleSelectTrip(trip)}
-                                className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between group"
-                              >
+                              <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between group">
                                 <div className="flex flex-col gap-0.5">
                                   <span className="font-bold text-sm">{trip.name}</span>
                                   <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
@@ -357,17 +325,12 @@ export default function DrivingDashboard() {
                             ))}
                           </div>
                         )}
-
                         <div className="mb-2">
                           <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-accent px-2 flex items-center gap-2">
                             <Navigation2 className="w-3 h-3" /> Nearby Trips
                           </DropdownMenuLabel>
                           {categorizedTrips.nearby.map((trip) => (
-                            <DropdownMenuItem 
-                              key={trip.id} 
-                              onClick={() => handleSelectTrip(trip)}
-                              className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between"
-                            >
+                            <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between">
                               <div className="flex flex-col gap-0.5">
                                 <span className="font-bold text-sm">{trip.name}</span>
                                 <div className="flex items-center gap-2">
@@ -387,9 +350,7 @@ export default function DrivingDashboard() {
             <Button variant="ghost" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("glass-morphism h-12 w-12 rounded-2xl", autoNarrate ? "text-accent" : "text-muted-foreground")}>
               {autoNarrate ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
             </Button>
-            {user ? (
-              <UserMenu />
-            ) : (
+            {user ? <UserMenu /> : (
               <Button onClick={() => router.push('/login')} variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl text-primary">
                 <LogIn className="w-6 h-6" />
               </Button>
@@ -398,7 +359,6 @@ export default function DrivingDashboard() {
         </div>
       </div>
 
-      {/* Main Map Content */}
       <main className="relative flex-1 h-full">
         <NavigationMap 
           center={userLocation} 
@@ -411,29 +371,20 @@ export default function DrivingDashboard() {
           isTripMode={!!activeTripId}
         />
 
-        {/* Floating Itinerary Overview (Visible when trip selected but not driving) */}
         {!isDriving && activeTripId && recommendedPois.length > 0 && (
           <div className="absolute top-24 left-4 z-[100] lg:max-w-md">
             <Card className="bg-card/80 backdrop-blur-xl border-white/10 rounded-3xl p-4 shadow-2xl border-none overflow-hidden relative">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <MapIcon className="w-4 h-4 text-primary" />
-                  <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">
-                    Trip Itinerary
-                  </span>
+                  <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">Trip Itinerary</span>
                 </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveTripId(null)}>
-                  <X className="w-3 h-3" />
-                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveTripId(null)}><X className="w-3 h-3" /></Button>
               </div>
               <ScrollArea className="max-h-[300px]">
                 <div className="space-y-2">
                   {recommendedPois.map((poi, idx) => (
-                    <div 
-                      key={idx} 
-                      className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors" 
-                      onClick={() => { setSelectedPoiId(poi.id); setIsSheetOpen(true); }}
-                    >
+                    <div key={idx} className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors" onClick={() => { setSelectedPoiId(poi.id); setIsSheetOpen(true); }}>
                       <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
                         <span className="text-xs font-bold text-primary">{idx + 1}</span>
                       </div>
@@ -456,9 +407,7 @@ export default function DrivingDashboard() {
 
         {isDriving && (
           <div className="absolute bottom-10 left-4 z-40">
-             <Button onClick={() => setIsDriving(false)} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl">
-              <X className="w-6 h-6" />
-            </Button>
+             <Button onClick={() => setIsDriving(false)} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
           </div>
         )}
 
@@ -470,30 +419,30 @@ export default function DrivingDashboard() {
 
         {activePoi && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-            <SheetContent side="bottom" className="h-[80vh] bg-background border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
+            <SheetContent side="bottom" className="h-[65vh] bg-background/95 backdrop-blur-2xl border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
               <ScrollArea className="h-full">
-                <div className="p-6 space-y-8">
+                <div className="p-6 space-y-6">
                   <SheetHeader className="text-left">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <SheetTitle className="text-2xl font-headline font-bold">{activePoi.name}</SheetTitle>
                       <Badge className="bg-accent text-accent-foreground font-bold">{activePoi.category}</Badge>
                     </div>
                   </SheetHeader>
-                  <div className="grid gap-6">
+                  
+                  <div className="space-y-6">
                     <PoiVisuals poi={activePoi} />
-                    <AudioTourController 
-                      poi={activePoi} 
-                      nextPoi={nextPoiInfo?.poi} 
-                      nextPoiDistance={nextPoiInfo?.distance}
-                      autoStart={isSheetOpen && autoNarrate} 
-                    />
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-headline uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                        <Mic2 className="w-4 h-4 text-primary" /> Story Context
-                      </h3>
-                      <div className="bg-card/40 rounded-2xl p-5 border border-white/5 italic text-muted-foreground">
-                        {activePoi.reason || activePoi.description}
+                    
+                    <div className="flex items-center justify-between gap-4 p-4 rounded-3xl bg-white/5 border border-white/5">
+                      <div className="flex-1">
+                        <div className="text-[10px] uppercase tracking-widest text-primary font-bold mb-1">Narrator State</div>
+                        <div className="text-xs text-muted-foreground italic line-clamp-1">{activePoi.reason || activePoi.description || 'Exploring current stop...'}</div>
                       </div>
+                      <AudioTourController 
+                        poi={activePoi} 
+                        nextPoi={nextPoiInfo?.poi} 
+                        nextPoiDistance={nextPoiInfo?.distance}
+                        autoStart={isSheetOpen && autoNarrate} 
+                      />
                     </div>
                   </div>
                 </div>
