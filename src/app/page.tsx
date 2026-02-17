@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -129,6 +130,13 @@ export default function DrivingDashboard() {
   }, [firestore, activeTripId])
   const { data: tripPois } = useCollection(tripPoisQuery)
 
+  const userDocRef = useMemoFirebase(() => {
+    if (!firestore || !user) return null
+    return doc(firestore, 'users', user.uid)
+  }, [firestore, user])
+  const { data: profile } = useDoc(userDocRef)
+  const voicePreference = (profile?.voicePreference as 'male' | 'female') || 'female'
+
   // Use live document for selected POI to ensure images update instantly
   const activePoiRef = useMemoFirebase(() => {
     if (!firestore || !activeTripId || !selectedPoiId) return null
@@ -236,7 +244,7 @@ export default function DrivingDashboard() {
     if (!introPlayed.current) {
       introPlayed.current = true
       try {
-        const audioUri = await simpleNarrate(`Let's go explore ${activeTripName}`)
+        const audioUri = await simpleNarrate(`Let's go explore ${activeTripName}`, voicePreference)
         const player = new Tone.Player({
           url: audioUri,
           onload: () => {

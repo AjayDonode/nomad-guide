@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -6,6 +7,8 @@ import { Play, Pause, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
 import { cn } from '@/lib/utils'
+import { useUser, useFirebase, useMemoFirebase, useDoc } from '@/firebase'
+import { doc } from 'firebase/firestore'
 
 interface AudioTourControllerProps {
   poi?: any
@@ -15,12 +18,22 @@ interface AudioTourControllerProps {
 }
 
 export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart = false }: AudioTourControllerProps) {
+  const { firestore } = useFirebase()
+  const { user } = useUser()
   const [isPlaying, setIsPlaying] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   
   const playerRef = useRef<Tone.Player | null>(null)
   const currentPoiId = useRef<string | null>(null)
+
+  // Fetch user preference
+  const userDocRef = useMemoFirebase(() => {
+    if (!firestore || !user) return null
+    return doc(firestore, 'users', user.uid)
+  }, [firestore, user])
+  const { data: profile } = useDoc(userDocRef)
+  const voicePreference = (profile?.voicePreference as 'male' | 'female') || 'female'
 
   useEffect(() => {
     if (autoStart && poi && poi.id !== currentPoiId.current) {
@@ -40,7 +53,8 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
         locationContext: "approaching the site while driving",
         nextPoiName: nextPoi?.name,
         nextPoiDistance: nextPoiDistance,
-        language: "en-US"
+        language: "en-US",
+        voicePreference
       })
       setAudioUrl(result.audioDataUri)
       return result.audioDataUri
@@ -117,16 +131,16 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
         disabled={isGenerating}
         size="icon"
         className={cn(
-          "h-14 w-14 rounded-full transition-all shadow-2xl border-2 border-white/20",
+          "h-16 w-16 rounded-full transition-all shadow-2xl border-4 border-white/20",
           isPlaying ? "bg-accent hover:bg-accent/90" : "bg-primary hover:bg-primary/90"
         )}
       >
         {isGenerating ? (
-          <Loader2 className="w-6 h-6 animate-spin text-white" />
+          <Loader2 className="w-8 h-8 animate-spin text-white" />
         ) : isPlaying ? (
-          <Pause className="w-6 h-6 text-white" />
+          <Pause className="w-8 h-8 text-white" />
         ) : (
-          <Play className="w-6 h-6 ml-1 fill-current text-white" />
+          <Play className="w-8 h-8 ml-1 fill-current text-white" />
         )}
       </Button>
     </div>

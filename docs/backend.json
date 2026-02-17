@@ -28,6 +28,12 @@
           "type": "boolean",
           "description": "Flag indicating if the user has administrative privileges."
         },
+        "voicePreference": {
+          "type": "string",
+          "enum": ["female", "male"],
+          "default": "female",
+          "description": "The user's preferred guide voice gender."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"

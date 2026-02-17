@@ -9,7 +9,8 @@ import {
   Shield, 
   Mail,
   Calendar,
-  LayoutDashboard
+  LayoutDashboard,
+  Volume2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -29,9 +30,11 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useFirebase, useUser, useDoc, useMemoFirebase } from '@/firebase';
 import { signOut } from 'firebase/auth';
-import { doc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 
 export function UserMenu() {
   const router = useRouter();
@@ -53,8 +56,18 @@ export function UserMenu() {
     signOut(auth);
   };
 
+  const handleVoiceChange = (value: string) => {
+    if (userDocRef) {
+      updateDoc(userDocRef, {
+        voicePreference: value,
+        updatedAt: serverTimestamp()
+      });
+    }
+  };
+
   const displayName = profile?.displayName || user.displayName || user.email?.split('@')[0] || 'User';
   const isAdmin = profile?.isAdmin || false;
+  const voicePreference = profile?.voicePreference || 'female';
 
   return (
     <>
@@ -142,7 +155,7 @@ export function UserMenu() {
               </div>
             </div>
 
-            <div className="space-y-4 bg-white/5 p-6 rounded-3xl border border-white/5">
+            <div className="space-y-6 bg-white/5 p-6 rounded-3xl border border-white/5">
               <div className="flex items-center gap-3">
                 <Mail className="w-4 h-4 text-primary" />
                 <div className="flex-1">
@@ -150,7 +163,29 @@ export function UserMenu() {
                   <p className="text-sm">{user.email}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              
+              <div className="pt-2 border-t border-white/5">
+                <div className="flex items-center gap-3 mb-4">
+                  <Volume2 className="w-4 h-4 text-primary" />
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Guide Voice Preference</p>
+                </div>
+                <RadioGroup 
+                  defaultValue={voicePreference} 
+                  onValueChange={handleVoiceChange}
+                  className="grid grid-cols-2 gap-4"
+                >
+                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5">
+                    <RadioGroupItem value="female" id="female" />
+                    <Label htmlFor="female" className="text-xs font-bold cursor-pointer">Female (Kore)</Label>
+                  </div>
+                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5">
+                    <RadioGroupItem value="male" id="male" />
+                    <Label htmlFor="male" className="text-xs font-bold cursor-pointer">Male (Algenib)</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              <div className="flex items-center gap-3 pt-4 border-t border-white/5">
                 <Calendar className="w-4 h-4 text-primary" />
                 <div className="flex-1">
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none mb-1">Member Since</p>

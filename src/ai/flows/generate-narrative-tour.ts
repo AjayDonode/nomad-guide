@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest.
@@ -24,6 +25,7 @@ const GenerateNarrativeTourInputSchema = z.object({
   nextPoiName: z.string().optional().describe('The name of the next POI in the itinerary.'),
   nextPoiDistance: z.string().optional().describe('Formatted distance to the next POI.'),
   language: z.string().default('en-US').describe('The desired language for the narration.'),
+  voicePreference: z.enum(['male', 'female']).default('female').describe('User preferred voice gender.'),
 });
 export type GenerateNarrativeTourInput = z.infer<typeof GenerateNarrativeTourInputSchema>;
 
@@ -41,8 +43,8 @@ export async function generateNarrativeTour(
   return generateNarrativeTourFlow(input);
 }
 
-export async function simpleNarrate(text: string): Promise<string> {
-  return simpleNarrateFlow(text);
+export async function simpleNarrate(text: string, voicePreference: 'male' | 'female' = 'female'): Promise<string> {
+  return simpleNarrateFlow({ text, voicePreference });
 }
 
 const narrativePrompt = ai.definePrompt({
@@ -82,13 +84,15 @@ const generateNarrativeTourFlow = ai.defineFlow(
       throw new Error('Failed to generate narration text.');
     }
 
+    const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
+
     const { media } = await ai.generate({
       model: googleAI.model('gemini-1.5-flash'),
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
+            prebuiltVoiceConfig: { voiceName },
           },
         },
       },
@@ -112,17 +116,19 @@ const generateNarrativeTourFlow = ai.defineFlow(
 const simpleNarrateFlow = ai.defineFlow(
   {
     name: 'simpleNarrateFlow',
-    inputSchema: z.string(),
+    inputSchema: z.object({ text: z.string(), voicePreference: z.enum(['male', 'female']) }),
     outputSchema: z.string(),
   },
-  async (text) => {
+  async ({ text, voicePreference }) => {
+    const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
+
     const { media } = await ai.generate({
       model: googleAI.model('gemini-1.5-flash'),
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
+            prebuiltVoiceConfig: { voiceName },
           },
         },
       },
