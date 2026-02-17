@@ -1,10 +1,9 @@
-
 "use client"
 
 import React, { useState, useEffect } from 'react'
 import { 
   Plus, 
-  Map as MapIcon, 
+  Map as LucideMap, 
   Save, 
   Trash2, 
   ChevronRight, 
@@ -188,7 +187,7 @@ export default function AdminDashboard() {
         
         <div className="p-4 border-t border-white/5">
           <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-white rounded-xl h-11" onClick={() => router.push('/')}>
-            <MapIcon className="w-4 h-4 mr-3" />
+            <LucideMap className="w-4 h-4 mr-3" />
             <span className="text-xs font-bold">Back to Map View</span>
           </Button>
         </div>
@@ -207,7 +206,7 @@ export default function AdminDashboard() {
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-12">
             <div className="w-24 h-24 rounded-[2.5rem] bg-white/5 border border-white/10 flex items-center justify-center mb-8">
-              <MapIcon className="w-10 h-10 text-muted-foreground" />
+              <LucideMap className="w-10 h-10 text-muted-foreground" />
             </div>
             <h2 className="text-2xl font-headline font-bold mb-4">Select a Trip to Edit</h2>
             <p className="text-muted-foreground max-w-md mx-auto">
@@ -499,7 +498,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                     <div className="flex flex-col gap-4">
                       <div className="flex items-center justify-center p-8 border-2 border-dashed border-white/5 rounded-3xl">
                         <p className="text-xs text-muted-foreground text-center flex flex-col gap-2 items-center">
-                          <MapIcon className="w-5 h-5 opacity-20" />
+                          <LucideMap className="w-5 h-5 opacity-20" />
                           Click on the map to add a discovery point
                         </p>
                       </div>

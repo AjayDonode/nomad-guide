@@ -1,11 +1,10 @@
-
 "use client"
 
 import React, { useEffect, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
-import { Map as MapIcon, Flag } from 'lucide-react'
+import { Map as LucideMap, Flag } from 'lucide-react'
 
 interface POI {
   id: string
@@ -206,7 +205,7 @@ export function AdminMap({ center, endPoint, pois, onMapClick, onStartPointSet, 
       {/* Map Control Overlay */}
       <div className="absolute top-6 left-6 z-[1000] glass-morphism p-3 rounded-2xl flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-          <MapIcon className="w-4 h-4 text-primary" />
+          <LucideMap className="w-4 h-4 text-primary" />
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Designer Mode</div>
