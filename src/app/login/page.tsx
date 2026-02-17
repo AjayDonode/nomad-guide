@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { 
   useFirebase, 
@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Navigation, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -34,12 +34,10 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check if we are on an admin route or have an admin flag
   const isAdminRoute = pathname.includes('/admin') || searchParams.get('role') === 'admin';
 
   useEffect(() => {
     if (user && !isLoading) {
-      // If the user is logged in, redirect them
       router.push(isAdminRoute ? '/admin' : '/');
     }
   }, [user, isLoading, isAdminRoute, router]);
@@ -58,13 +56,10 @@ export default function LoginPage() {
       }
 
       const firebaseUser = userCredential.user;
-
-      // Check for existing profile to avoid overwriting isAdmin: true
       const userRef = doc(firestore, 'users', firebaseUser.uid);
       const userSnap = await getDoc(userRef);
       const existingData = userSnap.exists() ? userSnap.data() : {};
 
-      // Build user document safely without undefined values
       const userData: any = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || '',
@@ -78,7 +73,6 @@ export default function LoginPage() {
         userData.createdAt = serverTimestamp();
       }
 
-      // Sync user data to Firestore
       await setDoc(userRef, userData, { merge: true });
 
       toast({
@@ -107,7 +101,6 @@ export default function LoginPage() {
 
   return (
     <div className="h-screen flex flex-col items-center justify-center bg-background p-6 relative overflow-hidden">
-      {/* Background Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/20 blur-[120px] rounded-full -z-10" />
       
       <div className="mb-12 text-center flex flex-col items-center gap-4">
@@ -197,5 +190,17 @@ export default function LoginPage() {
         Protected by NomadGuide Security Engine
       </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

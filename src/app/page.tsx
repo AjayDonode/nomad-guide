@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -193,7 +194,6 @@ export default function DrivingDashboard() {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
-        // Narrate ~1 minute before arrival (~800m)
         if (dist < 0.8) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
@@ -233,24 +233,24 @@ export default function DrivingDashboard() {
       return
     }
 
-    // Tone must be started in response to a user gesture
     if (Tone.getContext().state !== 'running') {
       await Tone.start()
     }
 
     setIsDriving(true)
 
-    // Play intro narration
     if (!introPlayed.current && autoNarrate) {
       introPlayed.current = true
       try {
         const audioUri = await simpleNarrate(`Let's go explore ${activeTripName}`)
         const player = new Tone.Player({
           url: audioUri,
-          onload: () => player.start()
+          onload: () => {
+            player.start()
+          }
         }).toDestination()
       } catch (e) {
-        console.error("Intro failed", e)
+        console.error("Intro audio failed to play", e)
       }
     }
   }
@@ -442,7 +442,7 @@ export default function DrivingDashboard() {
             <SheetContent side="bottom" className="h-auto max-h-[85vh] bg-background/95 backdrop-blur-3xl border-white/5 rounded-t-[3rem] p-0 overflow-hidden shadow-2xl">
               <div className="sr-only">
                 <SheetTitle>{activePoi.name}</SheetTitle>
-                <SheetDescription>{activePoi.description || 'Exploring this location.'}</SheetDescription>
+                <SheetDescription>{activePoi.description || activePoi.reason || 'Exploring this location.'}</SheetDescription>
               </div>
               <ScrollArea className="h-full">
                 <div className="p-6 pb-12 space-y-6 max-w-2xl mx-auto">
@@ -452,8 +452,6 @@ export default function DrivingDashboard() {
 
                   <div className="relative">
                     <PoiVisuals poi={activePoi} />
-                    
-                    {/* Compact Integrated Controller Overlay */}
                     <div className="absolute top-4 right-4 z-20">
                       <AudioTourController 
                         poi={activePoi} 

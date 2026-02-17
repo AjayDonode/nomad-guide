@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest.
@@ -64,7 +65,7 @@ Next stop: {{{nextPoiName}}} ({{{nextPoiDistance}}} away).
 {{/if}}
 
 Instructions:
-- If the Provided Description is empty or brief, act as a researcher. Provide the most significant historical, cultural, or architectural facts about {{{poiName}}}.
+- If the Provided Description is empty or brief, act as a researcher. Provide the most significant historical, cultural, or architectural facts about {{{poiName}}}. Do not mention that you are searching; speak as if you already have this deep knowledge.
 - Start with a welcoming hook that mentions the location.
 - The narration should be approximately 45-60 seconds long.
 - Near the end, mention that we'll be heading towards {{{nextPoiName}}} next.
