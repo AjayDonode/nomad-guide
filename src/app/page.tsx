@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -7,14 +6,11 @@ import {
   Search, 
   Navigation,
   Compass, 
-  Mic2,
   Volume2,
-  Loader2,
   MapPin,
   X,
   Play,
   VolumeX,
-  Sparkles,
   LogIn,
   Map as MapIcon,
   ChevronDown,
@@ -25,16 +21,13 @@ import {
   SquareArrowOutUpRight,
   Route,
   Heart,
-  History,
   Navigation2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { 
   Sheet, 
-  SheetContent, 
-  SheetHeader, 
-  SheetTitle 
+  SheetContent 
 } from '@/components/ui/sheet'
 import {
   DropdownMenu,
@@ -53,7 +46,7 @@ import type { RouteStep } from '@/components/navigation-map'
 import { useUser, useFirebase, useCollection, useMemoFirebase } from '@/firebase'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
-import { collection, query, orderBy, doc, serverTimestamp, setDoc, deleteDoc, where } from 'firebase/firestore'
+import { collection, query, orderBy } from 'firebase/firestore'
 import { PoiVisuals } from '@/components/poi-visuals'
 
 // Dynamic imports
@@ -195,6 +188,7 @@ export default function DrivingDashboard() {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
+        // Narrate ~1 minute before arrival (roughly 800m at city driving speeds)
         if (dist < 0.8) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
@@ -419,24 +413,24 @@ export default function DrivingDashboard() {
 
         {activePoi && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-            <SheetContent side="bottom" className="h-[65vh] bg-background/95 backdrop-blur-2xl border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
+            <SheetContent side="bottom" className="h-[auto] max-h-[75vh] bg-background/95 backdrop-blur-2xl border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
               <ScrollArea className="h-full">
-                <div className="p-6 space-y-6">
-                  <SheetHeader className="text-left">
-                    <div className="flex items-center justify-between mb-2">
-                      <SheetTitle className="text-2xl font-headline font-bold">{activePoi.name}</SheetTitle>
-                      <Badge className="bg-accent text-accent-foreground font-bold">{activePoi.category}</Badge>
+                <div className="p-5 pb-8 space-y-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                       <MapPin className="w-4 h-4 text-primary" />
+                       <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Current Discovery Stop</span>
                     </div>
-                  </SheetHeader>
-                  
-                  <div className="space-y-6">
+                    <Button variant="ghost" size="icon" onClick={() => setIsSheetOpen(false)} className="rounded-full h-8 w-8 hover:bg-white/5">
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  <div className="relative">
                     <PoiVisuals poi={activePoi} />
                     
-                    <div className="flex items-center justify-between gap-4 p-4 rounded-3xl bg-white/5 border border-white/5">
-                      <div className="flex-1">
-                        <div className="text-[10px] uppercase tracking-widest text-primary font-bold mb-1">Narrator State</div>
-                        <div className="text-xs text-muted-foreground italic line-clamp-1">{activePoi.reason || activePoi.description || 'Exploring current stop...'}</div>
-                      </div>
+                    {/* Compact Integrated Controller */}
+                    <div className="absolute top-4 right-4 z-20">
                       <AudioTourController 
                         poi={activePoi} 
                         nextPoi={nextPoiInfo?.poi} 
