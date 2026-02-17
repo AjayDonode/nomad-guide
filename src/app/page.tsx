@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -108,7 +107,7 @@ export default function DrivingDashboard() {
   const [isCompassActive, setIsCompassActive] = useState(false)
   const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
-  const [selectedPoi, setSelectedPoi] = useState<any>(null)
+  const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
   const [destination, setDestination] = useState<[number, number] | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
@@ -118,6 +117,12 @@ export default function DrivingDashboard() {
   const [activeTripName, setActiveTripName] = useState("")
 
   const narratedPois = useRef<Set<string>>(new Set())
+
+  // Memoize the active POI object by searching for the current selection in the live POI list
+  const activePoi = useMemo(() => {
+    if (!selectedPoiId || !recommendedPois) return null;
+    return recommendedPois.find(p => p.id === selectedPoiId) || null;
+  }, [selectedPoiId, recommendedPois]);
 
   // Calculate the current target stop based on what hasn't been narrated yet
   const upcomingStopName = useMemo(() => {
@@ -218,7 +223,7 @@ export default function DrivingDashboard() {
              setNextPoiInfo(null)
           }
 
-          setSelectedPoi(poi)
+          setSelectedPoiId(poi.id)
           setIsSheetOpen(true)
           toast({ 
             title: "Upcoming Stop", 
@@ -412,7 +417,7 @@ export default function DrivingDashboard() {
           isDriving={isDriving} 
           isCompassActive={isCompassActive} 
           onNextStepUpdate={setNextStep} 
-          onPoiSelect={(poi) => { setSelectedPoi(poi); setIsSheetOpen(true); }}
+          onPoiSelect={(poi) => { setSelectedPoiId(poi.id); setIsSheetOpen(true); }}
           isTripMode={!!activeTripId}
         />
 
@@ -437,7 +442,7 @@ export default function DrivingDashboard() {
                     <div 
                       key={idx} 
                       className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors" 
-                      onClick={() => { setSelectedPoi(poi); setIsSheetOpen(true); }}
+                      onClick={() => { setSelectedPoiId(poi.id); setIsSheetOpen(true); }}
                     >
                       <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
                         <span className="text-xs font-bold text-primary">{idx + 1}</span>
@@ -473,21 +478,21 @@ export default function DrivingDashboard() {
           </Button>
         </div>
 
-        {selectedPoi && (
+        {activePoi && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
             <SheetContent side="bottom" className="h-[80vh] bg-background border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
               <ScrollArea className="h-full">
                 <div className="p-6 space-y-8">
                   <SheetHeader className="text-left">
                     <div className="flex items-center justify-between">
-                      <SheetTitle className="text-2xl font-headline font-bold">{selectedPoi.name}</SheetTitle>
-                      <Badge className="bg-accent text-accent-foreground font-bold">{selectedPoi.category}</Badge>
+                      <SheetTitle className="text-2xl font-headline font-bold">{activePoi.name}</SheetTitle>
+                      <Badge className="bg-accent text-accent-foreground font-bold">{activePoi.category}</Badge>
                     </div>
                   </SheetHeader>
                   <div className="grid gap-6">
-                    <PoiVisuals poi={selectedPoi} />
+                    <PoiVisuals poi={activePoi} />
                     <AudioTourController 
-                      poi={selectedPoi} 
+                      poi={activePoi} 
                       nextPoi={nextPoiInfo?.poi} 
                       nextPoiDistance={nextPoiInfo?.distance}
                       autoStart={isSheetOpen && autoNarrate} 
@@ -497,7 +502,7 @@ export default function DrivingDashboard() {
                         <Mic2 className="w-4 h-4 text-primary" /> Story Context
                       </h3>
                       <div className="bg-card/40 rounded-2xl p-5 border border-white/5 italic text-muted-foreground">
-                        {selectedPoi.reason || selectedPoi.description}
+                        {activePoi.reason || activePoi.description}
                       </div>
                     </div>
                   </div>

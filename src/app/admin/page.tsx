@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect } from 'react'
@@ -256,7 +255,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const poiQuery = useMemoFirebase(() => {
     if (!firestore || !tripId) return null
     return query(
-      collection(firestore, 'trips', tripId, 'trip_pois')
+      collection(firestore, 'trips', tripId, 'trip_pois'),
+      orderBy('orderIndex')
     )
   }, [firestore, tripId])
 
@@ -317,12 +317,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     )
   }
 
-  const handleImageUpload = (poiId: string, currentImages: string[], e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (poiId: string, currentImages: string[] = [], e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !firestore || !tripId) return
     
     const files = Array.from(e.target.files)
-    const availableSlots = 5 - currentImages.length
-    const filesToUpload = files.slice(0, availableSlots)
+    const availableSlots = 5 - (currentImages?.length || 0)
+    const filesToUpload = files.slice(0, Math.max(0, availableSlots))
 
     if (filesToUpload.length === 0) return
 
@@ -336,15 +336,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
     Promise.all(readers).then(newBase64Images => {
       updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
-        images: [...currentImages, ...newBase64Images],
+        images: [...(currentImages || []), ...newBase64Images],
         updatedAt: serverTimestamp()
       })
     })
   }
 
-  const removeImage = (poiId: string, currentImages: string[], indexToRemove: number) => {
+  const removeImage = (poiId: string, currentImages: string[] = [], indexToRemove: number) => {
     if (!firestore || !tripId) return
-    const updatedImages = currentImages.filter((_, idx) => idx !== indexToRemove)
+    const updatedImages = (currentImages || []).filter((_, idx) => idx !== indexToRemove)
     updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
       images: updatedImages,
       updatedAt: serverTimestamp()
@@ -415,7 +415,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 )}
 
                 <div className="space-y-6">
-                  {pois?.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map((poi, idx) => (
+                  {pois?.map((poi, idx) => (
                     <Card key={poi.id} className="bg-white/5 border-white/5 rounded-3xl overflow-hidden group">
                       <CardHeader className="p-4 flex flex-row items-center gap-4 space-y-0 pb-2">
                         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">

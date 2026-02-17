@@ -1,4 +1,3 @@
-
 "use client"
 
 import React from 'react'
@@ -20,12 +19,12 @@ interface PoiVisualsProps {
 }
 
 export function PoiVisuals({ poi }: PoiVisualsProps) {
-  const hasImages = poi.images && poi.images.length > 0
+  const hasImages = poi?.images && poi.images.length > 0
 
   if (!hasImages) {
     return (
-      <div className="h-56 rounded-3xl overflow-hidden border border-white/5">
-        <Landmark3DPreview landmarkId={poi.name} />
+      <div className="h-64 rounded-3xl overflow-hidden border border-white/5 relative bg-black/20">
+        <Landmark3DPreview landmarkId={poi?.name || 'discovery'} />
       </div>
     )
   }
@@ -33,21 +32,25 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
   return (
     <div className="h-64 rounded-3xl overflow-hidden border border-white/5 relative bg-black/20">
       <Carousel className="w-full h-full">
-        <CarouselContent className="h-full ml-0">
+        <CarouselContent className="h-64 ml-0">
           {poi.images?.map((img, index) => (
             <CarouselItem key={index} className="h-full pl-0 relative">
-              <Image 
-                src={img} 
-                alt={`${poi.name} image ${index + 1}`} 
-                fill 
-                className="object-cover"
-                unoptimized
-                sizes="(max-width: 768px) 100vw, 50vw"
-              />
+              {/* Using unoptimized to handle large base64 data strings safely */}
+              <div className="relative w-full h-full">
+                <Image 
+                  src={img} 
+                  alt={`${poi.name} view ${index + 1}`} 
+                  fill 
+                  className="object-cover"
+                  unoptimized
+                  priority={index === 0}
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                />
+              </div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 z-10">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-white/70 bg-black/40 px-2 py-1 rounded-md backdrop-blur-sm">
-                  Discovery Photo {index + 1} of {poi.images?.length}
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white/90 bg-black/60 px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10">
+                  Discovery Photo {index + 1} / {poi.images?.length}
                 </span>
               </div>
             </CarouselItem>
@@ -55,8 +58,8 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
         </CarouselContent>
         {poi.images && poi.images.length > 1 && (
           <>
-            <CarouselPrevious className="left-4 bg-black/40 border-none text-white hover:bg-black/60" />
-            <CarouselNext className="right-4 bg-black/40 border-none text-white hover:bg-black/60" />
+            <CarouselPrevious className="left-4 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm" />
+            <CarouselNext className="right-4 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm" />
           </>
         )}
       </Carousel>
