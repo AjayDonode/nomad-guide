@@ -1,7 +1,6 @@
-
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   User as UserIcon, 
   LogOut, 
@@ -10,7 +9,8 @@ import {
   Mail,
   Calendar,
   LayoutDashboard,
-  Volume2
+  Volume2,
+  Loader2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -35,12 +35,15 @@ import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { simpleNarrate } from '@/ai/flows/generate-narrative-tour';
+import * as Tone from 'tone';
 
 export function UserMenu() {
   const router = useRouter();
   const { auth, firestore } = useFirebase();
   const { user } = useUser();
   const [isProfileOpen, setIsProfileOpen] = React.useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   // Fetch the extended user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -56,12 +59,35 @@ export function UserMenu() {
     signOut(auth);
   };
 
-  const handleVoiceChange = (value: string) => {
+  const handleVoiceChange = async (value: string) => {
     if (userDocRef) {
       updateDoc(userDocRef, {
         voicePreference: value,
         updatedAt: serverTimestamp()
       });
+
+      // Play introductory message for selected voice
+      setIsSpeaking(true);
+      try {
+        if (Tone.getContext().state !== 'running') {
+          await Tone.start();
+        }
+        
+        const voiceName = value === 'male' ? 'Algenib' : 'Kore';
+        const introText = `Hi. My name is ${voiceName} and I am your Guide for the day.`;
+        const audioUri = await simpleNarrate(introText, value as 'male' | 'female');
+        
+        const player = new Tone.Player({
+          url: audioUri,
+          onload: () => {
+            player.start();
+          },
+          onstop: () => setIsSpeaking(false)
+        }).toDestination();
+      } catch (error) {
+        console.error("Failed to play voice intro", error);
+        setIsSpeaking(false);
+      }
     }
   };
 
@@ -168,17 +194,19 @@ export function UserMenu() {
                 <div className="flex items-center gap-3 mb-4">
                   <Volume2 className="w-4 h-4 text-primary" />
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Guide Voice Preference</p>
+                  {isSpeaking && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
                 </div>
                 <RadioGroup 
                   defaultValue={voicePreference} 
                   onValueChange={handleVoiceChange}
                   className="grid grid-cols-2 gap-4"
+                  disabled={isSpeaking}
                 >
-                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                     <RadioGroupItem value="female" id="female" />
                     <Label htmlFor="female" className="text-xs font-bold cursor-pointer">Female (Kore)</Label>
                   </div>
-                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                     <RadioGroupItem value="male" id="male" />
                     <Label htmlFor="male" className="text-xs font-bold cursor-pointer">Male (Algenib)</Label>
                   </div>
