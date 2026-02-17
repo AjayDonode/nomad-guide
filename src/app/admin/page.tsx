@@ -13,7 +13,9 @@ import {
   Navigation,
   Loader2,
   Lock,
-  Flag
+  Flag,
+  ImagePlus,
+  X
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -52,6 +54,7 @@ import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
+import Image from 'next/image'
 
 // Dynamic import for Leaflet map
 const AdminMap = dynamic(
@@ -307,10 +310,45 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         longitude: lng,
         orderIndex: nextIndex,
         category: "Landmark",
+        images: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       }
     )
+  }
+
+  const handleImageUpload = (poiId: string, currentImages: string[], e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !firestore || !tripId) return
+    
+    const files = Array.from(e.target.files)
+    const availableSlots = 5 - currentImages.length
+    const filesToUpload = files.slice(0, availableSlots)
+
+    if (filesToUpload.length === 0) return
+
+    const readers = filesToUpload.map(file => {
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(file)
+      })
+    })
+
+    Promise.all(readers).then(newBase64Images => {
+      updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+        images: [...currentImages, ...newBase64Images],
+        updatedAt: serverTimestamp()
+      })
+    })
+  }
+
+  const removeImage = (poiId: string, currentImages: string[], indexToRemove: number) => {
+    if (!firestore || !tripId) return
+    const updatedImages = currentImages.filter((_, idx) => idx !== indexToRemove)
+    updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+      images: updatedImages,
+      updatedAt: serverTimestamp()
+    })
   }
 
   return (
@@ -404,7 +442,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </CardHeader>
-                      <CardContent className="px-4 pb-4">
+                      <CardContent className="px-4 pb-4 space-y-4">
                          <Textarea 
                             defaultValue={poi.description || ""}
                             onBlur={(e) => {
@@ -415,6 +453,44 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                             placeholder="Add point specific narrative details..."
                             className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[80px] focus:border-primary/30"
                          />
+                         
+                         <div className="space-y-2">
+                           <div className="flex items-center justify-between">
+                             <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Gallery ({poi.images?.length || 0}/5)</Label>
+                             {(poi.images?.length || 0) < 5 && (
+                               <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] uppercase tracking-tighter" asChild>
+                                 <label className="cursor-pointer">
+                                   <ImagePlus className="w-3 h-3 mr-1" /> Add Image
+                                   <input 
+                                     type="file" 
+                                     className="hidden" 
+                                     accept="image/*" 
+                                     multiple 
+                                     onChange={(e) => handleImageUpload(poi.id, poi.images || [], e)} 
+                                   />
+                                 </label>
+                               </Button>
+                             )}
+                           </div>
+                           <div className="grid grid-cols-5 gap-2">
+                              {poi.images?.map((img: string, i: number) => (
+                                <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group/img">
+                                  <Image src={img} alt={`POI image ${i}`} fill className="object-cover" />
+                                  <button 
+                                    onClick={() => removeImage(poi.id, poi.images, i)}
+                                    className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+                                  >
+                                    <X className="w-4 h-4 text-white" />
+                                  </button>
+                                </div>
+                              ))}
+                              {Array.from({ length: 5 - (poi.images?.length || 0) }).map((_, i) => (
+                                <div key={`empty-${i}`} className="aspect-square rounded-lg bg-white/5 border border-dashed border-white/10 flex items-center justify-center">
+                                  <ImagePlus className="w-4 h-4 text-white/10" />
+                                </div>
+                              ))}
+                           </div>
+                         </div>
                       </CardContent>
                     </Card>
                   ))}

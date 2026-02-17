@@ -85,7 +85,12 @@
         "latitude": { "type": "number" },
         "longitude": { "type": "number" },
         "category": { "type": "string" },
-        "description": { "type": "string" }
+        "description": { "type": "string" },
+        "images": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Array of base64 encoded images or URLs."
+        }
       },
       "required": ["id", "tripId", "adminId", "orderIndex"]
     }

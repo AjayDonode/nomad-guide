@@ -54,6 +54,7 @@ import { useUser, useFirebase, useCollection, useMemoFirebase } from '@/firebase
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import { collection, query, orderBy, doc, serverTimestamp, setDoc, deleteDoc, where } from 'firebase/firestore'
+import { PoiVisuals } from '@/components/poi-visuals'
 
 // Dynamic imports
 const NavigationMap = dynamic(
@@ -66,11 +67,6 @@ const NavigationMap = dynamic(
       </div>
     )
   }
-)
-
-const Landmark3DPreview = dynamic(
-  () => import('@/components/landmark-3d-preview').then((mod) => mod.Landmark3DPreview),
-  { ssr: false }
 )
 
 const AudioTourController = dynamic(
@@ -489,9 +485,7 @@ export default function DrivingDashboard() {
                     </div>
                   </SheetHeader>
                   <div className="grid gap-6">
-                    <div className="h-56 rounded-3xl overflow-hidden border border-white/5">
-                      <Landmark3DPreview landmarkId={selectedPoi.name} />
-                    </div>
+                    <PoiVisuals poi={selectedPoi} />
                     <AudioTourController 
                       poi={selectedPoi} 
                       nextPoi={nextPoiInfo?.poi} 
