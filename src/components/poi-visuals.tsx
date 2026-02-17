@@ -1,7 +1,6 @@
 "use client"
 
 import React from 'react'
-import { Landmark3DPreview } from './landmark-3d-preview'
 import {
   Carousel,
   CarouselContent,
@@ -10,7 +9,7 @@ import {
   CarouselPrevious,
 } from "@/components/ui/carousel"
 import Image from 'next/image'
-import { Sparkles } from 'lucide-react'
+import { Sparkles, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface PoiVisualsProps {
@@ -25,15 +24,13 @@ interface PoiVisualsProps {
 
 export function PoiVisuals({ poi }: PoiVisualsProps) {
   const hasImages = poi?.images && poi.images.length > 0
-  const visualHeightClass = "h-48 sm:h-64"
+  const visualHeightClass = hasImages ? "h-64 sm:h-80" : "h-0"
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Visual Container */}
-      <div className={cn("w-full rounded-3xl overflow-hidden border border-white/5 relative bg-black/20 shadow-2xl", visualHeightClass)}>
-        {!hasImages ? (
-          <Landmark3DPreview landmarkId={poi?.name || 'discovery'} />
-        ) : (
+      {hasImages && (
+        <div className={cn("w-full rounded-[2rem] overflow-hidden border border-white/5 relative bg-black/20 shadow-2xl", visualHeightClass)}>
           <Carousel className="w-full h-full" opts={{ loop: true }}>
             <CarouselContent className="h-full ml-0">
               {poi.images?.map((img, index) => (
@@ -48,7 +45,7 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
                       priority={index === 0}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
-                    <div className="absolute bottom-3 left-3 z-10">
+                    <div className="absolute bottom-4 left-4 z-10">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-white/90 bg-black/60 px-2 py-1 rounded-lg backdrop-blur-md border border-white/10">
                         {index + 1} / {poi.images?.length}
                       </span>
@@ -59,33 +56,39 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
             </CarouselContent>
             {poi.images && poi.images.length > 1 && (
               <>
-                <CarouselPrevious className="left-2 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-7 w-7 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-                <CarouselNext className="right-2 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-7 w-7 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                <CarouselPrevious className="left-3 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 rounded-full transition-opacity" />
+                <CarouselNext className="right-3 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 rounded-full transition-opacity" />
               </>
             )}
           </Carousel>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Narrative Section (Integrated Under Images) */}
-      <div className="space-y-3 px-1">
+      {/* Narrative Section */}
+      <div className="space-y-4 px-2">
         <div className="flex items-center justify-between">
-           <h3 className="text-xl font-headline font-bold">{poi.name}</h3>
-           <span className="text-[10px] font-bold uppercase tracking-widest text-primary bg-primary/10 px-2 py-1 rounded-full">
-             {poi.category || 'Landmark'}
-           </span>
+           <div>
+             <h3 className="text-2xl font-headline font-bold text-white mb-1">{poi.name}</h3>
+             <div className="flex items-center gap-2">
+                <MapPin className="w-3 h-3 text-primary" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  {poi.category || 'Discovery Landmark'}
+                </span>
+             </div>
+           </div>
+           <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20">
+              <Sparkles className="w-5 h-5 text-primary" />
+           </div>
         </div>
         
-        {(poi.description || poi.reason) && (
-          <div className="relative p-4 rounded-2xl bg-white/5 border border-white/5 group">
-            <div className="absolute top-0 right-0 p-3 opacity-20">
-              <Sparkles className="w-4 h-4 text-accent" />
-            </div>
-            <p className="text-sm leading-relaxed text-muted-foreground italic">
-              "{poi.reason || poi.description}"
-            </p>
+        <div className="relative p-6 rounded-3xl bg-white/5 border border-white/10 group overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+            <Sparkles className="w-12 h-12 text-white" />
           </div>
-        )}
+          <p className="text-sm leading-relaxed text-muted-foreground font-body italic">
+            "{poi.reason || poi.description || `Learning about the unique history and culture of ${poi.name}...`}"
+          </p>
+        </div>
       </div>
     </div>
   )

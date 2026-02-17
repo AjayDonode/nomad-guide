@@ -3,8 +3,6 @@
  * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest.
  *
  * - generateNarrativeTour - A function that handles the generation of narrative audio tours.
- * - GenerateNarrativeTourInput - The input type for the generateNarrativeTour function.
- * - GenerateNarrativeTourOutput - The return type for the generateNarrativeTour function.
  */
 
 import { ai } from '@/ai/genkit';
@@ -14,7 +12,7 @@ import { googleAI } from '@genkit-ai/google-genai';
 
 const GenerateNarrativeTourInputSchema = z.object({
   poiName: z.string().describe('The name of the Point of Interest.'),
-  poiDescription: z.string().describe('A detailed description of the Point of Interest.'),
+  poiDescription: z.string().optional().describe('A description of the Point of Interest.'),
   userPreferences: z
     .string()
     .describe(
@@ -23,12 +21,11 @@ const GenerateNarrativeTourInputSchema = z.object({
   locationContext: z
     .string()
     .describe(
-      'Current location context (e.g., driving on a scenic route, walking through a bustling market).' + 
-      'This helps in adapting the narration tone and content.'
+      'Current location context (e.g., driving on a scenic route).'
     ),
   nextPoiName: z.string().optional().describe('The name of the next POI in the itinerary.'),
-  nextPoiDistance: z.string().optional().describe('Formatted distance to the next POI (e.g., "5 km").'),
-  language: z.string().default('en-US').describe('The desired language for the narration (e.g., "en-US", "es-ES").'),
+  nextPoiDistance: z.string().optional().describe('Formatted distance to the next POI.'),
+  language: z.string().default('en-US').describe('The desired language for the narration.'),
 });
 export type GenerateNarrativeTourInput = z.infer<typeof GenerateNarrativeTourInputSchema>;
 
@@ -36,6 +33,7 @@ const GenerateNarrativeTourOutputSchema = z.object({
   audioDataUri: z
     .string()
     .describe('The base64 encoded audio narration in WAV format, as a data URI.'),
+  generatedText: z.string().describe('The transcript of the generated narration.'),
 });
 export type GenerateNarrativeTourOutput = z.infer<typeof GenerateNarrativeTourOutputSchema>;
 
@@ -49,23 +47,22 @@ const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
   input: { schema: GenerateNarrativeTourInputSchema },
   output: { schema: z.string().describe('The generated narrative text.') },
-  prompt: `You are an expert female tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
-Generate a concise and captivating audio narration for a Point of Interest (POI) based on the provided details, user preferences, and location context.
+  prompt: `You are an expert tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
+Generate a concise and captivating audio narration for a Point of Interest (POI).
 
 POI Name: {{{poiName}}}
-POI Description: {{{poiDescription}}}
-User Preferences (narration style, emphasis): {{{userPreferences}}}
-Location Context (how the user is experiencing the POI): {{{locationContext}}}
+Provided Description: {{#if poiDescription}}{{{poiDescription}}}{{else}}None provided. Use your knowledge to provide interesting facts about this location.{{/if}}
+User Preferences: {{{userPreferences}}}
+Location Context: {{{locationContext}}}
 {{#if nextPoiName}}
-Next stop in the journey: {{{nextPoiName}}} (approximately {{{nextPoiDistance}}} away).
+Next stop: {{{nextPoiName}}} ({{{nextPoiDistance}}} away).
 {{/if}}
-Desired Language: {{{language}}}
 
-Craft a narrative that is immersive and informative. 
-- Start with a welcoming hook about {{{poiName}}}.
-- Share the most interesting parts of the description in an engaging way.
-- Near the end, briefly mention that our journey will continue towards {{{nextPoiName}}} in about {{{nextPoiDistance}}}.
-- The narration should be approximately 60-90 seconds long when spoken. 
+Instructions:
+- If the Provided Description is empty or brief, use your internal knowledge to share the most interesting historical or cultural facts about {{{poiName}}}.
+- Start with a welcoming hook.
+- The narration should be approximately 45-60 seconds long.
+- Near the end, mention that we'll be heading towards {{{nextPoiName}}} next.
 - Use a natural, flowing storytelling style.
 `,
 });
@@ -89,7 +86,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' }, // 'Kore' is a female-sounding voice
+            prebuiltVoiceConfig: { voiceName: 'Kore' },
           },
         },
       },
@@ -105,6 +102,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
 
     return {
       audioDataUri: 'data:audio/wav;base64,' + wavAudioBase64,
+      generatedText: narrationText,
     };
   }
 );

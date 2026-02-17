@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -191,7 +190,7 @@ export default function DrivingDashboard() {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
-        // Narrate ~1 minute before arrival (roughly 800m at city driving speeds)
+        // Narrate ~1 minute before arrival (~800m)
         if (dist < 0.8) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
@@ -246,7 +245,7 @@ export default function DrivingDashboard() {
             </div>
             
             <div className="flex-1 flex items-center gap-4">
-              <div>
+              <div className="min-w-0">
                 <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
                   {isDriving ? 'Next Stop' : activeTripId ? 'Selected Trip' : 'Status'}
                 </div>
@@ -266,7 +265,7 @@ export default function DrivingDashboard() {
             </div>
             
             {activeTripId && !isDriving && !isLoading && (
-              <Button onClick={startDriving} className="bg-green-500 hover:bg-green-600 text-white font-headline font-bold px-6 rounded-xl h-12 shadow-lg animate-pulse">
+              <Button onClick={startDriving} className="bg-green-500 hover:bg-green-600 text-white font-headline font-bold px-6 rounded-xl h-12 shadow-lg">
                 <Play className="w-4 h-4 mr-2" /> GO
               </Button>
             )}
@@ -416,27 +415,21 @@ export default function DrivingDashboard() {
 
         {activePoi && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-            <SheetContent side="bottom" className="h-[auto] max-h-[75vh] bg-background/95 backdrop-blur-2xl border-white/5 rounded-t-[2.5rem] p-0 overflow-hidden">
+            <SheetContent side="bottom" className="h-auto max-h-[85vh] bg-background/95 backdrop-blur-3xl border-white/5 rounded-t-[3rem] p-0 overflow-hidden shadow-2xl">
               <div className="sr-only">
                 <SheetTitle>{activePoi.name}</SheetTitle>
-                <SheetDescription>{activePoi.reason || activePoi.description || 'Discovery stop details'}</SheetDescription>
+                <SheetDescription>{activePoi.description || 'Exploring this location.'}</SheetDescription>
               </div>
               <ScrollArea className="h-full">
-                <div className="p-5 pb-8 space-y-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                       <MapPin className="w-4 h-4 text-primary" />
-                       <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Current Discovery Stop</span>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => setIsSheetOpen(false)} className="rounded-full h-8 w-8 hover:bg-white/5">
-                      <X className="w-4 h-4" />
-                    </Button>
+                <div className="p-6 pb-12 space-y-6 max-w-2xl mx-auto">
+                  <div className="flex items-center justify-center">
+                    <div className="w-12 h-1 bg-white/10 rounded-full" />
                   </div>
 
                   <div className="relative">
                     <PoiVisuals poi={activePoi} />
                     
-                    {/* Compact Integrated Controller */}
+                    {/* Compact Integrated Controller Overlay */}
                     <div className="absolute top-4 right-4 z-20">
                       <AudioTourController 
                         poi={activePoi} 
