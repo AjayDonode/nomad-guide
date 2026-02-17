@@ -17,12 +17,14 @@ export interface RouteStep {
 }
 
 interface POI {
+  id: string
   name: string
   latitude: number
   longitude: number
   category: string
   description: string
   orderIndex?: number
+  images?: string[]
 }
 
 interface NavigationMapProps {
@@ -212,9 +214,9 @@ export function NavigationMap({
 
           {pois.map((poi, idx) => (
             <Marker 
-              key={`${poi.name}-${idx}`} 
+              key={`${poi.id}-${idx}`} 
               position={[poi.latitude, poi.longitude]}
-              icon={POIIcon(selectedPoi?.name === poi.name, isTripMode ? idx : undefined)}
+              icon={POIIcon(selectedPoi?.id === poi.id, isTripMode ? idx : undefined)}
               eventHandlers={{ click: () => onPoiSelect?.(poi) }}
             >
               <Popup>
