@@ -185,7 +185,6 @@ export function UserMenu() {
             <DialogTitle className="font-headline font-bold text-2xl">Account Discovery</DialogTitle>
           </DialogHeader>
           <div className="py-6 space-y-8">
-            {/* Profile Section */}
             <div className="flex flex-col items-center text-center space-y-4">
               <div 
                 className="relative group cursor-pointer" 
@@ -217,9 +216,7 @@ export function UserMenu() {
               </div>
             </div>
 
-            {/* Settings Section */}
             <div className="space-y-6 bg-white/5 p-6 rounded-3xl border border-white/5">
-              {/* Voice Preference */}
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <Volume2 className="w-4 h-4 text-primary" />
@@ -243,7 +240,6 @@ export function UserMenu() {
                 </RadioGroup>
               </div>
 
-              {/* Units Preference */}
               <div className="space-y-4 pt-4 border-t border-white/5">
                 <div className="flex items-center gap-3">
                   <Ruler className="w-4 h-4 text-primary" />

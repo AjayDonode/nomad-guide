@@ -101,7 +101,7 @@ export default function DrivingDashboard() {
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
-  const [destination, setDestination] = useState<[number, number]>([37.7833, -122.4167])
+  const [destination, setDestination] = useState<[number, number] | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
@@ -138,7 +138,6 @@ export default function DrivingDashboard() {
   const voicePreference = (profile?.voicePreference as 'male' | 'female') || 'female'
   const units = profile?.units || 'metric'
 
-  // Use live document for selected POI to ensure images update instantly
   const activePoiRef = useMemoFirebase(() => {
     if (!firestore || !activeTripId || !selectedPoiId) return null
     return doc(firestore, 'trips', activeTripId, 'trip_pois', selectedPoiId)
@@ -153,6 +152,11 @@ export default function DrivingDashboard() {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
+        (err) => console.log("Initial position fetch failed", err)
+      )
+
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
         (err) => console.log("Location access denied", err),
@@ -197,7 +201,6 @@ export default function DrivingDashboard() {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
-        // Trigger narration when approx 800m away (about 1 minute driving)
         if (dist < 0.8) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
