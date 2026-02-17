@@ -118,19 +118,6 @@ export default function DrivingDashboard() {
 
   const narratedPois = useRef<Set<string>>(new Set())
 
-  // Memoize the active POI object by searching for the current selection in the live POI list
-  const activePoi = useMemo(() => {
-    if (!selectedPoiId || !recommendedPois) return null;
-    return recommendedPois.find(p => p.id === selectedPoiId) || null;
-  }, [selectedPoiId, recommendedPois]);
-
-  // Calculate the current target stop based on what hasn't been narrated yet
-  const upcomingStopName = useMemo(() => {
-    if (!isDriving || !recommendedPois.length) return null;
-    const next = recommendedPois.find(poi => !narratedPois.current.has(poi.name));
-    return next?.name || "Final Destination";
-  }, [isDriving, recommendedPois]);
-
   // Fetch all trips
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore) return null
@@ -145,12 +132,27 @@ export default function DrivingDashboard() {
   }, [firestore, user])
   const { data: favorites } = useCollection(favoritesQuery)
 
-  // Fetch POIs for the active trip
+  // Fetch POIs for the active trip - this is our live stream for images and updates
   const tripPoisQuery = useMemoFirebase(() => {
     if (!firestore || !activeTripId) return null
     return query(collection(firestore, 'trips', activeTripId, 'trip_pois'), orderBy('orderIndex'))
   }, [firestore, activeTripId])
   const { data: tripPois } = useCollection(tripPoisQuery)
+
+  // Memoize the active POI object by searching for the current selection in the LIVE tripPois list
+  // This ensures that when images are uploaded, they appear instantly in the open sheet
+  const activePoi = useMemo(() => {
+    if (!selectedPoiId) return null;
+    const source = (tripPois && tripPois.length > 0) ? tripPois : recommendedPois;
+    return source.find((p: any) => p.id === selectedPoiId) || null;
+  }, [selectedPoiId, tripPois, recommendedPois]);
+
+  // Calculate the current target stop based on what hasn't been narrated yet
+  const upcomingStopName = useMemo(() => {
+    if (!isDriving || !recommendedPois.length) return null;
+    const next = recommendedPois.find(poi => !narratedPois.current.has(poi.name));
+    return next?.name || "Final Destination";
+  }, [isDriving, recommendedPois]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
@@ -244,18 +246,6 @@ export default function DrivingDashboard() {
     setActiveTripName(trip.name)
     narratedPois.current.clear()
     toast({ title: "Trip Selected", description: `Following ${trip.name}` })
-  }
-
-  const toggleFavorite = async (e: React.MouseEvent, tripId: string) => {
-    e.stopPropagation()
-    if (!user) return
-    const isFav = favorites?.some(f => f.tripId === tripId)
-    const favRef = doc(firestore!, 'users', user.uid, 'favorites', tripId)
-    if (isFav) {
-      await deleteDoc(favRef)
-    } else {
-      await setDoc(favRef, { tripId, savedAt: serverTimestamp() })
-    }
   }
 
   const startDriving = () => {

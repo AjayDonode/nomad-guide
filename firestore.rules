@@ -22,7 +22,7 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /trip_pois/{poiId} {
-        // Inherit read permission from parent trip or allow explicitly
+        // Direct read access for authenticated users to ensure sub-collection queries are safe
         allow read: if isSignedIn();
         allow write: if isSignedIn() && 
           get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid;
