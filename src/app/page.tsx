@@ -136,6 +136,7 @@ export default function DrivingDashboard() {
   }, [firestore, user])
   const { data: profile } = useDoc(userDocRef)
   const voicePreference = (profile?.voicePreference as 'male' | 'female') || 'female'
+  const units = profile?.units || 'metric'
 
   // Use live document for selected POI to ensure images update instantly
   const activePoiRef = useMemoFirebase(() => {
@@ -204,7 +205,7 @@ export default function DrivingDashboard() {
              const nextDist = getDistance(poi.latitude, poi.longitude, nextPoi.latitude, nextPoi.longitude)
              setNextPoiInfo({
                poi: nextPoi,
-               distance: nextDist > 1 ? `${nextDist.toFixed(1)} km` : `${Math.round(nextDist * 1000)} m`
+               distance: formatDisplayDistance(nextDist, units)
              })
           } else {
              setNextPoiInfo(null)
@@ -215,7 +216,7 @@ export default function DrivingDashboard() {
       })
     }
     checkProximity()
-  }, [userLocation, isDriving, recommendedPois, autoNarrate])
+  }, [userLocation, isDriving, recommendedPois, autoNarrate, units])
 
   const handleSelectTrip = (trip: any) => {
     setIsLoading(true)
@@ -257,8 +258,20 @@ export default function DrivingDashboard() {
     }
   }
 
-  const formatDistance = (meters: number) => {
-    return meters > 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`
+  const formatDisplayDistance = (km: number, unitType: string) => {
+    if (unitType === 'imperial') {
+      const miles = km * 0.621371;
+      return miles > 0.1 ? `${miles.toFixed(1)} mi` : `${Math.round(miles * 5280)} ft`;
+    }
+    return km > 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`;
+  }
+
+  const formatStepDistance = (meters: number, unitType: string) => {
+    if (unitType === 'imperial') {
+      const feet = meters * 3.28084;
+      return feet > 528 ? `${(feet / 5280).toFixed(1)} mi` : `${Math.round(feet)} ft`;
+    }
+    return meters > 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
   }
 
   return (
@@ -284,7 +297,7 @@ export default function DrivingDashboard() {
                   <div className="bg-accent/20 p-2 rounded-xl"><TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} /></div>
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-accent font-bold mb-1">Next</div>
-                    <div className="text-sm font-bold">{formatDistance(nextStep.distance)}</div>
+                    <div className="text-sm font-bold">{formatStepDistance(nextStep.distance, units)}</div>
                   </div>
                 </div>
               )}
@@ -356,7 +369,7 @@ export default function DrivingDashboard() {
                               <div className="flex flex-col gap-0.5">
                                 <span className="font-bold text-sm">{trip.name}</span>
                                 <div className="flex items-center gap-2">
-                                  <Badge variant="secondary" className="h-4 text-[8px] bg-white/5">{trip.distance.toFixed(1)} km away</Badge>
+                                  <Badge variant="secondary" className="h-4 text-[8px] bg-white/5">{formatDisplayDistance(trip.distance, units)} away</Badge>
                                 </div>
                               </div>
                             </DropdownMenuItem>

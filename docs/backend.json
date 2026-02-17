@@ -34,6 +34,12 @@
           "default": "female",
           "description": "The user's preferred guide voice gender."
         },
+        "units": {
+          "type": "string",
+          "enum": ["metric", "imperial"],
+          "default": "metric",
+          "description": "The user's preferred measurement units."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"

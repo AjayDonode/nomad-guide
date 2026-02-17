@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -10,7 +11,8 @@ import {
   Calendar,
   LayoutDashboard,
   Volume2,
-  Loader2
+  Loader2,
+  Ruler
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -42,10 +44,9 @@ export function UserMenu() {
   const router = useRouter();
   const { auth, firestore } = useFirebase();
   const { user } = useUser();
-  const [isProfileOpen, setIsProfileOpen] = React.useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Fetch the extended user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
     if (!firestore || !user) return null;
     return doc(firestore, 'users', user.uid);
@@ -66,7 +67,6 @@ export function UserMenu() {
         updatedAt: serverTimestamp()
       });
 
-      // Play introductory message for selected voice
       setIsSpeaking(true);
       try {
         if (Tone.getContext().state !== 'running') {
@@ -91,9 +91,19 @@ export function UserMenu() {
     }
   };
 
+  const handleUnitsChange = (value: string) => {
+    if (userDocRef) {
+      updateDoc(userDocRef, {
+        units: value,
+        updatedAt: serverTimestamp()
+      });
+    }
+  };
+
   const displayName = profile?.displayName || user.displayName || user.email?.split('@')[0] || 'User';
   const isAdmin = profile?.isAdmin || false;
   const voicePreference = profile?.voicePreference || 'female';
+  const unitsPreference = profile?.units || 'metric';
 
   return (
     <>
@@ -134,13 +144,9 @@ export function UserMenu() {
           )}
 
           <DropdownMenuItem 
-            onClick={() => setIsProfileOpen(true)}
+            onClick={() => setIsSettingsOpen(true)}
             className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10"
           >
-            <UserIcon className="mr-2 h-4 w-4" />
-            <span>Profile</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem className="rounded-xl focus:bg-primary/10 focus:text-primary h-10">
             <Settings className="mr-2 h-4 w-4" />
             <span>Settings</span>
           </DropdownMenuItem>
@@ -155,60 +161,70 @@ export function UserMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
+      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
         <DialogContent className="bg-card/95 border-white/10 text-white rounded-[2.5rem] backdrop-blur-2xl max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-headline font-bold text-2xl">User Profile</DialogTitle>
+            <DialogTitle className="font-headline font-bold text-2xl">NomadGuide Settings</DialogTitle>
           </DialogHeader>
           <div className="py-6 space-y-8">
             <div className="flex flex-col items-center text-center space-y-4">
               <div className="relative">
-                <Avatar className="h-24 w-24 border-2 border-primary ring-4 ring-primary/10">
+                <Avatar className="h-20 w-20 border-2 border-primary ring-4 ring-primary/10">
                   <AvatarImage src={user.photoURL || undefined} />
-                  <AvatarFallback className="text-2xl bg-primary/20 text-primary font-bold">
+                  <AvatarFallback className="text-xl bg-primary/20 text-primary font-bold">
                     {displayName.substring(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                {isAdmin && (
-                  <div className="absolute -bottom-2 -right-2 bg-primary text-white p-1.5 rounded-full shadow-lg">
-                    <Shield className="w-4 h-4" />
-                  </div>
-                )}
               </div>
               <div>
-                <h3 className="text-xl font-headline font-bold">{displayName}</h3>
-                <p className="text-sm text-muted-foreground">NomadGuide Member</p>
+                <h3 className="text-lg font-headline font-bold">{displayName}</h3>
+                <p className="text-xs text-muted-foreground">{user.email}</p>
               </div>
             </div>
 
             <div className="space-y-6 bg-white/5 p-6 rounded-3xl border border-white/5">
-              <div className="flex items-center gap-3">
-                <Mail className="w-4 h-4 text-primary" />
-                <div className="flex-1">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none mb-1">Email Address</p>
-                  <p className="text-sm">{user.email}</p>
-                </div>
-              </div>
-              
-              <div className="pt-2 border-t border-white/5">
-                <div className="flex items-center gap-3 mb-4">
+              {/* Voice Preference */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
                   <Volume2 className="w-4 h-4 text-primary" />
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Guide Voice Preference</p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Guide Voice</p>
                   {isSpeaking && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
                 </div>
                 <RadioGroup 
                   defaultValue={voicePreference} 
                   onValueChange={handleVoiceChange}
-                  className="grid grid-cols-2 gap-4"
+                  className="grid grid-cols-2 gap-3"
                   disabled={isSpeaking}
                 >
-                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                     <RadioGroupItem value="female" id="female" />
                     <Label htmlFor="female" className="text-xs font-bold cursor-pointer">Female (Kore)</Label>
                   </div>
-                  <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                     <RadioGroupItem value="male" id="male" />
                     <Label htmlFor="male" className="text-xs font-bold cursor-pointer">Male (Algenib)</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {/* Units Preference */}
+              <div className="space-y-4 pt-4 border-t border-white/5">
+                <div className="flex items-center gap-3">
+                  <Ruler className="w-4 h-4 text-primary" />
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Measurement Units</p>
+                </div>
+                <RadioGroup 
+                  defaultValue={unitsPreference} 
+                  onValueChange={handleUnitsChange}
+                  className="grid grid-cols-2 gap-3"
+                >
+                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                    <RadioGroupItem value="metric" id="metric" />
+                    <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">Metric (km/m)</Label>
+                  </div>
+                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                    <RadioGroupItem value="imperial" id="imperial" />
+                    <Label htmlFor="imperial" className="text-xs font-bold cursor-pointer">US (mi/ft)</Label>
                   </div>
                 </RadioGroup>
               </div>
@@ -216,14 +232,14 @@ export function UserMenu() {
               <div className="flex items-center gap-3 pt-4 border-t border-white/5">
                 <Calendar className="w-4 h-4 text-primary" />
                 <div className="flex-1">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none mb-1">Member Since</p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none mb-1">Explorer Since</p>
                   <p className="text-sm">{user.metadata.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString() : 'Recent'}</p>
                 </div>
               </div>
             </div>
 
-            <Button variant="outline" className="w-full rounded-2xl h-12 border-white/10 hover:bg-white/5 font-bold" onClick={() => setIsProfileOpen(false)}>
-              Close Profile
+            <Button variant="outline" className="w-full rounded-2xl h-12 border-white/10 hover:bg-white/5 font-bold" onClick={() => setIsSettingsOpen(false)}>
+              Close Settings
             </Button>
           </div>
         </DialogContent>
