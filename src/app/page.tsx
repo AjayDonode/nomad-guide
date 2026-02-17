@@ -458,10 +458,8 @@ export default function DrivingDashboard() {
         {activePoi && (
           <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
             <SheetContent side="bottom" className="h-auto max-h-[85vh] bg-background/95 backdrop-blur-3xl border-white/5 rounded-t-[3rem] p-0 overflow-hidden shadow-2xl">
-              <div className="sr-only">
-                <SheetTitle>{activePoi.name}</SheetTitle>
-                <SheetDescription>{activePoi.description || activePoi.reason || 'Exploring this location.'}</SheetDescription>
-              </div>
+              <SheetTitle className="sr-only">{activePoi.name}</SheetTitle>
+              <SheetDescription className="sr-only">{activePoi.description || activePoi.reason || 'Exploring this location.'}</SheetDescription>
               <ScrollArea className="h-full">
                 <div className="p-6 pb-12 space-y-6 max-w-2xl mx-auto">
                   <div className="flex items-center justify-center">
