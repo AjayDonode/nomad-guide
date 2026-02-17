@@ -41,6 +41,7 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
                 alt={`${poi.name} image ${index + 1}`} 
                 fill 
                 className="object-cover"
+                unoptimized
                 sizes="(max-width: 768px) 100vw, 50vw"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />

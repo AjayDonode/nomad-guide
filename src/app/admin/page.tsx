@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect } from 'react'
@@ -474,7 +475,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                            <div className="grid grid-cols-5 gap-2">
                               {poi.images?.map((img: string, i: number) => (
                                 <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group/img">
-                                  <Image src={img} alt={`POI image ${i}`} fill className="object-cover" />
+                                  <Image src={img} alt={`POI image ${i}`} fill className="object-cover" unoptimized />
                                   <button 
                                     onClick={() => removeImage(poi.id, poi.images, i)}
                                     className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
