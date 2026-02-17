@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -194,6 +193,7 @@ export default function DrivingDashboard() {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
+        // Trigger narration when approx 800m away (about 1 minute driving)
         if (dist < 0.8) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
@@ -239,7 +239,7 @@ export default function DrivingDashboard() {
 
     setIsDriving(true)
 
-    if (!introPlayed.current && autoNarrate) {
+    if (!introPlayed.current) {
       introPlayed.current = true
       try {
         const audioUri = await simpleNarrate(`Let's go explore ${activeTripName}`)
