@@ -48,8 +48,7 @@ export async function simpleNarrate(text: string): Promise<string> {
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
   input: { schema: GenerateNarrativeTourInputSchema },
-  // Using an object for the output schema is more robust for LLM responses
-  output: { schema: z.object({ narrationText: z.string() }) },
+  output: { schema: z.object({ narrationText: z.string().describe("The generated narrative text.") }) },
   prompt: `You are an expert tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
 Generate a concise and captivating audio narration for a Point of Interest (POI).
 

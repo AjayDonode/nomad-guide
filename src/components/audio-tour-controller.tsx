@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import * as Tone from 'tone'
-import { Play, Pause, Loader2, RotateCw } from 'lucide-react'
+import { Play, Pause, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
 import { cn } from '@/lib/utils'
@@ -111,32 +111,22 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
   }, [])
 
   return (
-    <div className="flex items-center gap-1 bg-black/60 p-1 rounded-xl border border-white/10 backdrop-blur-xl shadow-2xl">
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        className="h-8 w-8 rounded-lg hover:bg-white/5 text-muted-foreground"
-        onClick={handleGenerateAndPlay}
-        disabled={isGenerating}
-        title="Regenerate narration"
-      >
-        <RotateCw className={cn("w-3.5 h-3.5", isGenerating && "animate-spin")} />
-      </Button>
+    <div className="flex items-center justify-center">
       <Button 
         onClick={togglePlayback}
         disabled={isGenerating}
         size="icon"
         className={cn(
-          "h-8 w-8 rounded-lg transition-all",
+          "h-14 w-14 rounded-full transition-all shadow-2xl border-2 border-white/20",
           isPlaying ? "bg-accent hover:bg-accent/90" : "bg-primary hover:bg-primary/90"
         )}
       >
         {isGenerating ? (
-          <Loader2 className="w-4 h-4 animate-spin text-white" />
+          <Loader2 className="w-6 h-6 animate-spin text-white" />
         ) : isPlaying ? (
-          <Pause className="w-4 h-4 text-white" />
+          <Pause className="w-6 h-6 text-white" />
         ) : (
-          <Play className="w-4 h-4 ml-0.5 fill-current text-white" />
+          <Play className="w-6 h-6 ml-1 fill-current text-white" />
         )}
       </Button>
     </div>

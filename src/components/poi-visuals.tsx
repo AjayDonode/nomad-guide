@@ -11,26 +11,31 @@ import {
 import Image from 'next/image'
 import { Sparkles, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AudioTourController } from './audio-tour-controller'
 
 interface PoiVisualsProps {
   poi: {
+    id: string
     name: string
     images?: string[]
     description?: string
     reason?: string
     category?: string
   }
+  nextPoi?: any
+  nextPoiDistance?: string
+  autoNarrate?: boolean
 }
 
-export function PoiVisuals({ poi }: PoiVisualsProps) {
+export function PoiVisuals({ poi, nextPoi, nextPoiDistance, autoNarrate = true }: PoiVisualsProps) {
   const hasImages = poi?.images && poi.images.length > 0
-  const visualHeightClass = hasImages ? "h-64 sm:h-80" : "h-0"
+  const visualHeightClass = hasImages ? "h-64 sm:h-80" : "h-32"
 
   return (
     <div className="space-y-6">
-      {/* Visual Container - Strictly for Images */}
-      {hasImages && (
-        <div className={cn("w-full rounded-[2rem] overflow-hidden border border-white/5 relative bg-black/20 shadow-2xl", visualHeightClass)}>
+      {/* Visual Container - Images + Centered Play Button */}
+      <div className={cn("w-full rounded-[2rem] overflow-hidden border border-white/5 relative bg-black/20 shadow-2xl", visualHeightClass)}>
+        {hasImages ? (
           <Carousel className="w-full h-full" opts={{ loop: true }}>
             <CarouselContent className="h-full ml-0">
               {poi.images?.map((img, index) => (
@@ -45,26 +50,35 @@ export function PoiVisuals({ poi }: PoiVisualsProps) {
                       priority={index === 0}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
-                    <div className="absolute bottom-4 left-4 z-10">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-white/90 bg-black/60 px-2 py-1 rounded-lg backdrop-blur-md border border-white/10">
-                        {index + 1} / {poi.images?.length}
-                      </span>
-                    </div>
                   </div>
                 </CarouselItem>
               ))}
             </CarouselContent>
             {poi.images && poi.images.length > 1 && (
               <>
-                <CarouselPrevious className="left-3 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 rounded-full transition-opacity" />
-                <CarouselNext className="right-3 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 rounded-full transition-opacity" />
+                <CarouselPrevious className="left-3 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 rounded-full transition-opacity z-20" />
+                <CarouselNext className="right-3 bg-black/40 border-none text-white hover:bg-black/60 backdrop-blur-sm h-8 w-8 rounded-full transition-opacity z-20" />
               </>
             )}
           </Carousel>
-        </div>
-      )}
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-white/5">
+             <MapPin className="w-12 h-12 text-primary/20" />
+          </div>
+        )}
 
-      {/* Unified Narrative Section - Always under the images/top */}
+        {/* Play Button Overlay - Bottom Center */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
+          <AudioTourController 
+            poi={poi} 
+            nextPoi={nextPoi} 
+            nextPoiDistance={nextPoiDistance}
+            autoStart={autoNarrate} 
+          />
+        </div>
+      </div>
+
+      {/* Unified Narrative Section */}
       <div className="space-y-4 px-2">
         <div className="flex items-center justify-between">
            <div className="min-w-0 flex-1">

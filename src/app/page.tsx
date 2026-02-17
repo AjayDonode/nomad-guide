@@ -64,11 +64,6 @@ const NavigationMap = dynamic(
   }
 )
 
-const AudioTourController = dynamic(
-  () => import('@/components/audio-tour-controller').then((mod) => mod.AudioTourController),
-  { ssr: false }
-)
-
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -105,7 +100,7 @@ export default function DrivingDashboard() {
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
-  const [destination, setDestination] = useState<[number, number] | null>(null)
+  const [destination, setDestination] = useState<[number, number]>([37.7833, -122.4167])
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
@@ -217,7 +212,6 @@ export default function DrivingDashboard() {
   const handleSelectTrip = (trip: any) => {
     setIsLoading(true)
     setIsDriving(false)
-    setDestination(null)
     setRecommendedPois([])
     setActiveTripId(trip.id)
     setActiveTripName(trip.name)
@@ -450,17 +444,12 @@ export default function DrivingDashboard() {
                     <div className="w-12 h-1 bg-white/10 rounded-full" />
                   </div>
 
-                  <div className="relative">
-                    <PoiVisuals poi={activePoi} />
-                    <div className="absolute top-4 right-4 z-20">
-                      <AudioTourController 
-                        poi={activePoi} 
-                        nextPoi={nextPoiInfo?.poi} 
-                        nextPoiDistance={nextPoiInfo?.distance}
-                        autoStart={isSheetOpen && autoNarrate} 
-                      />
-                    </div>
-                  </div>
+                  <PoiVisuals 
+                    poi={activePoi} 
+                    nextPoi={nextPoiInfo?.poi} 
+                    nextPoiDistance={nextPoiInfo?.distance} 
+                    autoNarrate={autoNarrate}
+                  />
                 </div>
               </ScrollArea>
             </SheetContent>
