@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Plus, 
   Map as LucideMap, 
@@ -17,7 +17,9 @@ import {
   ImagePlus,
   X,
   Sparkles,
-  Volume2
+  Volume2,
+  Play,
+  Pause
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -60,6 +62,7 @@ import { UserMenu } from '@/components/user-menu'
 import Image from 'next/image'
 import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
 import { useToast } from '@/hooks/use-toast'
+import * as Tone from 'tone'
 
 // Dynamic import for Leaflet map
 const AdminMap = dynamic(
@@ -238,6 +241,16 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   })
   const [isSaving, setIsSaving] = useState(false)
   const [isProcessingAI, setIsProcessingAI] = useState(false)
+  const [isPreviewing, setIsPreviewing] = useState(false)
+  const playerRef = useRef<Tone.Player | null>(null)
+
+  // Fetch user preference for preview
+  const userDocRef = useMemoFirebase(() => {
+    if (!firestore || !user) return null
+    return doc(firestore, 'users', user.uid)
+  }, [firestore, user])
+  const { data: profile } = useDoc(userDocRef)
+  const voicePreference = (profile?.voicePreference as 'male' | 'female') || 'female'
 
   // Fetch trip data if editing
   const tripRef = useMemoFirebase(() => {
@@ -352,6 +365,47 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }
 
+  const handlePreviewAudio = async (poi: any) => {
+    if (Tone.getContext().state !== 'running') {
+      await Tone.start()
+    }
+
+    if (playerRef.current) {
+      playerRef.current.stop()
+      playerRef.current.dispose()
+      playerRef.current = null
+      setIsPreviewing(false)
+    }
+
+    const audioUri = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri
+    if (!audioUri) {
+      toast({
+        title: "No Audio",
+        description: "Please optimize narrations first to preview audio.",
+      })
+      return
+    }
+
+    const player = new Tone.Player({
+      url: audioUri,
+      onload: () => {
+        player.start()
+        setIsPreviewing(true)
+      },
+      onstop: () => setIsPreviewing(false)
+    }).toDestination()
+    playerRef.current = player
+  }
+
+  const stopPreview = () => {
+    if (playerRef.current) {
+      playerRef.current.stop()
+      playerRef.current.dispose()
+      playerRef.current = null
+    }
+    setIsPreviewing(false)
+  }
+
   const handleAddPoi = (lat: number, lng: number) => {
     if (!firestore || !tripId || !user) return
     
@@ -411,6 +465,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     })
   }
 
+  useEffect(() => {
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.stop()
+        playerRef.current.dispose()
+      }
+    }
+  }, [])
+
   return (
     <div className="h-full flex flex-col">
       {/* Editor Header */}
@@ -434,15 +497,26 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         </div>
         <div className="flex items-center gap-3">
           {tripId && (
-            <Button 
-              onClick={handleBulkProcessAI}
-              disabled={isProcessingAI || pois?.length === 0}
-              variant="outline"
-              className="rounded-xl border-primary/30 text-primary hover:bg-primary/5 h-11"
-            >
-              {isProcessingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
-              Optimize Narrations
-            </Button>
+            <>
+              <Button 
+                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(pois?.[0])}
+                disabled={!pois || pois.length === 0 || (!pois[0].audioMaleDataUri && !pois[0].audioFemaleDataUri)}
+                variant="ghost"
+                className="rounded-xl hover:bg-white/5 h-11 px-6 text-muted-foreground hover:text-white"
+              >
+                {isPreviewing ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                {isPreviewing ? "Stop Preview" : "Play Preview"}
+              </Button>
+              <Button 
+                onClick={handleBulkProcessAI}
+                disabled={isProcessingAI || pois?.length === 0}
+                variant="outline"
+                className="rounded-xl border-primary/30 text-primary hover:bg-primary/5 h-11"
+              >
+                {isProcessingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                Optimize Narrations
+              </Button>
+            </>
           )}
           <Button 
             onClick={handleSaveTrip} 
@@ -502,8 +576,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           <p className="text-[10px] text-muted-foreground">{poi.category}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {poi.audioMaleDataUri && poi.audioFemaleDataUri && (
-                            <Volume2 className="w-3 h-3 text-green-500" />
+                          {(poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-primary hover:bg-primary/10"
+                              onClick={() => handlePreviewAudio(poi)}
+                            >
+                              <Volume2 className="w-4 h-4" />
+                            </Button>
                           )}
                           <Button 
                             variant="ghost" 
