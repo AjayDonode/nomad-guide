@@ -102,7 +102,10 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Array of base64 encoded images or URLs."
-        }
+        },
+        "narrationText": { "type": "string" },
+        "audioMaleDataUri": { "type": "string" },
+        "audioFemaleDataUri": { "type": "string" }
       },
       "required": ["id", "tripId", "adminId", "orderIndex"]
     }

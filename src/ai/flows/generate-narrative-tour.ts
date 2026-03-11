@@ -62,9 +62,8 @@ Next stop: {{{nextPoiName}}} ({{{nextPoiDistance}}} away).
 {{/if}}
 
 Instructions:
-- If the Provided Description is empty or brief, act as a researcher. Provide the most significant historical, cultural, or architectural facts about {{{poiName}}}. Speak with authority and intrigue.
+- Keep the narration concise (around 20-30 seconds) to ensure high quality and fast playback.
 - Start with a welcoming hook.
-- The narration should be approximately 45-60 seconds long.
 - Near the end, mention the next stop: {{{nextPoiName}}}.
 - Respond with a JSON object containing a 'narrationText' field.
 `,

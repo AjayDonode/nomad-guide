@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -37,9 +38,45 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
   useEffect(() => {
     if (autoStart && poi && poi.id !== currentPoiId.current) {
       currentPoiId.current = poi.id;
-      handleGenerateAndPlay();
+      handleInitialTrigger();
     }
   }, [autoStart, poi])
+
+  const handleInitialTrigger = async () => {
+    // Priority 1: Use pre-generated audio from Firestore
+    const savedAudio = voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri;
+    
+    if (savedAudio) {
+      setAudioUrl(savedAudio);
+      playAudio(savedAudio);
+    } else {
+      // Priority 2: Fallback to real-time generation
+      handleGenerateAndPlay();
+    }
+  }
+
+  const playAudio = async (url: string) => {
+    if (Tone.getContext().state !== 'running') {
+      try { await Tone.start() } catch (e) { console.warn("Tone start failed", e) }
+    }
+    
+    if (playerRef.current) {
+      playerRef.current.stop()
+      playerRef.current.dispose()
+      playerRef.current = null
+      setIsPlaying(false)
+    }
+
+    const player = new Tone.Player({
+      url: url,
+      onload: () => {
+        player.start()
+        setIsPlaying(true)
+      },
+      onstop: () => setIsPlaying(false)
+    }).toDestination()
+    playerRef.current = player
+  }
 
   const handleGenerateNarration = async () => {
     if (!poi || isGenerating) return null
@@ -66,28 +103,9 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
   }
 
   const handleGenerateAndPlay = async () => {
-    if (Tone.getContext().state !== 'running') {
-      try { await Tone.start() } catch (e) { console.warn("Tone start failed", e) }
-    }
-    
-    if (playerRef.current) {
-      playerRef.current.stop()
-      playerRef.current.dispose()
-      playerRef.current = null
-      setIsPlaying(false)
-    }
-
     const url = await handleGenerateNarration()
     if (url) {
-      const player = new Tone.Player({
-        url: url,
-        onload: () => {
-          player.start()
-          setIsPlaying(true)
-        },
-        onstop: () => setIsPlaying(false)
-      }).toDestination()
-      playerRef.current = player
+      playAudio(url);
     }
   }
 
@@ -95,16 +113,22 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
     if (Tone.getContext().state !== 'running') {
       await Tone.start()
     }
-    if (!audioUrl) {
+
+    // Check if we have saved audio or local audioUrl
+    const currentAudio = audioUrl || (voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri);
+
+    if (!currentAudio) {
       await handleGenerateAndPlay()
       return
     }
-    if (!playerRef.current && audioUrl) {
+
+    if (!playerRef.current && currentAudio) {
       playerRef.current = new Tone.Player({
-        url: audioUrl,
+        url: currentAudio,
         onstop: () => setIsPlaying(false)
       }).toDestination()
     }
+
     if (isPlaying) {
       playerRef.current?.stop()
       setIsPlaying(false)

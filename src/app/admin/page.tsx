@@ -15,7 +15,9 @@ import {
   Lock,
   Flag,
   ImagePlus,
-  X
+  X,
+  Sparkles,
+  Volume2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -56,6 +58,8 @@ import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import Image from 'next/image'
+import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
+import { useToast } from '@/hooks/use-toast'
 
 // Dynamic import for Leaflet map
 const AdminMap = dynamic(
@@ -223,6 +227,7 @@ export default function AdminDashboard() {
 
 function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () => void }) {
   const { firestore, user } = useFirebase()
+  const { toast } = useToast()
   const [tripData, setTripData] = useState({
     name: "New Discovery Trip",
     description: "",
@@ -232,6 +237,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     endLongitude: -122.4167
   })
   const [isSaving, setIsSaving] = useState(false)
+  const [isProcessingAI, setIsProcessingAI] = useState(false)
 
   // Fetch trip data if editing
   const tripRef = useMemoFirebase(() => {
@@ -292,6 +298,58 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       setIsSaving(false)
       if (!tripId) onClose()
     }, 800)
+  }
+
+  const handleBulkProcessAI = async () => {
+    if (!firestore || !tripId || !pois || pois.length === 0) return
+    setIsProcessingAI(true)
+    
+    toast({
+      title: "Optimizing Trip",
+      description: `Pre-generating narrations for ${pois.length} stops...`,
+    })
+
+    try {
+      for (const poi of pois) {
+        // Process Male Voice
+        const maleResult = await generateNarrativeTour({
+          poiName: poi.name,
+          poiDescription: poi.description,
+          userPreferences: "captivating tour guide",
+          locationContext: "arriving at landmark",
+          voicePreference: 'male'
+        })
+
+        // Process Female Voice
+        const femaleResult = await generateNarrativeTour({
+          poiName: poi.name,
+          poiDescription: poi.description,
+          userPreferences: "captivating tour guide",
+          locationContext: "arriving at landmark",
+          voicePreference: 'female'
+        })
+
+        updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
+          narrationText: maleResult.generatedText,
+          audioMaleDataUri: maleResult.audioDataUri,
+          audioFemaleDataUri: femaleResult.audioDataUri,
+          updatedAt: serverTimestamp()
+        })
+      }
+      
+      toast({
+        title: "Optimization Complete",
+        description: "All narrations have been saved for offline use.",
+      })
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Optimization Failed",
+        description: error.message,
+      })
+    } finally {
+      setIsProcessingAI(false)
+    }
   }
 
   const handleAddPoi = (lat: number, lng: number) => {
@@ -375,9 +433,17 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl">
-            <Trash2 className="w-4 h-4 mr-2" /> Delete
-          </Button>
+          {tripId && (
+            <Button 
+              onClick={handleBulkProcessAI}
+              disabled={isProcessingAI || pois?.length === 0}
+              variant="outline"
+              className="rounded-xl border-primary/30 text-primary hover:bg-primary/5 h-11"
+            >
+              {isProcessingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+              Optimize Narrations
+            </Button>
+          )}
           <Button 
             onClick={handleSaveTrip} 
             disabled={isSaving}
@@ -435,14 +501,19 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           />
                           <p className="text-[10px] text-muted-foreground">{poi.category}</p>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => deleteDocumentNonBlocking(doc(firestore!, 'trips', tripId!, 'trip_pois', poi.id))}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {poi.audioMaleDataUri && poi.audioFemaleDataUri && (
+                            <Volume2 className="w-3 h-3 text-green-500" />
+                          )}
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => deleteDocumentNonBlocking(doc(firestore!, 'trips', tripId!, 'trip_pois', poi.id))}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="px-4 pb-4 space-y-4">
                          <Textarea 
