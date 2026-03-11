@@ -85,7 +85,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
     const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
 
     const { media } = await ai.generate({
-      model: 'gemini-1.5-flash',
+      model: 'googleai/gemini-1.5-flash',
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -121,7 +121,7 @@ const simpleNarrateFlow = ai.defineFlow(
     const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
 
     const { media } = await ai.generate({
-      model: 'gemini-1.5-flash',
+      model: 'googleai/gemini-1.5-flash',
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
