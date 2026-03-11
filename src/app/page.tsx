@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -299,7 +298,7 @@ export default function DrivingDashboard() {
                 <div className="flex items-center gap-3 border-l border-white/10 pl-4">
                   <div className="bg-accent/20 p-2 rounded-xl"><TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} /></div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-widest text-accent font-bold mb-1">Next</div>
+                    <div className="text-[10px] uppercase tracking widest text-accent font-bold mb-1">Next</div>
                     <div className="text-sm font-bold">{formatStepDistance(nextStep.distance, units)}</div>
                   </div>
                 </div>
