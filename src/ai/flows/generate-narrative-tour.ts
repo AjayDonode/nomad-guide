@@ -61,7 +61,7 @@ Next stop: {{{nextPoiName}}} ({{{nextPoiDistance}}} away).
 {{/if}}
 
 Instructions:
-- Keep the narration concise (around 20-30 seconds) to ensure high quality and fast playback.
+- Keep the narration concise (around 20-30 seconds).
 - Start with a welcoming hook.
 - Near the end, mention the next stop: {{{nextPoiName}}}.
 - Respond with a JSON object containing a 'narrationText' field.

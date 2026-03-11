@@ -5,7 +5,6 @@ import {
   User as UserIcon, 
   LogOut, 
   Settings, 
-  Shield, 
   Mail,
   Calendar,
   LayoutDashboard,
@@ -254,8 +253,8 @@ export function UserMenu() {
                     <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">Metric (km/m)</Label>
                   </div>
                   <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                    <RadioGroupItem value="imperial" id="imperial" />
-                    <Label htmlFor="imperial" className="text-xs font-bold cursor-pointer">US (mi/ft)</Label>
+                    <RadioGroupItem value="imperial" id="metric" />
+                    <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">US (mi/ft)</Label>
                   </div>
                 </RadioGroup>
               </div>
