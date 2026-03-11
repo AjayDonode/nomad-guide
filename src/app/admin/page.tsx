@@ -366,6 +366,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   }
 
   const handlePreviewAudio = async (poi: any) => {
+    if (!poi) return;
+    
     if (Tone.getContext().state !== 'running') {
       await Tone.start()
     }
@@ -474,6 +476,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }, [])
 
+  const canPlayPreview = pois && pois.length > 0 && pois.some(p => p.audioMaleDataUri || p.audioFemaleDataUri);
+
   return (
     <div className="h-full flex flex-col">
       {/* Editor Header */}
@@ -499,8 +503,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           {tripId && (
             <>
               <Button 
-                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(pois?.[0])}
-                disabled={!pois || pois.length === 0 || (!pois[0].audioMaleDataUri && !pois[0].audioFemaleDataUri)}
+                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(pois?.find(p => p.audioMaleDataUri || p.audioFemaleDataUri))}
+                disabled={!canPlayPreview}
                 variant="ghost"
                 className="rounded-xl hover:bg-white/5 h-11 px-6 text-muted-foreground hover:text-white"
               >
