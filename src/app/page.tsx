@@ -61,8 +61,7 @@ const NavigationMap = dynamic(
 )
 
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const R = 6371; // km
   const dLatNum = (lat2 - lat1) * Math.PI / 180;
   const dLonNum = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLatNum / 2) * Math.sin(dLatNum / 2) +
@@ -205,8 +204,8 @@ export default function DrivingDashboard() {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
         
-        // Trigger at 0.8km proximity
-        if (dist < 0.8) {
+        // Trigger at 50ft (approx 0.015km). Using 0.02km (20m) for better GPS reliability.
+        if (dist < 0.02) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
           if (nextPoi) {
@@ -221,7 +220,6 @@ export default function DrivingDashboard() {
           setSelectedPoiId(poi.id)
           setIsCaptionVisible(true)
           
-          // Clear caption after 15 seconds to keep map clean
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
           captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
         }

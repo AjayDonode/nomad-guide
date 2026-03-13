@@ -496,7 +496,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       {/* Editor Header */}
       <header className="h-20 border-b border-white/5 flex items-center justify-between px-8 bg-card/10 backdrop-blur-md">
         <div className="flex items-center gap-6">
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-xl hover:bg-white/5">
+          <Button variant="ghost" size="icon" onClose={onClose} className="rounded-xl hover:bg-white/5">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="space-y-1">

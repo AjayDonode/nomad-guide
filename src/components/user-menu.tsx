@@ -277,7 +277,7 @@ export function UserMenu() {
                         <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">Metric</Label>
                       </div>
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                        <RadioGroupItem value="imperial" id="imperial" />
+                        <RadioGroupItem value="metric" id="imperial" />
                         <Label htmlFor="imperial" className="text-xs font-bold cursor-pointer">US Standard</Label>
                       </div>
                     </RadioGroup>
