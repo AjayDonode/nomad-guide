@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -40,17 +39,17 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
       currentPoiId.current = poi.id;
       handleInitialTrigger();
     }
-  }, [autoStart, poi])
+  }, [autoStart, poi, voicePreference])
 
   const handleInitialTrigger = async () => {
-    // Priority 1: Use pre-generated audio from Firestore
+    // Priority 1: Use pre-generated audio from Firestore if available
     const savedAudio = voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri;
     
     if (savedAudio) {
       setAudioUrl(savedAudio);
       playAudio(savedAudio);
     } else {
-      // Priority 2: Fallback to real-time generation
+      // Priority 2: Fallback to real-time generation only if not stored
       handleGenerateAndPlay();
     }
   }
@@ -122,19 +121,16 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
       return
     }
 
-    if (!playerRef.current && currentAudio) {
-      playerRef.current = new Tone.Player({
-        url: currentAudio,
-        onstop: () => setIsPlaying(false)
-      }).toDestination()
-    }
-
     if (isPlaying) {
       playerRef.current?.stop()
       setIsPlaying(false)
     } else {
-      playerRef.current?.start()
-      setIsPlaying(true)
+      if (!playerRef.current && currentAudio) {
+         playAudio(currentAudio);
+      } else {
+         playerRef.current?.start()
+         setIsPlaying(true)
+      }
     }
   }
 

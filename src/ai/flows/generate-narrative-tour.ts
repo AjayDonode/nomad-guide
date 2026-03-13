@@ -53,7 +53,7 @@ const narrativePrompt = ai.definePrompt({
 Generate a concise and captivating audio narration for a Point of Interest (POI).
 
 POI Name: {{{poiName}}}
-Provided Description: {{#if poiDescription}}{{{poiDescription}}}{{else}}None provided. Use your extensive historical and cultural knowledge to provide a deep, fascinating insight into this location as if you were a local historian. Find interesting facts that a tourist would love to know.{{/if}}
+Provided Description: {{#if poiDescription}}{{{poiDescription}}}{{else}}None provided. Provide a fascinating insight into this location as if you were a local historian. Find interesting facts that a tourist would love to know.{{/if}}
 User Preferences: {{{userPreferences}}}
 Location Context: {{{locationContext}}}
 {{#if nextPoiName}}
@@ -64,7 +64,6 @@ Instructions:
 - Keep the narration concise (around 20-30 seconds).
 - Start with a welcoming hook.
 - Near the end, mention the next stop: {{{nextPoiName}}}.
-- Respond with a JSON object containing a 'narrationText' field.
 `,
 });
 
