@@ -21,7 +21,8 @@ import {
   Heart,
   Navigation2,
   Search,
-  Map as MapIcon
+  Map as MapIcon,
+  Loader2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,6 +30,13 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuLabel, 
+  DropdownMenuTrigger 
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import type { RouteStep } from '@/components/navigation-map'
 import { useUser, useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase'
