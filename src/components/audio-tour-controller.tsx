@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -14,9 +15,18 @@ interface AudioTourControllerProps {
   nextPoi?: any
   nextPoiDistance?: string
   autoStart?: boolean
+  hidden?: boolean
+  onFinish?: () => void
 }
 
-export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart = false }: AudioTourControllerProps) {
+export function AudioTourController({ 
+  poi, 
+  nextPoi, 
+  nextPoiDistance, 
+  autoStart = false,
+  hidden = false,
+  onFinish
+}: AudioTourControllerProps) {
   const { firestore } = useFirebase()
   const { user } = useUser()
   const [isPlaying, setIsPlaying] = useState(false)
@@ -50,7 +60,6 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
       playAudio(savedAudio);
     } else {
       // Priority 2: Fallback to real-time generation only if not stored
-      // This ensures functionality even if the admin hasn't optimized yet
       handleGenerateAndPlay();
     }
   }
@@ -73,7 +82,10 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
         player.start()
         setIsPlaying(true)
       },
-      onstop: () => setIsPlaying(false)
+      onstop: () => {
+        setIsPlaying(false)
+        if (onFinish) onFinish()
+      }
     }).toDestination()
     playerRef.current = player
   }
@@ -114,7 +126,6 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
       await Tone.start()
     }
 
-    // Check if we have saved audio or local audioUrl
     const currentAudio = audioUrl || (voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri);
 
     if (!currentAudio) {
@@ -143,6 +154,8 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
       }
     }
   }, [])
+
+  if (hidden) return null
 
   return (
     <div className="flex items-center justify-center">

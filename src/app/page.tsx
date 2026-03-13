@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
@@ -11,10 +12,10 @@ import {
   VolumeX,
   LogIn,
   ChevronDown,
+  RotateCcw,
   CornerUpLeft,
   CornerUpRight,
   MoveUp,
-  RotateCcw,
   SquareArrowOutUpRight,
   Route,
   Heart,
@@ -24,19 +25,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { 
-  Sheet, 
-  SheetContent,
-  SheetTitle,
-  SheetDescription
-} from '@/components/ui/sheet'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
@@ -47,7 +35,8 @@ import { useUser, useFirebase, useCollection, useMemoFirebase, useDoc } from '@/
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import { collection, query, orderBy, doc } from 'firebase/firestore'
-import { PoiVisuals } from '@/components/poi-visuals'
+import { DrivingCaptions } from '@/components/driving-captions'
+import { AudioTourController } from '@/components/audio-tour-controller'
 import { simpleNarrate } from '@/ai/flows/generate-narrative-tour'
 import * as Tone from 'tone'
 
@@ -101,14 +90,15 @@ export default function DrivingDashboard() {
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
   const [destination, setDestination] = useState<[number, number] | null>(null)
-  const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
   const [activeTripId, setActiveTripId] = useState<string | null>(null)
   const [activeTripName, setActiveTripName] = useState("")
+  const [isCaptionVisible, setIsCaptionVisible] = useState(false)
 
   const narratedPois = useRef<Set<string>>(new Set())
   const introPlayed = useRef<boolean>(false)
+  const captionTimeout = useRef<NodeJS.Timeout | null>(null)
 
   // Subscriptions
   const tripsQuery = useMemoFirebase(() => {
@@ -156,13 +146,7 @@ export default function DrivingDashboard() {
           (pos) => {
             setUserLocation([pos.coords.latitude, pos.coords.longitude]);
           },
-          (err) => {
-            console.log("Initial position fetch failed", err);
-            // Default to SFO only if geolocation is completely unavailable or times out
-            if (!userLocation) {
-              // We only set this as a very last resort
-            }
-          },
+          (err) => console.log("Initial position fetch failed", err),
           { enableHighAccuracy: true, timeout: 5000 }
         )
       }
@@ -212,6 +196,8 @@ export default function DrivingDashboard() {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
+        
+        // Trigger at 0.8km proximity
         if (dist < 0.8) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
@@ -225,7 +211,11 @@ export default function DrivingDashboard() {
              setNextPoiInfo(null)
           }
           setSelectedPoiId(poi.id)
-          setIsSheetOpen(true)
+          setIsCaptionVisible(true)
+          
+          // Clear caption after 15 seconds to keep map clean
+          if (captionTimeout.current) clearTimeout(captionTimeout.current)
+          captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
         }
       })
     }
@@ -240,6 +230,7 @@ export default function DrivingDashboard() {
     setActiveTripName(trip.name)
     narratedPois.current.clear()
     introPlayed.current = false
+    setIsCaptionVisible(false)
     toast({ title: "Trip Selected", description: `Following ${trip.name}` })
   }
 
@@ -427,7 +418,7 @@ export default function DrivingDashboard() {
           isDriving={isDriving} 
           isCompassActive={isCompassActive} 
           onNextStepUpdate={setNextStep} 
-          onPoiSelect={(poi) => { setSelectedPoiId(poi.id); setIsSheetOpen(true); }}
+          onPoiSelect={(poi) => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}
           isTripMode={!!activeTripId}
         />
 
@@ -444,7 +435,7 @@ export default function DrivingDashboard() {
               <ScrollArea className="max-h-[300px]">
                 <div className="space-y-2">
                   {recommendedPois.map((poi, idx) => (
-                    <div key={idx} className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors" onClick={() => { setSelectedPoiId(poi.id); setIsSheetOpen(true); }}>
+                    <div key={idx} className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors" onClick={() => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}>
                       <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
                         <span className="text-xs font-bold text-primary">{idx + 1}</span>
                       </div>
@@ -477,28 +468,22 @@ export default function DrivingDashboard() {
           </Button>
         </div>
 
-        {activePoi && (
-          <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-            <SheetContent side="bottom" className="h-auto max-h-[85vh] bg-background/95 backdrop-blur-3xl border-white/5 rounded-t-[3rem] p-0 overflow-hidden shadow-2xl">
-              <SheetTitle className="sr-only">{activePoi.name}</SheetTitle>
-              <SheetDescription className="sr-only">{activePoi.description || activePoi.reason || 'Exploring this location.'}</SheetDescription>
-              <ScrollArea className="h-full">
-                <div className="p-6 pb-12 space-y-6 max-w-2xl mx-auto">
-                  <div className="flex items-center justify-center">
-                    <div className="w-12 h-1 bg-white/10 rounded-full" />
-                  </div>
+        {/* Headless Audio Trigger */}
+        <AudioTourController 
+          poi={activePoi} 
+          nextPoi={nextPoiInfo?.poi} 
+          nextPoiDistance={nextPoiInfo?.distance}
+          autoStart={autoNarrate} 
+          hidden={true}
+          onFinish={() => setIsCaptionVisible(false)}
+        />
 
-                  <PoiVisuals 
-                    poi={activePoi} 
-                    nextPoi={nextPoiInfo?.poi} 
-                    nextPoiDistance={nextPoiInfo?.distance} 
-                    autoNarrate={autoNarrate}
-                  />
-                </div>
-              </ScrollArea>
-            </SheetContent>
-          </Sheet>
-        )}
+        {/* Driving Captions Overlay */}
+        <DrivingCaptions 
+          text={activePoi?.narrationText || activePoi?.description || activePoi?.reason || `Approaching ${activePoi?.name}...`}
+          isVisible={isCaptionVisible && !!activePoi}
+          onClose={() => setIsCaptionVisible(false)}
+        />
       </main>
     </div>
   )
