@@ -63,6 +63,7 @@ export async function recommendPois(
 
 const prompt = ai.definePrompt({
   name: 'recommendPoisPrompt',
+  model: 'googleai/gemini-1.5-flash-latest',
   input: { schema: RecommendPoisInputSchema },
   output: { schema: RecommendPoisOutputSchema },
   prompt: `You are an expert personalized tour guide named NomadGuide AI. Your goal is to recommend unique and interesting Points of Interest (POIs) along a user's planned travel route, based on their expressed interests.
