@@ -47,6 +47,7 @@ export async function simpleNarrate(text: string, voicePreference: 'male' | 'fem
 
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
+  model: 'googleai/gemini-1.5-flash',
   input: { schema: GenerateNarrativeTourInputSchema },
   output: { schema: z.object({ narrationText: z.string().describe("The generated narrative text.") }) },
   prompt: `You are an expert tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.

@@ -267,7 +267,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         startLatitude: existingTrip.startLatitude || 37.7749,
         startLongitude: existingTrip.startLongitude || -122.4194,
         endLatitude: existingTrip.endLatitude || 37.7833,
-        endLongitude: existingTrip.endLongitude || -122.4167
+        endLongitude: existingTrip.endLatitude || -122.4167
       })
     }
   }, [existingTrip])
