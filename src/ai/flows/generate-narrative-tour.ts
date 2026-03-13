@@ -74,6 +74,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
     outputSchema: GenerateNarrativeTourOutputSchema,
   },
   async (input) => {
+    // Generate Text first
     const { output } = await narrativePrompt(input);
 
     if (!output?.narrationText) {
@@ -82,6 +83,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
 
     const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
 
+    // Generate Audio using the specialized Gemini TTS model
     const { media } = await ai.generate({
       model: 'googleai/gemini-2.5-flash-preview-tts',
       config: {
@@ -121,7 +123,7 @@ const simpleNarrateFlow = ai.defineFlow(
     const { media } = await ai.generate({
       model: 'googleai/gemini-2.5-flash-preview-tts',
       config: {
-        responseModalities: ['AUDIO'],
+        responseModalalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: { voiceName },
