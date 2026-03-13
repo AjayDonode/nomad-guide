@@ -47,6 +47,7 @@ export async function simpleNarrate(text: string, voicePreference: 'male' | 'fem
 
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
+  // Using the absolute most stable identifier for the Google AI plugin
   model: 'googleai/gemini-1.5-flash',
   input: { schema: GenerateNarrativeTourInputSchema },
   output: { schema: z.object({ narrationText: z.string().describe("The generated narrative text.") }) },

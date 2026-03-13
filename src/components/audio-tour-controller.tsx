@@ -50,6 +50,7 @@ export function AudioTourController({ poi, nextPoi, nextPoiDistance, autoStart =
       playAudio(savedAudio);
     } else {
       // Priority 2: Fallback to real-time generation only if not stored
+      // This ensures functionality even if the admin hasn't optimized yet
       handleGenerateAndPlay();
     }
   }
