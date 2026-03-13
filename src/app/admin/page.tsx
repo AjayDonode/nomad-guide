@@ -59,7 +59,7 @@ import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import Image from 'next/image'
-import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
+import { generateNarrativeTour, simpleNarrate } from '@/ai/flows/generate-narrative-tour'
 import { useToast } from '@/hooks/use-toast'
 import * as Tone from 'tone'
 
@@ -378,10 +378,23 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       setIsPreviewing(false)
     }
 
-    const audioUri = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri
+    let audioUri = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri
+    
+    // If no pre-generated audio but we have text, generate it on-the-fly for preview
+    if (!audioUri && poi.narrationText) {
+      setIsPreviewing(true) // Show loading state
+      try {
+        audioUri = await simpleNarrate(poi.narrationText, voicePreference)
+      } catch (e) {
+        toast({ title: "Preview Failed", variant: "destructive", description: "Could not generate preview audio." })
+        setIsPreviewing(false)
+        return
+      }
+    }
+
     if (!audioUri) {
       toast({
-        title: "No Audio",
+        title: "No Content",
         description: "Please optimize narrations first to preview audio.",
       })
       return
@@ -475,7 +488,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }, [])
 
-  const canPlayPreview = pois && pois.length > 0 && pois.some(p => p.audioMaleDataUri || p.audioFemaleDataUri);
+  // Preview is possible if we have at least one stop with narration text or pre-generated audio
+  const canPlayPreview = pois && pois.length > 0 && pois.some(p => p.narrationText || p.audioMaleDataUri || p.audioFemaleDataUri);
 
   return (
     <div className="h-full flex flex-col">
@@ -502,12 +516,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           {tripId && (
             <>
               <Button 
-                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(pois?.find(p => p.audioMaleDataUri || p.audioFemaleDataUri))}
-                disabled={!canPlayPreview}
+                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(pois?.find(p => p.narrationText || p.audioMaleDataUri || p.audioFemaleDataUri))}
+                disabled={!canPlayPreview || isPreviewing && !playerRef.current}
                 variant="ghost"
                 className="rounded-xl hover:bg-white/5 h-11 px-6 text-muted-foreground hover:text-white"
               >
-                {isPreviewing ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                {isPreviewing && !playerRef.current ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : isPreviewing ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
                 {isPreviewing ? "Stop Preview" : "Play Preview"}
               </Button>
               <Button 
@@ -579,7 +593,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           <p className="text-[10px] text-muted-foreground">{poi.category}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {(poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
+                          {(poi.narrationText || poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
                             <Button 
                               variant="ghost" 
                               size="icon" 

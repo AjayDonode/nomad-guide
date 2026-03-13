@@ -158,9 +158,9 @@ export default function DrivingDashboard() {
           },
           (err) => {
             console.log("Initial position fetch failed", err);
-            // Default to SFO only if geolocation is completely unavailable
+            // Default to SFO only if geolocation is completely unavailable or times out
             if (!userLocation) {
-              setUserLocation([37.7749, -122.4194]);
+              // We only set this as a very last resort
             }
           },
           { enableHighAccuracy: true, timeout: 5000 }
