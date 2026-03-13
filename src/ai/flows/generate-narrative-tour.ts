@@ -3,7 +3,7 @@
  * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest using Gemini TTS.
  */
 
-import { ai } from '@/ai/genkit';
+import { ai, googleAI } from '@/ai/genkit';
 import { z } from 'genkit';
 import wav from 'wav';
 
@@ -47,7 +47,7 @@ export async function simpleNarrate(text: string, voicePreference: 'male' | 'fem
 
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
-  model: 'googleai/gemini-1.5-flash',
+  model: googleAI.model('gemini-1.5-flash'),
   input: { schema: GenerateNarrativeTourInputSchema },
   output: { schema: z.object({ narrationText: z.string().describe("The generated narrative text.") }) },
   prompt: `You are an expert tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
@@ -86,7 +86,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
 
     // Generate Audio using the specialized Gemini TTS model
     const { media } = await ai.generate({
-      model: 'googleai/gemini-2.5-flash-preview-tts',
+      model: googleAI.model('gemini-2.5-flash-preview-tts'),
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -122,9 +122,9 @@ const simpleNarrateFlow = ai.defineFlow(
     const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
 
     const { media } = await ai.generate({
-      model: 'googleai/gemini-2.5-flash-preview-tts',
+      model: googleAI.model('gemini-2.5-flash-preview-tts'),
       config: {
-        responseModalalities: ['AUDIO'],
+        responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: { voiceName },

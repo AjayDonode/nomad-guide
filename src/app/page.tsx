@@ -96,7 +96,7 @@ export default function DrivingDashboard() {
   const [isLoading, setIsLoading] = useState(false)
   const [isDriving, setIsDriving] = useState(false)
   const [isCompassActive, setIsCompassActive] = useState(false)
-  const [userLocation, setUserLocation] = useState<[number, number]>([37.7749, -122.4194])
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null)
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
@@ -151,10 +151,22 @@ export default function DrivingDashboard() {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
-        (err) => console.log("Initial position fetch failed", err)
-      )
+      const getInitialPos = () => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+          },
+          (err) => {
+            console.log("Initial position fetch failed", err);
+            // Default to SFO only if geolocation is completely unavailable
+            if (!userLocation) {
+              setUserLocation([37.7749, -122.4194]);
+            }
+          },
+          { enableHighAccuracy: true, timeout: 5000 }
+        )
+      }
+      getInitialPos();
 
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
@@ -166,7 +178,7 @@ export default function DrivingDashboard() {
   }, [])
 
   const categorizedTrips = useMemo(() => {
-    if (!allTrips) return { nearby: [], favorites: [] }
+    if (!allTrips || !userLocation) return { nearby: [], favorites: [] }
     const favoriteIds = new Set(favorites?.map(f => f.tripId) || [])
     const tripsWithDistance = allTrips.map(trip => ({
       ...trip,
@@ -194,7 +206,7 @@ export default function DrivingDashboard() {
   }, [tripPois, activeTripId, allTrips])
 
   useEffect(() => {
-    if (!isDriving || !recommendedPois.length || !autoNarrate) return
+    if (!isDriving || !recommendedPois.length || !autoNarrate || !userLocation) return
     
     const checkProximity = () => {
       recommendedPois.forEach((poi, index) => {
@@ -276,6 +288,17 @@ export default function DrivingDashboard() {
     return meters > 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
   }
 
+  if (!userLocation) {
+     return (
+        <div className="h-screen flex items-center justify-center bg-background">
+           <div className="text-center space-y-4">
+              <Navigation className="w-12 h-12 text-primary animate-pulse mx-auto" />
+              <p className="font-headline font-bold text-muted-foreground uppercase tracking-widest text-xs">Locating Position...</p>
+           </div>
+        </div>
+     )
+  }
+
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-body selection:bg-primary/30">
       <div className="fixed top-0 left-0 right-0 z-[110] p-4">
@@ -298,7 +321,7 @@ export default function DrivingDashboard() {
                 <div className="flex items-center gap-3 border-l border-white/10 pl-4">
                   <div className="bg-accent/20 p-2 rounded-xl"><TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} /></div>
                   <div>
-                    <div className="text-[10px] uppercase tracking widest text-accent font-bold mb-1">Next</div>
+                    <div className="text-[10px] uppercase tracking-widest text-accent font-bold mb-1">Next</div>
                     <div className="text-sm font-bold">{formatStepDistance(nextStep.distance, units)}</div>
                   </div>
                 </div>

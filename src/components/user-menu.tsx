@@ -11,7 +11,8 @@ import {
   Volume2,
   Loader2,
   Ruler,
-  Camera
+  Camera,
+  Map as MapIcon
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -38,6 +39,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { simpleNarrate } from '@/ai/flows/generate-narrative-tour';
 import * as Tone from 'tone';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export function UserMenu() {
   const router = useRouter();
@@ -125,8 +127,8 @@ export function UserMenu() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0 overflow-hidden border border-white/10 hover:border-primary/50 transition-all">
-            <Avatar className="h-10 w-10">
+          <Button variant="ghost" className="relative h-12 w-12 rounded-2xl p-0 overflow-hidden glass-morphism border border-white/10 hover:border-primary/50 transition-all">
+            <Avatar className="h-12 w-12 rounded-2xl">
               <AvatarImage src={photoURL || undefined} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary font-bold">
                 {displayName.substring(0, 2).toUpperCase()}
@@ -178,98 +180,116 @@ export function UserMenu() {
       </DropdownMenu>
 
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="bg-card/95 border-white/10 text-white rounded-[2.5rem] backdrop-blur-2xl max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-headline font-bold text-2xl">Account Discovery</DialogTitle>
+        <DialogContent className="bg-card/95 border-white/10 text-white rounded-[2.5rem] backdrop-blur-2xl max-w-md max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="p-8 pb-4">
+            <DialogTitle className="font-headline font-bold text-2xl">Discovery Hub</DialogTitle>
           </DialogHeader>
-          <div className="py-6 space-y-8">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <div 
-                className="relative group cursor-pointer" 
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Avatar className="h-24 w-24 border-2 border-primary ring-4 ring-primary/10 transition-all group-hover:ring-primary/40">
-                  <AvatarImage src={photoURL || undefined} />
-                  <AvatarFallback className="text-2xl bg-primary/20 text-primary font-bold">
-                    {displayName.substring(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full bg-black/40">
-                  <Camera className="w-8 h-8 text-white" />
-                </div>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
-                  accept="image/*" 
-                  onChange={handleAvatarUpload} 
-                />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-xl font-headline font-bold">{displayName}</h3>
-                <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                  <Mail className="w-3 h-3" />
-                  <span className="text-xs">{user.email}</span>
-                </div>
-              </div>
+          
+          <Tabs defaultValue="profile" className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-8">
+              <TabsList className="w-full bg-white/5 rounded-xl h-11">
+                <TabsTrigger value="profile" className="flex-1 rounded-lg font-bold text-xs uppercase tracking-widest">Profile</TabsTrigger>
+                <TabsTrigger value="settings" className="flex-1 rounded-lg font-bold text-xs uppercase tracking-widest">Settings</TabsTrigger>
+              </TabsList>
             </div>
 
-            <div className="space-y-6 bg-white/5 p-6 rounded-3xl border border-white/5">
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <Volume2 className="w-4 h-4 text-primary" />
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Guide Voice</p>
-                  {isSpeaking && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
+            <div className="flex-1 overflow-y-auto p-8 space-y-8">
+              <TabsContent value="profile" className="mt-0 space-y-8">
+                <div className="flex flex-col items-center text-center space-y-4">
+                  <div 
+                    className="relative group cursor-pointer" 
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Avatar className="h-28 w-28 rounded-3xl border-2 border-primary ring-4 ring-primary/10 transition-all group-hover:ring-primary/40">
+                      <AvatarImage src={photoURL || undefined} className="object-cover" />
+                      <AvatarFallback className="text-2xl bg-primary/20 text-primary font-bold">
+                        {displayName.substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-3xl bg-black/40">
+                      <Camera className="w-8 h-8 text-white" />
+                    </div>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept="image/*" 
+                      onChange={handleAvatarUpload} 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-headline font-bold">{displayName}</h3>
+                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                      <Mail className="w-3 h-3" />
+                      <span className="text-xs">{user.email}</span>
+                    </div>
+                  </div>
                 </div>
-                <RadioGroup 
-                  defaultValue={voicePreference} 
-                  onValueChange={handleVoiceChange}
-                  className="grid grid-cols-2 gap-3"
-                  disabled={isSpeaking}
-                >
-                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                    <RadioGroupItem value="female" id="female" />
-                    <Label htmlFor="female" className="text-xs font-bold cursor-pointer">Female (Kore)</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                    <RadioGroupItem value="male" id="male" />
-                    <Label htmlFor="male" className="text-xs font-bold cursor-pointer">Male (Algenib)</Label>
-                  </div>
-                </RadioGroup>
-              </div>
 
-              <div className="space-y-4 pt-4 border-t border-white/5">
-                <div className="flex items-center gap-3">
-                  <Ruler className="w-4 h-4 text-primary" />
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Measurement Units</p>
+                <div className="space-y-4 bg-white/5 p-6 rounded-3xl border border-white/5">
+                   <div className="flex items-center gap-3">
+                      <Calendar className="w-4 h-4 text-primary" />
+                      <div className="flex-1">
+                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none mb-1">Explorer Since</p>
+                        <p className="text-sm">{user.metadata.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString() : 'Recent'}</p>
+                      </div>
+                    </div>
                 </div>
-                <RadioGroup 
-                  defaultValue={unitsPreference} 
-                  onValueChange={handleUnitsChange}
-                  className="grid grid-cols-2 gap-3"
-                >
-                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                    <RadioGroupItem value="metric" id="metric" />
-                    <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">Metric (km/m)</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 bg-white/5 p-2.5 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                    <RadioGroupItem value="imperial" id="imperial" />
-                    <Label htmlFor="imperial" className="text-xs font-bold cursor-pointer">US (mi/ft)</Label>
-                  </div>
-                </RadioGroup>
-              </div>
+              </TabsContent>
 
-              <div className="flex items-center gap-3 pt-4 border-t border-white/5">
-                <Calendar className="w-4 h-4 text-primary" />
-                <div className="flex-1">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none mb-1">Explorer Since</p>
-                  <p className="text-sm">{user.metadata.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString() : 'Recent'}</p>
+              <TabsContent value="settings" className="mt-0 space-y-6">
+                <div className="space-y-6 bg-white/5 p-6 rounded-3xl border border-white/5">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Volume2 className="w-4 h-4 text-primary" />
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Guide Voice</p>
+                      {isSpeaking && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
+                    </div>
+                    <RadioGroup 
+                      defaultValue={voicePreference} 
+                      onValueChange={handleVoiceChange}
+                      className="grid grid-cols-2 gap-3"
+                      disabled={isSpeaking}
+                    >
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="female" id="female" />
+                        <Label htmlFor="female" className="text-xs font-bold cursor-pointer">Kore (F)</Label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="male" id="male" />
+                        <Label htmlFor="male" className="text-xs font-bold cursor-pointer">Algenib (M)</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-3">
+                      <Ruler className="w-4 h-4 text-primary" />
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Measurement Units</p>
+                    </div>
+                    <RadioGroup 
+                      defaultValue={unitsPreference} 
+                      onValueChange={handleUnitsChange}
+                      className="grid grid-cols-2 gap-3"
+                    >
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="metric" id="metric" />
+                        <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">Metric</Label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="imperial" id="imperial" />
+                        <Label htmlFor="imperial" className="text-xs font-bold cursor-pointer">US Standard</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
                 </div>
-              </div>
+              </TabsContent>
             </div>
+          </Tabs>
 
+          <div className="p-8 pt-0">
             <Button variant="outline" className="w-full rounded-2xl h-12 border-white/10 hover:bg-white/5 font-bold" onClick={() => setIsSettingsOpen(false)}>
-              Close Discovery
+              Back to Map
             </Button>
           </div>
         </DialogContent>
