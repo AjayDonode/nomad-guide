@@ -50,7 +50,7 @@ export async function simpleNarrate(text: string, voicePreference: 'male' | 'fem
 
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
-  model: 'googleai/gemini-1.5-flash-latest',
+  model: 'googleai/gemini-1.5-flash',
   input: { schema: GenerateNarrativeTourInputSchema },
   output: { schema: z.object({ narrationText: z.string().describe("The generated narrative text.") }) },
   prompt: `You are an expert tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
@@ -87,7 +87,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
     const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
 
     const { media } = await ai.generate({
-      model: 'googleai/gemini-1.5-flash-latest',
+      model: 'googleai/gemini-1.5-flash',
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -123,7 +123,7 @@ const simpleNarrateFlow = ai.defineFlow(
     const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
 
     const { media } = await ai.generate({
-      model: 'googleai/gemini-1.5-flash-latest',
+      model: 'googleai/gemini-1.5-flash',
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
