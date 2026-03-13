@@ -1,6 +1,6 @@
 'use server';
 /**
- * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest.
+ * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest using Gemini TTS.
  */
 
 import { ai } from '@/ai/genkit';
@@ -84,7 +84,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
     const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
 
     const { media } = await ai.generate({
-      model: 'googleai/gemini-1.5-flash',
+      model: 'googleai/gemini-2.5-flash-preview-tts',
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -120,7 +120,7 @@ const simpleNarrateFlow = ai.defineFlow(
     const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
 
     const { media } = await ai.generate({
-      model: 'googleai/gemini-1.5-flash',
+      model: 'googleai/gemini-2.5-flash-preview-tts',
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
