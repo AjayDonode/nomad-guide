@@ -1,6 +1,9 @@
 'use server';
 /**
  * @fileOverview A Genkit flow that generates real-time, context-aware audio narration for points of interest using Gemini TTS.
+ * 
+ * - generateNarrativeTour: Generates both text and audio narration.
+ * - simpleNarrate: Generates audio from provided text.
  */
 
 import { ai } from '@/ai/genkit';
@@ -47,7 +50,6 @@ export async function simpleNarrate(text: string, voicePreference: 'male' | 'fem
 
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
-  // Using the absolute most stable identifier for the Google AI plugin
   model: 'googleai/gemini-1.5-flash',
   input: { schema: GenerateNarrativeTourInputSchema },
   output: { schema: z.object({ narrationText: z.string().describe("The generated narrative text.") }) },
@@ -76,7 +78,6 @@ const generateNarrativeTourFlow = ai.defineFlow(
     outputSchema: GenerateNarrativeTourOutputSchema,
   },
   async (input) => {
-    // Generate Text first
     const { output } = await narrativePrompt(input);
 
     if (!output?.narrationText) {
@@ -85,7 +86,6 @@ const generateNarrativeTourFlow = ai.defineFlow(
 
     const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
 
-    // Generate Audio using the specialized Gemini TTS model
     const { media } = await ai.generate({
       model: 'googleai/gemini-2.5-flash-preview-tts',
       config: {
