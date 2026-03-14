@@ -20,8 +20,7 @@ import {
   Heart,
   Navigation2,
   Search,
-  Map as MapIcon,
-  Loader2
+  Map as MapIcon
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -190,7 +189,9 @@ export default function DrivingDashboard() {
       const activeTrip = allTrips?.find(t => t.id === activeTripId)
       if (activeTrip) {
         setRecommendedPois(tripPois)
-        setDestination([activeTrip.endLatitude, activeTrip.endLongitude])
+        // Set destination to the last stop in the POI list
+        const lastPoi = tripPois[tripPois.length - 1]
+        setDestination([lastPoi.latitude, lastPoi.longitude])
         setIsLoading(false)
       }
     }

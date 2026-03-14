@@ -1,13 +1,11 @@
 "use client"
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, Suspense } from 'react'
 import { 
   Plus, 
   Map as LucideMap, 
   Save, 
   Trash2, 
-  ChevronRight, 
-  Settings, 
   ArrowLeft,
   Navigation,
   Loader2,
@@ -26,9 +24,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { 
   Card, 
   CardContent, 
-  CardHeader, 
-  CardTitle,
-  CardDescription
+  CardHeader
 } from '@/components/ui/card'
 import { 
   useFirebase, 
@@ -267,7 +263,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         startLatitude: existingTrip.startLatitude || 37.7749,
         startLongitude: existingTrip.startLongitude || -122.4194,
         endLatitude: existingTrip.endLatitude || 37.7833,
-        endLongitude: existingTrip.endLatitude || -122.4167
+        endLongitude: existingTrip.endLongitude || -122.4167
       })
     }
   }, [existingTrip])
@@ -453,6 +449,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         updatedAt: serverTimestamp()
       }
     )
+
+    // Update the trip's end coordinates automatically to match the newest last stop
+    setTripData(prev => ({ ...prev, endLatitude: lat, endLongitude: lng }))
   }
 
   const handleImageUpload = (poiId: string, currentImages: string[] = [], e: React.ChangeEvent<HTMLInputElement>) => {
@@ -691,16 +690,6 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           Click on the map to add a discovery point
                         </p>
                       </div>
-                      
-                      <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
-                         <div className="flex items-center gap-2">
-                            <Flag className="w-4 h-4 text-green-500" />
-                            <span className="text-xs font-bold uppercase tracking-widest">Trip End Logic</span>
-                         </div>
-                         <p className="text-[10px] text-muted-foreground leading-relaxed">
-                            Drag the checkered flag on the map to set the final destination. The route will automatically update to flow through all stop points and conclude at the end point.
-                         </p>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -713,11 +702,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         <section className="flex-1 relative">
           <AdminMap 
             center={[tripData.startLatitude, tripData.startLongitude]} 
-            endPoint={[tripData.endLatitude, tripData.endLongitude]}
             pois={pois || []}
             onMapClick={handleAddPoi}
             onStartPointSet={(lat, lng) => setTripData({...tripData, startLatitude: lat, startLongitude: lng})}
-            onEndPointSet={(lat, lng) => setTripData({...tripData, endLatitude: lat, endLongitude: lng})}
           />
         </section>
       </div>
