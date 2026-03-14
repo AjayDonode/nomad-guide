@@ -523,7 +523,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {tripId && (
             <>
               <Button 
