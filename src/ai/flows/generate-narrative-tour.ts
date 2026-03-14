@@ -78,6 +78,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
     outputSchema: GenerateNarrativeTourOutputSchema,
   },
   async (input) => {
+    // Generate Text first
     const { output } = await narrativePrompt(input);
 
     if (!output?.narrationText) {
