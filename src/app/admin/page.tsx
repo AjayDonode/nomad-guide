@@ -367,10 +367,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const handlePreviewAudio = async (poi: any) => {
     if (!poi) return;
     
+    // Start Audio context if needed
     if (Tone.getContext().state !== 'running') {
       await Tone.start()
     }
 
+    // Stop existing playback
     if (playerRef.current) {
       playerRef.current.stop()
       playerRef.current.dispose()
@@ -382,7 +384,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     
     // If no pre-generated audio but we have text, generate it on-the-fly for preview
     if (!audioUri && poi.narrationText) {
-      setIsPreviewing(true) // Show loading state
+      setIsPreviewing(true)
       try {
         audioUri = await simpleNarrate(poi.narrationText, voicePreference)
       } catch (e) {
@@ -395,20 +397,28 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     if (!audioUri) {
       toast({
         title: "No Content",
-        description: "Please optimize narrations first to preview audio.",
+        description: "Please optimize narrations first or add text to preview audio.",
       })
       return
     }
 
-    const player = new Tone.Player({
-      url: audioUri,
-      onload: () => {
-        player.start()
-        setIsPreviewing(true)
-      },
-      onstop: () => setIsPreviewing(false)
-    }).toDestination()
-    playerRef.current = player
+    try {
+      const player = new Tone.Player({
+        url: audioUri,
+        onload: () => {
+          player.start()
+          setIsPreviewing(true)
+        },
+        onstop: () => {
+          setIsPreviewing(false)
+          player.dispose()
+        }
+      }).toDestination()
+      playerRef.current = player
+    } catch (e) {
+      console.error("Playback error", e)
+      setIsPreviewing(false)
+    }
   }
 
   const stopPreview = () => {
@@ -489,14 +499,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   }, [])
 
   // Preview is possible if we have at least one stop with narration text or pre-generated audio
-  const canPlayPreview = pois && pois.length > 0 && pois.some(p => p.narrationText || p.audioMaleDataUri || p.audioFemaleDataUri);
+  const firstPlayablePoi = pois?.find(p => p.narrationText || p.audioMaleDataUri || p.audioFemaleDataUri);
+  const canPlayPreview = !!firstPlayablePoi;
 
   return (
     <div className="h-full flex flex-col">
       {/* Editor Header */}
       <header className="h-20 border-b border-white/5 flex items-center justify-between px-8 bg-card/10 backdrop-blur-md">
         <div className="flex items-center gap-6">
-          <Button variant="ghost" size="icon" onClose={onClose} className="rounded-xl hover:bg-white/5">
+          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-xl hover:bg-white/5">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="space-y-1">
@@ -516,29 +527,35 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           {tripId && (
             <>
               <Button 
-                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(pois?.find(p => p.narrationText || p.audioMaleDataUri || p.audioFemaleDataUri))}
-                disabled={!canPlayPreview || isPreviewing && !playerRef.current}
-                variant="ghost"
-                className="rounded-xl hover:bg-white/5 h-11 px-6 text-muted-foreground hover:text-white"
-              >
-                {isPreviewing && !playerRef.current ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : isPreviewing ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-                {isPreviewing ? "Stop Preview" : "Play Preview"}
-              </Button>
-              <Button 
                 onClick={handleBulkProcessAI}
                 disabled={isProcessingAI || pois?.length === 0}
                 variant="outline"
-                className="rounded-xl border-primary/30 text-primary hover:bg-primary/5 h-11"
+                className="rounded-xl border-primary/30 text-primary hover:bg-primary/5 h-11 px-6 font-bold"
               >
                 {isProcessingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
                 Optimize Narrations
+              </Button>
+              <Button 
+                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(firstPlayablePoi)}
+                disabled={!canPlayPreview || (isPreviewing && !playerRef.current)}
+                variant="ghost"
+                size="icon"
+                className={cn("rounded-xl hover:bg-white/5 h-11 w-11 transition-all", isPreviewing ? "text-primary" : "text-muted-foreground")}
+              >
+                {isPreviewing && !playerRef.current ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : isPreviewing ? (
+                  <Pause className="w-5 h-5" />
+                ) : (
+                  <Play className="w-5 h-5" />
+                )}
               </Button>
             </>
           )}
           <Button 
             onClick={handleSaveTrip} 
             disabled={isSaving}
-            className="bg-primary hover:bg-primary/90 text-white font-headline font-bold px-8 rounded-xl h-11"
+            className="bg-primary hover:bg-primary/90 text-white font-headline font-bold px-8 rounded-xl h-11 ml-2"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
             Save Trip
