@@ -360,8 +360,24 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }
 
-  const handlePreviewAudio = async (poi: any) => {
-    if (!poi) return;
+  const handlePreviewAudio = async (startIndex: number = 0) => {
+    if (!pois || pois.length === 0 || startIndex >= pois.length) {
+      setIsPreviewing(false);
+      return;
+    }
+    
+    // Find the nearest playable POI if current doesn't have content
+    let currentIndex = startIndex;
+    let poi = pois[currentIndex];
+    while (currentIndex < pois.length && !poi?.narrationText && !poi?.audioMaleDataUri && !poi?.audioFemaleDataUri) {
+      currentIndex++;
+      poi = pois[currentIndex];
+    }
+
+    if (currentIndex >= pois.length || !poi) {
+      setIsPreviewing(false);
+      return;
+    }
     
     // Start Audio context if needed
     if (Tone.getContext().state !== 'running') {
@@ -395,6 +411,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         title: "No Content",
         description: "Please optimize narrations first or add text to preview audio.",
       })
+      // Auto-skip to next
+      handlePreviewAudio(currentIndex + 1);
       return
     }
 
@@ -406,8 +424,10 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           setIsPreviewing(true)
         },
         onstop: () => {
-          setIsPreviewing(false)
           player.dispose()
+          playerRef.current = null
+          // Automatically play the next audio
+          handlePreviewAudio(currentIndex + 1)
         }
       }).toDestination()
       playerRef.current = player
@@ -507,8 +527,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   }, [])
 
   // Preview is possible if we have at least one stop with narration text or pre-generated audio
-  const firstPlayablePoi = pois?.find(p => p.narrationText || p.audioMaleDataUri || p.audioFemaleDataUri);
-  const canPlayPreview = !!firstPlayablePoi;
+  const firstPlayablePoiIndex = pois?.findIndex(p => p.narrationText || p.audioMaleDataUri || p.audioFemaleDataUri) ?? -1;
+  const canPlayPreview = firstPlayablePoiIndex !== -1;
 
   return (
     <div className="h-full flex flex-col">
@@ -544,7 +564,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 Optimize Narrations
               </Button>
               <Button 
-                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(firstPlayablePoi)}
+                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(firstPlayablePoiIndex !== -1 ? firstPlayablePoiIndex : 0)}
                 disabled={!canPlayPreview || (isPreviewing && !playerRef.current)}
                 variant="ghost"
                 size="icon"
@@ -623,7 +643,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                               variant="ghost" 
                               size="icon" 
                               className="h-8 w-8 text-primary hover:bg-primary/10"
-                              onClick={() => handlePreviewAudio(poi)}
+                              onClick={() => handlePreviewAudio(idx)}
                             >
                               <Volume2 className="w-4 h-4" />
                             </Button>
