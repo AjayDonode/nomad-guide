@@ -296,10 +296,18 @@ export default function DrivingDashboard() {
             const cachedUrl = await idbGet(`audio_${poi.id}_${voicePreference}`);
             if (cachedUrl) {
               cachedCount++;
-              continue; // Already downloaded
+              continue; // Already downloaded in local browser
+            }
+
+            // Check if Admin already pre-generated it in Firestore
+            const adminAudio = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
+            if (adminAudio) {
+               await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudio);
+               cachedCount++;
+               continue; // Successfully pulled offline from Admin cache
             }
             
-            // Generate it now
+            // Otherwise, we must generate it dynamically real-time
             const result = await generateNarrativeTour({
               poiName: poi.name,
               poiDescription: poi.description || "",
