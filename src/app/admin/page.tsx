@@ -454,6 +454,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     setTripData(prev => ({ ...prev, endLatitude: lat, endLongitude: lng }))
   }
 
+  const handlePoiMove = (poiId: string, lat: number, lng: number) => {
+    if (!firestore || !tripId) return
+    updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+      latitude: lat,
+      longitude: lng,
+      updatedAt: serverTimestamp()
+    })
+  }
+
   const handleImageUpload = (poiId: string, currentImages: string[] = [], e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !firestore || !tripId) return
     
@@ -705,6 +714,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
             pois={pois || []}
             onMapClick={handleAddPoi}
             onStartPointSet={(lat, lng) => setTripData({...tripData, startLatitude: lat, startLongitude: lng})}
+            onPoiMove={handlePoiMove}
+            onPoiDelete={(poiId) => deleteDocumentNonBlocking(doc(firestore!, 'trips', tripId!, 'trip_pois', poiId))}
           />
         </section>
       </div>
