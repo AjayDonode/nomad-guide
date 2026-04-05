@@ -43,8 +43,9 @@ import { UserMenu } from '@/components/user-menu'
 import { collection, query, orderBy, doc } from 'firebase/firestore'
 import { DrivingCaptions } from '@/components/driving-captions'
 import { AudioTourController } from '@/components/audio-tour-controller'
-import { simpleNarrate } from '@/ai/flows/generate-narrative-tour'
+import { simpleNarrate, generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
 import * as Tone from 'tone'
+import { set as idbSet, get as idbGet } from 'idb-keyval'
 
 // Dynamic imports
 const NavigationMap = dynamic(
@@ -278,6 +279,50 @@ export default function DrivingDashboard() {
       } catch (e) {
         console.error("Intro audio failed to play", e)
       }
+    }
+
+    // Prefetch all POI audio for OFFLINE access
+    if (recommendedPois.length > 0) {
+      toast({ title: "Downloading Trip", description: "Caching audio for offline access..." })
+      
+      // We don't await this so we don't block driving
+      setTimeout(async () => {
+        let cachedCount = 0;
+        for (let i = 0; i < recommendedPois.length; i++) {
+          const poi = recommendedPois[i];
+          const nextName = recommendedPois[i + 1]?.name;
+          
+          try {
+            const cachedUrl = await idbGet(`audio_${poi.id}_${voicePreference}`);
+            if (cachedUrl) {
+              cachedCount++;
+              continue; // Already downloaded
+            }
+            
+            // Generate it now
+            const result = await generateNarrativeTour({
+              poiName: poi.name,
+              poiDescription: poi.description || "",
+              userPreferences: "captivating, informative, and professional guide",
+              locationContext: "approaching the site while driving",
+              nextPoiName: nextName,
+              language: "en-US",
+              voicePreference
+            });
+            
+            if (result && result.audioDataUri) {
+              await idbSet(`audio_${poi.id}_${voicePreference}`, result.audioDataUri);
+              cachedCount++;
+            }
+          } catch (err) {
+            console.error("Failed to prefetch audio for POI: ", poi.name, err);
+          }
+        }
+        
+        if (cachedCount === recommendedPois.length) {
+          toast({ title: "Trip Downloaded", description: "You're fully ready for offline navigation!" });
+        }
+      }, 1000);
     }
   }
 

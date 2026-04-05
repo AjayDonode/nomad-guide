@@ -9,6 +9,7 @@ import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
 import { cn } from '@/lib/utils'
 import { useUser, useFirebase, useMemoFirebase, useDoc } from '@/firebase'
 import { doc } from 'firebase/firestore'
+import { get as idbGet } from 'idb-keyval'
 
 interface AudioTourControllerProps {
   poi?: any
@@ -53,13 +54,18 @@ export function AudioTourController({
 
   const handleInitialTrigger = async () => {
     // Priority 1: Use pre-generated audio from Firestore if available
-    const savedAudio = voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri;
+    let savedAudio = voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri;
+    
+    // Priority 2: Use locally cached offline audio from IndexedDB
+    if (!savedAudio && poi) {
+      savedAudio = await idbGet(`audio_${poi.id}_${voicePreference}`);
+    }
     
     if (savedAudio) {
       setAudioUrl(savedAudio);
       playAudio(savedAudio);
     } else {
-      // Priority 2: Fallback to real-time generation only if not stored
+      // Priority 3: Fallback to real-time generation only if not stored
       handleGenerateAndPlay();
     }
   }
@@ -126,7 +132,10 @@ export function AudioTourController({
       await Tone.start()
     }
 
-    const currentAudio = audioUrl || (voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri);
+    let currentAudio = audioUrl || (voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri);
+    if (!currentAudio && poi) {
+       currentAudio = await idbGet(`audio_${poi.id}_${voicePreference}`);
+    }
 
     if (!currentAudio) {
       await handleGenerateAndPlay()
