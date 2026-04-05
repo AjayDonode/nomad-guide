@@ -1,0 +1,9 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "apphosting": {
+    "backendId": "studio-3110244339-6cbfd",
+    "rootDir": "."
+  }
+}

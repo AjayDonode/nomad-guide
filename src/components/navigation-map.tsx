@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
-import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
 
 export interface RouteStep {
   maneuver: {
@@ -90,21 +90,73 @@ function calculateBearing(start: [number, number], end: [number, number]) {
   return (bearing + 360) % 360;
 }
 
-function MapUpdater({ center, destination, isDriving, pois }: { center: [number, number], destination?: [number, number] | null, isDriving?: boolean, pois: POI[] }) {
+function calculateDistance(start: [number, number], end: [number, number]) {
+  const R = 6371e3; // metres
+  const phi1 = start[0] * Math.PI/180;
+  const phi2 = end[0] * Math.PI/180;
+  const deltaPhi = (end[0]-start[0]) * Math.PI/180;
+  const deltaLambda = (end[1]-start[1]) * Math.PI/180;
+  const a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+function MapUpdater({ center, destination, isDriving, pois, forceRevertToDrive }: { center: [number, number], destination?: [number, number] | null, isDriving?: boolean, pois: POI[], forceRevertToDrive?: number }) {
   const map = useMap()
+  const [hasStartedDriving, setHasStartedDriving] = useState(false)
+  const [prevForceRevert, setPrevForceRevert] = useState(0)
   
   useEffect(() => {
     if (isDriving && destination) {
-      map.setView(center, 17, { animate: true })
+      if (!hasStartedDriving) {
+        setHasStartedDriving(true)
+        setPrevForceRevert(forceRevertToDrive || 0)
+        map.setView(center, 18, { animate: true })
+      } else if (forceRevertToDrive !== prevForceRevert) {
+        setPrevForceRevert(forceRevertToDrive || 0)
+        map.setView(center, 18, { animate: true })
+      } else {
+        map.setView(center, map.getZoom() < 16 ? map.getZoom() : 18, { animate: true })
+      }
     } else if (destination) {
+      setHasStartedDriving(false)
       const markers = [center, destination, ...pois.map(p => [p.latitude, p.longitude] as [number, number])]
       const bounds = L.latLngBounds(markers)
       map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 })
     } else {
+      setHasStartedDriving(false)
       map.setView(center, map.getZoom())
     }
-  }, [center, destination, isDriving, map, pois])
+  }, [center, destination, isDriving, map, pois, hasStartedDriving, forceRevertToDrive, prevForceRevert])
   
+  return null
+}
+
+function MapEventsTracker({ onZoomChange, onUserActivity }: { onZoomChange: (z: number) => void, onUserActivity: () => void }) {
+  const map = useMap()
+  
+  useEffect(() => {
+    const container = map.getContainer()
+    const handleActivity = () => onUserActivity()
+    
+    container.addEventListener('mousedown', handleActivity, { passive: true })
+    container.addEventListener('touchstart', handleActivity, { passive: true })
+    container.addEventListener('wheel', handleActivity, { passive: true })
+    container.addEventListener('keydown', handleActivity, { passive: true })
+    
+    return () => {
+      container.removeEventListener('mousedown', handleActivity)
+      container.removeEventListener('touchstart', handleActivity)
+      container.removeEventListener('wheel', handleActivity)
+      container.removeEventListener('keydown', handleActivity)
+    }
+  }, [map, onUserActivity])
+
+  useMapEvents({
+    zoomend: (e) => onZoomChange(e.target.getZoom())
+  })
   return null
 }
 
@@ -123,6 +175,25 @@ export function NavigationMap({
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
   const [bearing, setBearing] = useState(0)
+  const [currentZoom, setCurrentZoom] = useState(14)
+  
+  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now())
+  const [forceRevertToDrive, setForceRevertToDrive] = useState(0)
+
+  const handleUserActivity = React.useCallback(() => {
+    setLastActivityTime(Date.now())
+  }, [])
+
+  useEffect(() => {
+    if (!isDriving || currentZoom >= 16) return
+    
+    const timeout = setTimeout(() => {
+      setForceRevertToDrive(prev => prev + 1)
+      setCurrentZoom(18) // force update local state to kick in 3D immediately
+    }, 30000)
+
+    return () => clearTimeout(timeout)
+  }, [isDriving, lastActivityTime, currentZoom])
 
   useEffect(() => {
     setMounted(true)
@@ -179,26 +250,32 @@ export function NavigationMap({
 
   if (!mounted) return null
 
-  const rotationStyle = isCompassActive && isDriving ? {
-    transform: `rotate(${-bearing}deg)`,
+  const is3DView = isDriving && currentZoom >= 16;
+  const rotationStyle = is3DView ? {
+    transform: isCompassActive ? `perspective(1000px) rotateX(60deg) rotate(${-bearing}deg) scale(1.5)` : `perspective(1000px) rotateX(60deg) scale(1.5)`,
     transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',
     transformOrigin: 'center center'
-  } : {}
+  } : {
+    transform: isCompassActive && isDriving ? `perspective(1000px) rotateX(0deg) rotate(${-bearing}deg) scale(1)` : `perspective(1000px) rotateX(0deg) scale(1)`,
+    transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',
+    transformOrigin: 'center center'
+  }
 
   return (
-    <div className="relative w-full h-full z-0 overflow-hidden bg-black">
+    <div className="relative w-full h-full z-0 overflow-hidden bg-slate-50">
       <div className="w-full h-full" style={rotationStyle}>
         <MapContainer 
           center={center} 
           zoom={14} 
-          style={{ height: '100%', width: '100%', filter: 'invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)' }}
+          style={{ height: '100%', width: '100%' }}
           zoomControl={false}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapUpdater center={center} destination={destination} isDriving={isDriving} pois={pois} />
+          <MapEventsTracker onZoomChange={setCurrentZoom} onUserActivity={handleUserActivity} />
+          <MapUpdater center={center} destination={destination} isDriving={isDriving} pois={pois} forceRevertToDrive={forceRevertToDrive} />
           
           <Marker position={center} icon={UserIcon(!!isDriving, !!destination, bearing, pointerType)} />
 
@@ -206,8 +283,8 @@ export function NavigationMap({
 
           {routePoints.length > 1 && (
             <>
-              <Polyline positions={routePoints} color="#6E2BCC" weight={8} opacity={0.8} lineCap="round" lineJoin="round" />
-              <Polyline positions={routePoints} color="#A78BFA" weight={14} opacity={0.3} lineCap="round" lineJoin="round" />
+              <Polyline positions={routePoints} color="#0088FF" weight={6} opacity={0.9} lineCap="round" lineJoin="round" />
+              <Polyline positions={routePoints} color="#0055FF" weight={10} opacity={0.3} lineCap="round" lineJoin="round" />
             </>
           )}
 

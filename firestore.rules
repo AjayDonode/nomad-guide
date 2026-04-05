@@ -14,16 +14,16 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      // Allow all authenticated users to read trip metadata and its subcollections
-      allow read: if isSignedIn();
+      // Allow all users to read trip metadata and its subcollections
+      allow read: if true;
       
       // Ownership rules for modifications
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /trip_pois/{poiId} {
-        // Direct read access for authenticated users to ensure sub-collection queries are safe
-        allow read: if isSignedIn();
+        // Direct read access for all users to ensure sub-collection queries are safe
+        allow read: if true;
         allow write: if isSignedIn() && 
           get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid;
       }

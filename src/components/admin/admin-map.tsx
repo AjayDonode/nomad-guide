@@ -123,11 +123,11 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMap
   if (!mounted) return null
 
   return (
-    <div className="w-full h-full bg-black">
+    <div className="w-full h-full bg-slate-50">
       <MapContainer 
         center={center} 
         zoom={14} 
-        style={{ height: '100%', width: '100%', filter: 'invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)' }}
+        style={{ height: '100%', width: '100%' }}
         zoomControl={false}
       >
         <TileLayer
@@ -177,13 +177,10 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet }: AdminMap
 
         {/* Driving Route Polyline */}
         {routePoints.length > 1 && (
-          <Polyline 
-            positions={routePoints} 
-            color="#6E2BCC" 
-            weight={6}
-            opacity={0.8}
-            lineCap="round"
-          />
+          <>
+            <Polyline positions={routePoints} color="#0088FF" weight={6} opacity={0.9} lineCap="round" lineJoin="round" />
+            <Polyline positions={routePoints} color="#0055FF" weight={10} opacity={0.3} lineCap="round" lineJoin="round" />
+          </>
         )}
       </MapContainer>
 

@@ -257,7 +257,18 @@ export default function DrivingDashboard() {
     if (!introPlayed.current) {
       introPlayed.current = true
       try {
-        const audioUri = await simpleNarrate(`Let's go explore ${activeTripName}`, voicePreference)
+        let introText = `Let's go explore ${activeTripName}.`;
+        
+        // Add driving instructions if first point is far
+        if (recommendedPois.length > 0 && userLocation) {
+          const firstPoi = recommendedPois[0];
+          const dist = getDistance(userLocation[0], userLocation[1], firstPoi.latitude, firstPoi.longitude);
+          if (dist > 0.1) { // > 100 meters
+            introText += ` Let's drive to your starting point, ${firstPoi.name}, and then proceed.`;
+          }
+        }
+
+        const audioUri = await simpleNarrate(introText, voicePreference)
         const player = new Tone.Player({
           url: audioUri,
           onload: () => {
