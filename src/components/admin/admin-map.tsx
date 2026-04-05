@@ -103,6 +103,8 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
         ...sortedPois.map(p => [p.longitude, p.latitude])
       ];
 
+      const abortController = new AbortController();
+
       // Use a timeout to debounce rapid map drags!
       const timerId = setTimeout(async () => {
         try {
@@ -110,8 +112,16 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
           if (!waypoints) return;
           
           const response = await fetch(
-            `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`
+            `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`,
+            { signal: abortController.signal }
           )
+          
+          if (!response.ok) {
+             console.error("OSRM Routing API returned non-OK status: ", response.status);
+             setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]));
+             return;
+          }
+          
           const data = await response.json()
           
           if (data.routes && data.routes[0]) {
@@ -121,13 +131,18 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
              // Fallback to straight lines
              setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
           }
-        } catch (error) {
-          console.error("Route calculation failed", error)
-          setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
+        } catch (error: any) {
+          if (error.name !== 'AbortError') {
+            console.error("Route calculation failed", error)
+            setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
+          }
         }
       }, 500);
 
-      return () => clearTimeout(timerId);
+      return () => {
+        clearTimeout(timerId);
+        abortController.abort();
+      };
     }
 
     const cleanup = fetchRoute()

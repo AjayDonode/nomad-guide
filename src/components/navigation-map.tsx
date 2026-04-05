@@ -220,6 +220,7 @@ export function NavigationMap({
       if (fallbackPoints.length === 1 && destination) fallbackPoints.push(destination);
 
       const fetchRoute = () => {
+        const abortController = new AbortController();
         const timerId = setTimeout(async () => {
           try {
             const waypointsList = [
@@ -234,8 +235,15 @@ export function NavigationMap({
             const waypoints = waypointsList.join(';')
 
             const response = await fetch(
-              `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`
+              `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`,
+               { signal: abortController.signal }
             )
+            
+            if (!response.ok) {
+              setRoutePoints(fallbackPoints)
+              return
+            }
+
             const data = await response.json()
             if (data.routes && data.routes[0]) {
               const route = data.routes[0]
@@ -250,12 +258,17 @@ export function NavigationMap({
             } else {
               setRoutePoints(fallbackPoints)
             }
-          } catch (error) {
-            setRoutePoints(fallbackPoints)
+          } catch (error: any) {
+             if (error.name !== 'AbortError') {
+               setRoutePoints(fallbackPoints)
+             }
           }
         }, 1500); // 1.5 second debounce for GPS updates
         
-        return () => clearTimeout(timerId);
+        return () => {
+          clearTimeout(timerId);
+          abortController.abort();
+        };
       }
       
       const cleanup = fetchRoute()
