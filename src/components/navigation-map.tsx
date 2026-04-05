@@ -212,36 +212,54 @@ export function NavigationMap({
 
   useEffect(() => {
     if (destination) {
-      const fetchRoute = async () => {
-        try {
-          const waypoints = [
-            `${center[1]},${center[0]}`,
-            ...pois.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => `${p.longitude},${p.latitude}`),
-            `${destination[1]},${destination[0]}`
-          ].join(';')
+      // Calculate coordinates immediately so we have a straight line fallback if route fails
+      const fallbackPoints = [
+        center,
+        ...pois.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => [p.latitude, p.longitude] as [number, number]),
+      ]
+      if (fallbackPoints.length === 1 && destination) fallbackPoints.push(destination);
 
-          const response = await fetch(
-            `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`
-          )
-          const data = await response.json()
-          if (data.routes && data.routes[0]) {
-            const route = data.routes[0]
-            const coords = route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
-            setRoutePoints(coords)
-            
-            if (route.legs && route.legs[0] && route.legs[0].steps) {
-              const steps = route.legs[0].steps as RouteStep[]
-              const nextStep = steps.find(s => s.maneuver.type !== 'depart') || null
-              if (onNextStepUpdate) onNextStepUpdate(nextStep)
+      const fetchRoute = () => {
+        const timerId = setTimeout(async () => {
+          try {
+            const waypointsList = [
+              `${center[1]},${center[0]}`,
+              ...pois.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => `${p.longitude},${p.latitude}`),
+            ];
+            // If destination isn't included in POIs, add it
+            if (pois.length === 0 || (pois[pois.length-1].latitude !== destination[0])) {
+               waypointsList.push(`${destination[1]},${destination[0]}`);
             }
-          } else {
-            setRoutePoints([center, destination])
+
+            const waypoints = waypointsList.join(';')
+
+            const response = await fetch(
+              `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`
+            )
+            const data = await response.json()
+            if (data.routes && data.routes[0]) {
+              const route = data.routes[0]
+              const coords = route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
+              setRoutePoints(coords)
+              
+              if (route.legs && route.legs[0] && route.legs[0].steps) {
+                const steps = route.legs[0].steps as RouteStep[]
+                const nextStep = steps.find(s => s.maneuver.type !== 'depart') || null
+                if (onNextStepUpdate) onNextStepUpdate(nextStep)
+              }
+            } else {
+              setRoutePoints(fallbackPoints)
+            }
+          } catch (error) {
+            setRoutePoints(fallbackPoints)
           }
-        } catch (error) {
-          setRoutePoints([center, destination])
-        }
+        }, 1500); // 1.5 second debounce for GPS updates
+        
+        return () => clearTimeout(timerId);
       }
-      fetchRoute()
+      
+      const cleanup = fetchRoute()
+      return () => { if (cleanup) cleanup(); }
     } else {
       setRoutePoints([])
       if (onNextStepUpdate) onNextStepUpdate(null)

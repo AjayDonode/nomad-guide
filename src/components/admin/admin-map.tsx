@@ -91,35 +91,47 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
 
   // Fetch route when POIs change
   useEffect(() => {
-    const fetchRoute = async () => {
+    const fetchRoute = () => {
       if (sortedPois.length === 0) {
         setRoutePoints([])
-        return
+        return undefined
       }
 
+      // Calculate coordinates immediately so we have a straight line fallback if route fails
       const allPoints = [
         [center[1], center[0]],
         ...sortedPois.map(p => [p.longitude, p.latitude])
-      ]
+      ];
 
-      try {
-        const waypoints = allPoints.map(p => p.join(',')).join(';')
-        const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`
-        )
-        const data = await response.json()
-        
-        if (data.routes && data.routes[0]) {
-          const coords = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
-          setRoutePoints(coords)
+      // Use a timeout to debounce rapid map drags!
+      const timerId = setTimeout(async () => {
+        try {
+          const waypoints = allPoints.map(p => p.join(',')).join(';')
+          if (!waypoints) return;
+          
+          const response = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`
+          )
+          const data = await response.json()
+          
+          if (data.routes && data.routes[0]) {
+            const coords = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
+            setRoutePoints(coords)
+          } else {
+             // Fallback to straight lines
+             setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
+          }
+        } catch (error) {
+          console.error("Route calculation failed", error)
+          setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
         }
-      } catch (error) {
-        console.error("Route calculation failed", error)
-        setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
-      }
+      }, 500);
+
+      return () => clearTimeout(timerId);
     }
 
-    fetchRoute()
+    const cleanup = fetchRoute()
+    return () => { if (cleanup) cleanup(); }
   }, [center, sortedPois])
 
   if (!mounted) return null
