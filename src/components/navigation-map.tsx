@@ -215,7 +215,7 @@ export function NavigationMap({
       // Calculate coordinates immediately so we have a straight line fallback if route fails
       const fallbackPoints = [
         center,
-        ...pois.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => [p.latitude, p.longitude] as [number, number]),
+        ...[...pois].sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => [p.latitude, p.longitude] as [number, number]),
       ]
       if (fallbackPoints.length === 1 && destination) fallbackPoints.push(destination);
 
@@ -223,12 +223,13 @@ export function NavigationMap({
         const abortController = new AbortController();
         const timerId = setTimeout(async () => {
           try {
+            const sortedPois = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
             const waypointsList = [
               `${center[1]},${center[0]}`,
-              ...pois.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => `${p.longitude},${p.latitude}`),
+              ...sortedPois.map(p => `${p.longitude},${p.latitude}`),
             ];
             // If destination isn't included in POIs, add it
-            if (pois.length === 0 || (pois[pois.length-1].latitude !== destination[0])) {
+            if (sortedPois.length === 0 || (sortedPois[sortedPois.length-1].latitude !== destination[0])) {
                waypointsList.push(`${destination[1]},${destination[0]}`);
             }
 
