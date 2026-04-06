@@ -338,14 +338,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         // Add a 4-second API rate limit buffer before generating Female Audio
         await new Promise(r => setTimeout(r, 4500));
 
-        // Process Female Voice
+        // Process Female Voice reusing the identical text seamlessly
         const femaleResult = await generateNarrativeTour({
           poiName: poi.name,
           poiDescription: poi.description,
           userPreferences: "captivating tour guide",
           locationContext: "arriving at landmark",
           language: "en",
-          voicePreference: 'female'
+          voicePreference: 'female',
+          preGeneratedText: maleResult.generatedText
         })
 
         updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {

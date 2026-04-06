@@ -26,6 +26,7 @@ const GenerateNarrativeTourInputSchema = z.object({
   nextPoiDistance: z.string().optional().describe('Formatted distance to the next POI.'),
   language: z.string().default('en-US').describe('The desired language for the narration.'),
   voicePreference: z.enum(['male', 'female']).default('female').describe('User preferred voice gender.'),
+  preGeneratedText: z.string().optional().describe('Pre-generated script to bypass duplicate text generation.')
 });
 export type GenerateNarrativeTourInput = z.infer<typeof GenerateNarrativeTourInputSchema>;
 
@@ -40,10 +41,15 @@ export type GenerateNarrativeTourOutput = z.infer<typeof GenerateNarrativeTourOu
 export async function generateNarrativeTour(
   input: GenerateNarrativeTourInput
 ): Promise<GenerateNarrativeTourOutput> {
-  // Generate Text first
-  const { output } = await narrativePrompt(input);
+  // Check if we can reuse an explicit cached textual script preventing duplicate API Text requests
+  let narrationText = input.preGeneratedText;
+  
+  if (!narrationText) {
+    const { output } = await narrativePrompt(input);
+    narrationText = output?.narrationText;
+  }
 
-  if (!output?.narrationText) {
+  if (!narrationText) {
     throw new Error('Failed to generate narration text.');
   }
 
@@ -61,7 +67,7 @@ export async function generateNarrativeTour(
           },
         },
       },
-      prompt: output.narrationText,
+      prompt: narrationText,
     });
     media = response.media;
   } catch (error: any) {
@@ -78,7 +84,7 @@ export async function generateNarrativeTour(
 
   return {
     audioDataUri: 'data:audio/wav;base64,' + wavAudioBase64,
-    generatedText: output.narrationText,
+    generatedText: narrationText,
   };
 }
 
