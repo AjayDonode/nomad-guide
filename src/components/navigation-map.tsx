@@ -58,7 +58,7 @@ const UserIcon = (isDriving: boolean, isReady: boolean, bearing: number, pointer
   }
 
   return L.divIcon({
-    className: 'user-location-marker',
+    className: 'user-location-marker !transition-transform !duration-1000 !ease-linear',
     html: `<div class="relative flex items-center justify-center"><div class="relative w-12 h-12 flex items-center justify-center transition-all duration-500 ease-out" style="transform: rotate(${activeType === 'dot' ? 0 : bearing}deg)">${isDriving ? `<div class="absolute inset-0 bg-green-500/30 rounded-full animate-ping"></div>` : isReady ? `<div class="absolute inset-0 bg-primary/20 rounded-full animate-pulse"></div>` : ''}${innerHtml}</div></div>`,
     iconSize: [48, 48],
     iconAnchor: [24, 24],
@@ -233,12 +233,21 @@ export function NavigationMap({
                waypointsList.push(`${destination[1]},${destination[0]}`);
             }
 
-            const waypoints = waypointsList.join(';')
+            const payload = {
+               locations: waypointsList.map(wpStr => {
+                 const [lon, lat] = wpStr.split(',');
+                 return { lon: parseFloat(lon), lat: parseFloat(lat) };
+               }),
+               costing: "auto",
+               units: "miles"
+            };
 
-            const response = await fetch(
-              `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`,
-               { signal: abortController.signal }
-            )
+            const response = await fetch("https://valhalla1.openstreetmap.de/route", {
+               method: "POST",
+               headers: { "Content-Type": "application/json" },
+               body: JSON.stringify(payload),
+               signal: abortController.signal
+            });
             
             if (!response.ok) {
               setRoutePoints(fallbackPoints)
@@ -246,15 +255,42 @@ export function NavigationMap({
             }
 
             const data = await response.json()
-            if (data.routes && data.routes[0]) {
-              const route = data.routes[0]
-              const coords = route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
+            if (data.trip && data.trip.legs) {
+              const decodePolyline = (str: string, precision = 6) => {
+                  let index = 0, lat = 0, lng = 0, coordinates: [number, number][] = [], shift = 0, result = 0, byte = null, latitude_change, longitude_change, factor = Math.pow(10, precision);
+                  while (index < str.length) {
+                      byte = null; shift = 0; result = 0;
+                      do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                      latitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lat += latitude_change;
+                      shift = 0; result = 0;
+                      do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                      longitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lng += longitude_change;
+                      coordinates.push([lat / factor, lng / factor]);
+                  }
+                  return coordinates;
+              };
+
+              const coords = data.trip.legs.flatMap((leg: any) => decodePolyline(leg.shape, 6));
               setRoutePoints(coords)
               
-              if (route.legs && route.legs[0] && route.legs[0].steps) {
-                const steps = route.legs[0].steps as RouteStep[]
-                const nextStep = steps.find(s => s.maneuver.type !== 'depart') || null
-                if (onNextStepUpdate) onNextStepUpdate(nextStep)
+              if (data.trip.legs[0] && data.trip.legs[0].maneuvers) {
+                // Find next real maneuver (skip type 1/2/3 which are transit/straight)
+                const vStep = data.trip.legs[0].maneuvers.find((m: any) => m.type >= 9);
+                if (vStep) {
+                  const getModifier = (t: number) => {
+                    const map: Record<number, string> = { 9: 'right', 10: 'left', 11: 'sharp right', 12: 'sharp left', 13: 'slight right', 14: 'slight left', 15: 'uturn' };
+                    return map[t] || 'straight';
+                  };
+                  
+                  const step: RouteStep = {
+                    maneuver: { type: 'turn', modifier: getModifier(vStep.type), location: [0,0] },
+                    distance: typeof vStep.length !== 'undefined' ? Math.round(vStep.length * 1609.34) : 0,
+                    name: Array.isArray(vStep.street_names) ? vStep.street_names[0] : (vStep.instruction || "Destination")
+                  }
+                  if (onNextStepUpdate) onNextStepUpdate(step)
+                } else if (onNextStepUpdate) {
+                  onNextStepUpdate(null)
+                }
               }
             } else {
               setRoutePoints(fallbackPoints)

@@ -108,24 +108,44 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
       // Use a timeout to debounce rapid map drags!
       const timerId = setTimeout(async () => {
         try {
-          const waypoints = allPoints.map(p => p.join(',')).join(';')
-          if (!waypoints) return;
-          
-          const response = await fetch(
-            `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`,
-            { signal: abortController.signal }
-          )
+          const payload = {
+             locations: allPoints.map(p => ({ lon: p[0], lat: p[1] })),
+             costing: "auto",
+             units: "miles"
+          };
+
+          const response = await fetch("https://valhalla1.openstreetmap.de/route", {
+             method: "POST",
+             headers: { "Content-Type": "application/json" },
+             body: JSON.stringify(payload),
+             signal: abortController.signal
+          });
           
           if (!response.ok) {
-             console.error("OSRM Routing API returned non-OK status: ", response.status);
+             console.error("Routing API returned non-OK status: ", response.status);
              setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]));
              return;
           }
           
           const data = await response.json()
           
-          if (data.routes && data.routes[0]) {
-            const coords = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
+          if (data.trip && data.trip.legs) {
+            // Function to decode Valhalla polyline
+            const decodePolyline = (str: string, precision = 6) => {
+                let index = 0, lat = 0, lng = 0, coordinates: [number, number][] = [], shift = 0, result = 0, byte = null, latitude_change, longitude_change, factor = Math.pow(10, precision);
+                while (index < str.length) {
+                    byte = null; shift = 0; result = 0;
+                    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                    latitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lat += latitude_change;
+                    shift = 0; result = 0;
+                    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+                    longitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lng += longitude_change;
+                    coordinates.push([lat / factor, lng / factor]);
+                }
+                return coordinates;
+            };
+            
+            const coords = data.trip.legs.flatMap((leg: any) => decodePolyline(leg.shape, 6));
             setRoutePoints(coords)
           } else {
              // Fallback to straight lines
