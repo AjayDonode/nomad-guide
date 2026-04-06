@@ -52,7 +52,7 @@ export async function generateNarrativeTour(
   let media;
   try {
     const response = await ai.generate({
-      model: 'googleai/gemini-2.0-flash',
+      model: 'googleai/gemini-2.5-flash-preview-tts',
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
