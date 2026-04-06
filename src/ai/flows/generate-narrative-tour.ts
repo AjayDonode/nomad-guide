@@ -8,7 +8,6 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
-import wav from 'wav';
 
 const GenerateNarrativeTourInputSchema = z.object({
   poiName: z.string().describe('The name of the Point of Interest.'),
@@ -105,7 +104,7 @@ const generateNarrativeTourFlow = ai.defineFlow(
     }
 
     const audioBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
-    const wavAudioBase64 = await toWav(audioBuffer);
+    const wavAudioBase64 = encodeWav(audioBuffer);
 
     return {
       audioDataUri: 'data:audio/wav;base64,' + wavAudioBase64,
@@ -141,35 +140,41 @@ const simpleNarrateFlow = ai.defineFlow(
     }
 
     const audioBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
-    const wavAudioBase64 = await toWav(audioBuffer);
+    const wavAudioBase64 = encodeWav(audioBuffer);
 
     return 'data:audio/wav;base64,' + wavAudioBase64;
   }
 );
 
-async function toWav(
+function encodeWav(
   pcmData: Buffer,
   channels = 1,
-  rate = 24000,
+  sampleRate = 24000,
   sampleWidth = 2
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const writer = new wav.Writer({
-      channels,
-      sampleRate: rate,
-      bitDepth: sampleWidth * 8,
-    });
+): string {
+  const dataSize = pcmData.length;
+  const buffer = Buffer.alloc(44 + dataSize);
 
-    const bufs: any[] = [];
-    writer.on('error', reject);
-    writer.on('data', function (d) {
-      bufs.push(d);
-    });
-    writer.on('end', function () {
-      resolve(Buffer.concat(bufs).toString('base64'));
-    });
+  // RIFF chunk descriptor
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
 
-    writer.write(pcmData);
-    writer.end();
-  });
+  // fmt sub-chunk
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
+  buffer.writeUInt16LE(1, 20); // AudioFormat (1 for PCM)
+  buffer.writeUInt16LE(channels, 22); // NumChannels
+  buffer.writeUInt32LE(sampleRate, 24); // SampleRate
+  buffer.writeUInt32LE(sampleRate * channels * sampleWidth, 28); // ByteRate
+  buffer.writeUInt16LE(channels * sampleWidth, 32); // BlockAlign
+  buffer.writeUInt16LE(sampleWidth * 8, 34); // BitsPerSample
+
+  // data sub-chunk
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  pcmData.copy(buffer, 44);
+
+  return buffer.toString('base64');
 }
