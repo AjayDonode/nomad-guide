@@ -237,6 +237,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [isSaving, setIsSaving] = useState(false)
   const [isProcessingAI, setIsProcessingAI] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
+  const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
   const playerRef = useRef<Tone.Player | null>(null)
 
   // Fetch user preference for preview
@@ -325,6 +326,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           poiDescription: poi.description,
           userPreferences: "captivating tour guide",
           locationContext: "arriving at landmark",
+          language: "en",
           voicePreference: 'male'
         })
 
@@ -334,6 +336,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           poiDescription: poi.description,
           userPreferences: "captivating tour guide",
           locationContext: "arriving at landmark",
+          language: "en",
           voicePreference: 'female'
         })
 
@@ -422,10 +425,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         onload: () => {
           player.start()
           setIsPreviewing(true)
+          setPlayingPoiId(poi.id)
         },
         onstop: () => {
           player.dispose()
           playerRef.current = null
+          setPlayingPoiId(null)
           // Automatically play the next audio
           handlePreviewAudio(currentIndex + 1)
         }
@@ -444,6 +449,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       playerRef.current = null
     }
     setIsPreviewing(false)
+    setPlayingPoiId(null)
   }
 
   const handleAddPoi = (lat: number, lng: number) => {
@@ -732,6 +738,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           <AdminMap 
             center={[tripData.startLatitude, tripData.startLongitude]} 
             pois={pois || []}
+            playingPoiId={playingPoiId}
             onMapClick={handleAddPoi}
             onStartPointSet={(lat, lng) => setTripData({...tripData, startLatitude: lat, startLongitude: lng})}
             onPoiMove={handlePoiMove}

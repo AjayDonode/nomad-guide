@@ -22,6 +22,7 @@ interface AdminMapProps {
   onStartPointSet?: (lat: number, lng: number) => void
   onPoiMove?: (poiId: string, lat: number, lng: number) => void
   onPoiDelete?: (poiId: string) => void
+  playingPoiId?: string | null
 }
 
 // Icons
@@ -39,9 +40,9 @@ const EndIcon = L.divIcon({
   iconAnchor: [20, 20],
 })
 
-const POIIcon = (idx: number) => L.divIcon({
-  className: 'poi-marker',
-  html: `<div class="w-8 h-8 bg-primary rounded-xl border-2 border-white flex items-center justify-center shadow-xl transition-all font-bold text-white text-[10px]">${idx + 1}</div>`,
+const POIIcon = (idx: number, isActive: boolean = false) => L.divIcon({
+  className: 'poi-marker' + (isActive ? ' z-50' : ''),
+  html: `<div class="w-8 h-8 ${isActive ? 'bg-green-500 scale-125 animate-pulse' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-xl transition-all font-bold text-white text-[10px]">${idx + 1}</div>`,
   iconSize: [32, 32],
   iconAnchor: [16, 16],
 })
@@ -74,7 +75,20 @@ function MapUpdater({ center, pois }: { center: [number, number], pois: POI[] })
   return null
 }
 
-export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove, onPoiDelete }: AdminMapProps) {
+function MapSimulatorFocus({ pois, playingPoiId, center }: { pois: POI[], playingPoiId?: string | null, center: [number, number] }) {
+  const map = useMap()
+  const activePoi = playingPoiId ? pois.find(p => p.id === playingPoiId) : null;
+  
+  useEffect(() => {
+    if (activePoi) {
+      map.setView([activePoi.latitude, activePoi.longitude], 18, { animate: true, duration: 1.5 });
+    }
+  }, [activePoi, map]);
+
+  return null;
+}
+
+export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove, onPoiDelete, playingPoiId }: AdminMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
 
@@ -186,6 +200,7 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
         
         <MapEvents onMapClick={onMapClick} />
         <MapUpdater center={center} pois={pois} />
+        <MapSimulatorFocus pois={sortedPois} playingPoiId={playingPoiId} center={center} />
 
         {/* Start Point */}
         <Marker 
@@ -207,12 +222,13 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
 
         {/* Points of Interest */}
         {sortedPois.map((poi, idx) => {
-          const isLast = poi.id === lastPoiId
+          const isLast = poi.id === lastPoiId;
+          const isActive = poi.id === playingPoiId;
           return (
             <Marker 
               key={poi.id} 
               position={[poi.latitude, poi.longitude]}
-              icon={isLast ? EndIcon : POIIcon(idx)}
+              icon={isLast ? EndIcon : POIIcon(idx, isActive)}
               draggable
               eventHandlers={{
                 dragend: (e) => {
