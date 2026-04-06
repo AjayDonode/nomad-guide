@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
@@ -177,6 +177,8 @@ export function NavigationMap({
   const [bearing, setBearing] = useState(0)
   const [currentZoom, setCurrentZoom] = useState(14)
   
+  const lastFetchedCenterRef = useRef<[number, number] | null>(null);
+  const cachedRoutePointsRef = useRef<[number, number][] | null>(null);
   const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now())
   const [forceRevertToDrive, setForceRevertToDrive] = useState(0)
 
@@ -223,12 +225,21 @@ export function NavigationMap({
         const abortController = new AbortController();
         const timerId = setTimeout(async () => {
           try {
+            // Distance check to heavily throttle Valhalla 429s (require 50m movement)
+            if (lastFetchedCenterRef.current) {
+              const distanceMoved = calculateDistance(center, lastFetchedCenterRef.current);
+              if (distanceMoved < 0.05 && cachedRoutePointsRef.current) {
+                  // Simply slice the route closer to current position locally instead of hammering the API
+                  setRoutePoints(cachedRoutePointsRef.current);
+                  return;
+              }
+            }
+
             const sortedPois = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
             const waypointsList = [
               `${center[1]},${center[0]}`,
               ...sortedPois.map(p => `${p.longitude},${p.latitude}`),
             ];
-            // If destination isn't included in POIs, add it
             if (sortedPois.length === 0 || (sortedPois[sortedPois.length-1].latitude !== destination[0])) {
                waypointsList.push(`${destination[1]},${destination[0]}`);
             }
@@ -248,6 +259,15 @@ export function NavigationMap({
                body: JSON.stringify(payload),
                signal: abortController.signal
             });
+            
+            if (!response.ok) {
+              if (response.status === 429) {
+                console.warn('Valhalla Rate Limited. Sticking to cached route.');
+                if (!cachedRoutePointsRef.current) setRoutePoints(fallbackPoints);
+                return;
+              }
+              throw new Error(`Valhalla status ${response.status}`);
+            }
             
             if (!response.ok) {
               setRoutePoints(fallbackPoints)
@@ -271,7 +291,9 @@ export function NavigationMap({
               };
 
               const coords = data.trip.legs.flatMap((leg: any) => decodePolyline(leg.shape, 6));
-              setRoutePoints(coords)
+              setRoutePoints(coords);
+              cachedRoutePointsRef.current = coords;
+              lastFetchedCenterRef.current = center;
               
               if (data.trip.legs[0] && data.trip.legs[0].maneuvers) {
                 // Find next real maneuver (skip type 1/2/3 which are transit/straight)
@@ -295,12 +317,15 @@ export function NavigationMap({
             } else {
               setRoutePoints(fallbackPoints)
             }
-          } catch (error: any) {
+           } catch (error: any) {
              if (error.name !== 'AbortError') {
-               setRoutePoints(fallbackPoints)
+               console.warn("Route calculation failed:", error.message);
+               if (!cachedRoutePointsRef.current) {
+                 setRoutePoints(fallbackPoints);
+               }
              }
           }
-        }, 1500); // 1.5 second debounce for GPS updates
+        }, 3000); // Throttled update interval
         
         return () => {
           clearTimeout(timerId);
