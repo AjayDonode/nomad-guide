@@ -427,6 +427,10 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           setIsPreviewing(true)
           setPlayingPoiId(poi.id)
         },
+        onerror: (err) => {
+          console.error("Tone.Player load error", err)
+          setIsPreviewing(false)
+        },
         onstop: () => {
           player.dispose()
           playerRef.current = null
@@ -572,16 +576,21 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
               <Button 
                 onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(firstPlayablePoiIndex !== -1 ? firstPlayablePoiIndex : 0)}
                 disabled={!canPlayPreview || (isPreviewing && !playerRef.current)}
-                variant="ghost"
+                variant={canPlayPreview && (!isPreviewing || playerRef.current) ? "default" : "ghost"}
                 size="icon"
-                className={cn("rounded-xl hover:bg-white/5 h-11 w-11 transition-all", isPreviewing ? "text-primary" : "text-muted-foreground")}
+                className={cn(
+                  "rounded-xl h-11 w-11 transition-all", 
+                  isPreviewing ? "bg-primary/20 text-primary" : 
+                  canPlayPreview ? "bg-green-500 text-white hover:bg-green-600 shadow-xl shadow-green-500/20" : 
+                  "text-muted-foreground hover:bg-white/5 opacity-50"
+                )}
               >
                 {isPreviewing && !playerRef.current ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : isPreviewing ? (
                   <Pause className="w-5 h-5" />
                 ) : (
-                  <Play className="w-5 h-5" />
+                  <Play className={cn("w-5 h-5", canPlayPreview && "translate-x-0.5")} />
                 )}
               </Button>
             </>
