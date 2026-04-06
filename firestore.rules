@@ -26,8 +26,8 @@ service cloud.firestore {
         allow read: if true;
         allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
         allow update, delete: if isSignedIn() && (
-          resource.data.adminId == request.auth.uid || 
-          get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid
+          ('adminId' in resource.data && resource.data.adminId == request.auth.uid) || 
+          ('adminId' in get(/databases/$(database)/documents/trips/$(tripId)).data && get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid)
         );
       }
     }
