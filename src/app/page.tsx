@@ -253,6 +253,14 @@ export default function DrivingDashboard() {
       await Tone.start()
     }
 
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen()
+      }
+    } catch (e) {
+      console.warn("Fullscreen request failed", e)
+    }
+
     setIsDriving(true)
 
     if (!introPlayed.current) {
@@ -332,6 +340,15 @@ export default function DrivingDashboard() {
         }
       }, 1000);
     }
+  }
+
+  const stopDriving = () => {
+    setIsDriving(false)
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(e => console.warn("Fullscreen exit failed", e))
+      }
+    } catch (e) {}
   }
 
   const formatDisplayDistance = (km: number, unitType: string) => {
@@ -529,7 +546,7 @@ export default function DrivingDashboard() {
 
         {isDriving && (
           <div className="absolute bottom-10 left-4 z-40">
-             <Button onClick={() => setIsDriving(false)} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
+             <Button onClick={stopDriving} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
           </div>
         )}
 
