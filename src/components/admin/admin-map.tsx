@@ -101,6 +101,12 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
     return [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
   }, [pois])
 
+  // Extract a strictly geographic hash to prevent metadata edits (like descriptions) from triggering Valhalla 429 API spam
+  const geoHash = useMemo(() => {
+    const latLongs = sortedPois.map(p => `${p.latitude.toFixed(4)},${p.longitude.toFixed(4)}`).join('|');
+    return `${center[0].toFixed(4)},${center[1].toFixed(4)}|${latLongs}`;
+  }, [center, sortedPois]);
+
   const lastPoiId = sortedPois.length > 0 ? sortedPois[sortedPois.length - 1].id : null
 
   // Fetch route when POIs change
@@ -136,8 +142,8 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
           });
           
           if (!response.ok) {
-             console.error("Routing API returned non-OK status: ", response.status);
-             setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]));
+             console.warn("Routing API restricted: ", response.status);
+             setRoutePoints(prev => prev.length > 3 ? prev : allPoints.map(p => [p[1], p[0]] as [number, number]));
              return;
           }
           
@@ -162,16 +168,17 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
             const coords = data.trip.legs.flatMap((leg: any) => decodePolyline(leg.shape, 6));
             setRoutePoints(coords)
           } else {
-             // Fallback to straight lines
-             setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
+             // Avoid erasing the previously rendered successful route with straight lines if Valhalla throws occasional 429s
+             setRoutePoints(prev => prev.length > 3 ? prev : allPoints.map(p => [p[1], p[0]] as [number, number]));
           }
         } catch (error: any) {
           if (error.name !== 'AbortError') {
-            console.error("Route calculation failed", error)
-            setRoutePoints(allPoints.map(p => [p[1], p[0]] as [number, number]))
+            console.warn("Valhalla calculation blocked (cache preserved):", error.message);
+            // On hard CORS/429 failures natively thrown by the Edge/Browser, preserve the existing path.
+            setRoutePoints(prev => prev.length > 3 ? prev : allPoints.map(p => [p[1], p[0]] as [number, number]));
           }
         }
-      }, 500);
+      }, 1500); // Increased debounce to fully shield against map dragging 429 rates
 
       return () => {
         clearTimeout(timerId);
@@ -181,7 +188,7 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
 
     const cleanup = fetchRoute()
     return () => { if (cleanup) cleanup(); }
-  }, [center, sortedPois])
+  }, [geoHash])
 
   if (!mounted) return null
 

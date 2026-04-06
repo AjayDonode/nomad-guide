@@ -655,12 +655,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                         <div className="flex items-center gap-2">
                           {(poi.narrationText || poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
                             <Button 
-                              variant="ghost" 
+                              variant={playingPoiId === poi.id ? "default" : "ghost"}
                               size="icon" 
-                              className="h-8 w-8 text-primary hover:bg-primary/10"
-                              onClick={() => handlePreviewAudio(idx)}
+                              className={cn("h-8 w-8 transition-colors", playingPoiId === poi.id ? "bg-green-500 hover:bg-green-600 text-white" : "text-primary hover:bg-primary/10")}
+                              onClick={() => playingPoiId === poi.id ? stopPreview() : handlePreviewAudio(idx)}
                             >
-                              <Volume2 className="w-4 h-4" />
+                              {playingPoiId === poi.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                             </Button>
                           )}
                           <Button 
