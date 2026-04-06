@@ -319,7 +319,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     })
 
     try {
-      for (const poi of pois) {
+      for (let i = 0; i < pois.length; i++) {
+        const poi = pois[i];
+        
+        // Add a 4-second API rate limit buffer before generating Male Audio to respect GenAI 15 RPM Free Tier
+        if (i > 0) await new Promise(r => setTimeout(r, 4500));
+        
         // Process Male Voice
         const maleResult = await generateNarrativeTour({
           poiName: poi.name,
@@ -329,6 +334,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           language: "en",
           voicePreference: 'male'
         })
+
+        // Add a 4-second API rate limit buffer before generating Female Audio
+        await new Promise(r => setTimeout(r, 4500));
 
         // Process Female Voice
         const femaleResult = await generateNarrativeTour({
