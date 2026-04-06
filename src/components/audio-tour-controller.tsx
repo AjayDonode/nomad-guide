@@ -20,10 +20,10 @@ interface AudioTourControllerProps {
   onFinish?: () => void
 }
 
-export function AudioTourController({ 
-  poi, 
-  nextPoi, 
-  nextPoiDistance, 
+export function AudioTourController({
+  poi,
+  nextPoi,
+  nextPoiDistance,
   autoStart = false,
   hidden = false,
   onFinish
@@ -33,7 +33,7 @@ export function AudioTourController({
   const [isPlaying, setIsPlaying] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
-  
+
   const playerRef = useRef<Tone.Player | null>(null)
   const currentPoiId = useRef<string | null>(null)
 
@@ -55,12 +55,12 @@ export function AudioTourController({
   const handleInitialTrigger = async () => {
     // Priority 1: Use pre-generated audio from Firestore if available
     let savedAudio = voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri;
-    
+
     // Priority 2: Use locally cached offline audio from IndexedDB
     if (!savedAudio && poi) {
       savedAudio = await idbGet(`audio_${poi.id}_${voicePreference}`);
     }
-    
+
     if (savedAudio) {
       setAudioUrl(savedAudio);
       playAudio(savedAudio);
@@ -74,7 +74,7 @@ export function AudioTourController({
     if (Tone.getContext().state !== 'running') {
       try { await Tone.start() } catch (e) { console.warn("Tone start failed", e) }
     }
-    
+
     if (playerRef.current) {
       playerRef.current.stop()
       playerRef.current.dispose()
@@ -134,7 +134,7 @@ export function AudioTourController({
 
     let currentAudio = audioUrl || (voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri);
     if (!currentAudio && poi) {
-       currentAudio = await idbGet(`audio_${poi.id}_${voicePreference}`);
+      currentAudio = await idbGet(`audio_${poi.id}_${voicePreference}`);
     }
 
     if (!currentAudio) {
@@ -147,10 +147,10 @@ export function AudioTourController({
       setIsPlaying(false)
     } else {
       if (!playerRef.current && currentAudio) {
-         playAudio(currentAudio);
+        playAudio(currentAudio);
       } else {
-         playerRef.current?.start()
-         setIsPlaying(true)
+        playerRef.current?.start()
+        setIsPlaying(true)
       }
     }
   }
@@ -168,7 +168,7 @@ export function AudioTourController({
 
   return (
     <div className="flex items-center justify-center">
-      <Button 
+      <Button
         onClick={togglePlayback}
         disabled={isGenerating}
         size="icon"

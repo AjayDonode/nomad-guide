@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import { 
+import {
   Navigation,
-  Compass, 
+  Compass,
   Volume2,
   X,
   Play,
@@ -28,12 +28,12 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuLabel, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import type { RouteStep } from '@/components/navigation-map'
@@ -43,14 +43,13 @@ import { UserMenu } from '@/components/user-menu'
 import { collection, query, orderBy, doc } from 'firebase/firestore'
 import { DrivingCaptions } from '@/components/driving-captions'
 import { AudioTourController } from '@/components/audio-tour-controller'
-import { simpleNarrate, generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
 import * as Tone from 'tone'
 import { set as idbSet, get as idbGet } from 'idb-keyval'
 
 // Dynamic imports
 const NavigationMap = dynamic(
   () => import('@/components/navigation-map').then((mod) => mod.NavigationMap),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="w-full h-full bg-background flex items-center justify-center">
@@ -87,7 +86,7 @@ export default function DrivingDashboard() {
   const router = useRouter()
   const { firestore } = useFirebase()
   const { user } = useUser()
-  
+
   const [dropdownSearch, setDropdownSearch] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isDriving, setIsDriving] = useState(false)
@@ -200,28 +199,28 @@ export default function DrivingDashboard() {
 
   useEffect(() => {
     if (!isDriving || !recommendedPois.length || !autoNarrate || !userLocation) return
-    
+
     const checkProximity = () => {
       recommendedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
-        
+
         // Trigger at 50ft (approx 0.015km). Using 0.02km (20m) for better GPS reliability.
         if (dist < 0.02) {
           narratedPois.current.add(poi.name)
           const nextPoi = recommendedPois[index + 1] || null
           if (nextPoi) {
-             const nextDist = getDistance(poi.latitude, poi.longitude, nextPoi.latitude, nextPoi.longitude)
-             setNextPoiInfo({
-               poi: nextPoi,
-               distance: formatDisplayDistance(nextDist, units)
-             })
+            const nextDist = getDistance(poi.latitude, poi.longitude, nextPoi.latitude, nextPoi.longitude)
+            setNextPoiInfo({
+              poi: nextPoi,
+              distance: formatDisplayDistance(nextDist, units)
+            })
           } else {
-             setNextPoiInfo(null)
+            setNextPoiInfo(null)
           }
           setSelectedPoiId(poi.id)
           setIsCaptionVisible(true)
-          
+
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
           captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
         }
@@ -267,7 +266,7 @@ export default function DrivingDashboard() {
       introPlayed.current = true
       try {
         let introText = `Let's go explore ${activeTripName}.`;
-        
+
         // Add driving instructions if first point is far
         if (recommendedPois.length > 0 && userLocation) {
           const firstPoi = recommendedPois[0];
@@ -277,29 +276,32 @@ export default function DrivingDashboard() {
           }
         }
 
-        const audioUri = await simpleNarrate(introText, voicePreference)
-        const player = new Tone.Player({
-          url: audioUri,
-          onload: () => {
-            player.start()
-          }
-        }).toDestination()
+        // Use 100% Free Native Browser Speech API for the Intro. No AI tokens.
+        const utterance = new SpeechSynthesisUtterance(introText);
+        if (voicePreference === 'male') {
+           const voices = window.speechSynthesis.getVoices();
+           const maleVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
+           if (maleVoice) utterance.voice = maleVoice;
+        }
+        
+        window.speechSynthesis.cancel(); // Cancel any existing speech
+        window.speechSynthesis.speak(utterance);
       } catch (e) {
-        console.error("Intro audio failed to play", e)
+        console.warn("Intro audio failed to play", e)
       }
     }
 
     // Prefetch all POI audio for OFFLINE access
     if (recommendedPois.length > 0) {
       toast({ title: "Downloading Trip", description: "Caching audio for offline access..." })
-      
+
       // We don't await this so we don't block driving
       setTimeout(async () => {
         let cachedCount = 0;
         for (let i = 0; i < recommendedPois.length; i++) {
           const poi = recommendedPois[i];
           const nextName = recommendedPois[i + 1]?.name;
-          
+
           try {
             const cachedUrl = await idbGet(`audio_${poi.id}_${voicePreference}`);
             if (cachedUrl) {
@@ -310,31 +312,20 @@ export default function DrivingDashboard() {
             // Check if Admin already pre-generated it in Firestore
             const adminAudio = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
             if (adminAudio) {
-               await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudio);
-               cachedCount++;
-               continue; // Successfully pulled offline from Admin cache
-            }
-            
-            // Otherwise, we must generate it dynamically real-time
-            const result = await generateNarrativeTour({
-              poiName: poi.name,
-              poiDescription: poi.description || "",
-              userPreferences: "captivating, informative, and professional guide",
-              locationContext: "approaching the site while driving",
-              nextPoiName: nextName,
-              language: "en-US",
-              voicePreference
-            });
-            
-            if (result && result.audioDataUri) {
-              await idbSet(`audio_${poi.id}_${voicePreference}`, result.audioDataUri);
+              await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudio);
               cachedCount++;
+              continue; // Successfully pulled offline from Admin cache
             }
+
+            // If Admin audio isn't present, we intentionally DO NOT generate it here.
+            // By skipping dynamic AI Generation during end-user usage, we strictly enforce 
+            // 0 AI Token usage. Instead, AudioTourController natively will fall back to
+            // window.speechSynthesis for free natively in the browser if no audio file exists.
           } catch (err) {
             console.error("Failed to prefetch audio for POI: ", poi.name, err);
           }
         }
-        
+
         if (cachedCount === recommendedPois.length) {
           toast({ title: "Trip Downloaded", description: "You're fully ready for offline navigation!" });
         }
@@ -348,7 +339,7 @@ export default function DrivingDashboard() {
       if (document.fullscreenElement && document.exitFullscreen) {
         document.exitFullscreen().catch(e => console.warn("Fullscreen exit failed", e))
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const formatDisplayDistance = (km: number, unitType: string) => {
@@ -368,14 +359,14 @@ export default function DrivingDashboard() {
   }
 
   if (!userLocation) {
-     return (
-        <div className="h-screen flex items-center justify-center bg-background">
-           <div className="text-center space-y-4">
-              <Navigation className="w-12 h-12 text-primary animate-pulse mx-auto" />
-              <p className="font-headline font-bold text-muted-foreground uppercase tracking-widest text-xs">Locating Position...</p>
-           </div>
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <Navigation className="w-12 h-12 text-primary animate-pulse mx-auto" />
+          <p className="font-headline font-bold text-muted-foreground uppercase tracking-widest text-xs">Locating Position...</p>
         </div>
-     )
+      </div>
+    )
   }
 
   return (
@@ -386,7 +377,7 @@ export default function DrivingDashboard() {
             <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors", isDriving ? "bg-green-500" : "bg-primary")}>
               <Navigation className={cn("w-6 h-6 transition-transform duration-500", isDriving ? "rotate-0" : "rotate-45")} />
             </div>
-            
+
             <div className="flex-1 flex items-center gap-4">
               <div className="min-w-0">
                 <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
@@ -406,7 +397,7 @@ export default function DrivingDashboard() {
                 </div>
               )}
             </div>
-            
+
             {activeTripId && !isDriving && !isLoading && (
               <Button onClick={startDriving} className="bg-green-500 hover:bg-green-600 text-white font-headline font-bold px-6 rounded-xl h-12 shadow-lg">
                 <Play className="w-4 h-4 mr-2" /> GO
@@ -427,8 +418,8 @@ export default function DrivingDashboard() {
                 <div className="p-2">
                   <div className="relative mb-4">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Find Trips..." 
+                    <Input
+                      placeholder="Find Trips..."
                       value={dropdownSearch}
                       onChange={(e) => setDropdownSearch(e.target.value)}
                       className="pl-9 h-10 bg-white/5 border-white/10 text-xs rounded-xl"
@@ -439,12 +430,12 @@ export default function DrivingDashboard() {
                       <div className="space-y-1">
                         <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2">Search Results</DropdownMenuLabel>
                         {filteredTrips.map((trip) => (
-                           <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between">
-                              <div className="flex flex-col gap-0.5">
-                                <span className="font-bold text-sm">{trip.name}</span>
-                                <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
-                              </div>
-                            </DropdownMenuItem>
+                          <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-bold text-sm">{trip.name}</span>
+                              <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
+                            </div>
+                          </DropdownMenuItem>
                         ))}
                       </div>
                     ) : (
@@ -499,13 +490,13 @@ export default function DrivingDashboard() {
       </div>
 
       <main className="relative flex-1 h-full">
-        <NavigationMap 
-          center={userLocation} 
-          pois={recommendedPois} 
-          destination={destination} 
-          isDriving={isDriving} 
-          isCompassActive={isCompassActive} 
-          onNextStepUpdate={setNextStep} 
+        <NavigationMap
+          center={userLocation}
+          pois={recommendedPois}
+          destination={destination}
+          isDriving={isDriving}
+          isCompassActive={isCompassActive}
+          onNextStepUpdate={setNextStep}
           onPoiSelect={(poi) => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}
           isTripMode={!!activeTripId}
         />
@@ -546,7 +537,7 @@ export default function DrivingDashboard() {
 
         {isDriving && (
           <div className="absolute bottom-10 left-4 z-40">
-             <Button onClick={stopDriving} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
+            <Button onClick={stopDriving} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
           </div>
         )}
 
@@ -557,17 +548,17 @@ export default function DrivingDashboard() {
         </div>
 
         {/* Headless Audio Trigger */}
-        <AudioTourController 
-          poi={activePoi} 
-          nextPoi={nextPoiInfo?.poi} 
+        <AudioTourController
+          poi={activePoi}
+          nextPoi={nextPoiInfo?.poi}
           nextPoiDistance={nextPoiInfo?.distance}
-          autoStart={autoNarrate} 
+          autoStart={autoNarrate}
           hidden={true}
           onFinish={() => setIsCaptionVisible(false)}
         />
 
         {/* Driving Captions Overlay */}
-        <DrivingCaptions 
+        <DrivingCaptions
           text={activePoi?.narrationText || activePoi?.description || activePoi?.reason || `Approaching ${activePoi?.name}...`}
           isVisible={isCaptionVisible && !!activePoi}
           onClose={() => setIsCaptionVisible(false)}
