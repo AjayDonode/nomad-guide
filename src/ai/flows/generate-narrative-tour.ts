@@ -40,11 +40,65 @@ export type GenerateNarrativeTourOutput = z.infer<typeof GenerateNarrativeTourOu
 export async function generateNarrativeTour(
   input: GenerateNarrativeTourInput
 ): Promise<GenerateNarrativeTourOutput> {
-  return generateNarrativeTourFlow(input);
+  // Generate Text first
+  const { output } = await narrativePrompt(input);
+
+  if (!output?.narrationText) {
+    throw new Error('Failed to generate narration text.');
+  }
+
+  const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
+
+  const { media } = await ai.generate({
+    model: 'googleai/gemini-2.5-flash-preview-tts',
+    config: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName },
+        },
+      },
+    },
+    prompt: output.narrationText,
+  });
+
+  if (!media) {
+    throw new Error('No audio media returned from TTS model.');
+  }
+
+  const audioBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
+  const wavAudioBase64 = encodeWav(audioBuffer);
+
+  return {
+    audioDataUri: 'data:audio/wav;base64,' + wavAudioBase64,
+    generatedText: output.narrationText,
+  };
 }
 
 export async function simpleNarrate(text: string, voicePreference: 'male' | 'female' = 'female'): Promise<string> {
-  return simpleNarrateFlow({ text, voicePreference });
+  const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
+
+  const { media } = await ai.generate({
+    model: 'googleai/gemini-2.5-flash-preview-tts',
+    config: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName },
+        },
+      },
+    },
+    prompt: text,
+  });
+
+  if (!media) {
+    throw new Error('No audio media returned from TTS model.');
+  }
+
+  const audioBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
+  const wavAudioBase64 = encodeWav(audioBuffer);
+
+  return 'data:audio/wav;base64,' + wavAudioBase64;
 }
 
 const narrativePrompt = ai.definePrompt({
@@ -70,81 +124,7 @@ Instructions:
 `,
 });
 
-const generateNarrativeTourFlow = ai.defineFlow(
-  {
-    name: 'generateNarrativeTourFlow',
-    inputSchema: GenerateNarrativeTourInputSchema,
-    outputSchema: GenerateNarrativeTourOutputSchema,
-  },
-  async (input) => {
-    // Generate Text first
-    const { output } = await narrativePrompt(input);
 
-    if (!output?.narrationText) {
-      throw new Error('Failed to generate narration text.');
-    }
-
-    const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
-
-    const { media } = await ai.generate({
-      model: 'googleai/gemini-2.5-flash-preview-tts',
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName },
-          },
-        },
-      },
-      prompt: output.narrationText,
-    });
-
-    if (!media) {
-      throw new Error('No audio media returned from TTS model.');
-    }
-
-    const audioBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
-    const wavAudioBase64 = encodeWav(audioBuffer);
-
-    return {
-      audioDataUri: 'data:audio/wav;base64,' + wavAudioBase64,
-      generatedText: output.narrationText,
-    };
-  }
-);
-
-const simpleNarrateFlow = ai.defineFlow(
-  {
-    name: 'simpleNarrateFlow',
-    inputSchema: z.object({ text: z.string(), voicePreference: z.enum(['male', 'female']) }),
-    outputSchema: z.string(),
-  },
-  async ({ text, voicePreference }) => {
-    const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
-
-    const { media } = await ai.generate({
-      model: 'googleai/gemini-2.5-flash-preview-tts',
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName },
-          },
-        },
-      },
-      prompt: text,
-    });
-
-    if (!media) {
-      throw new Error('No audio media returned from TTS model.');
-    }
-
-    const audioBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
-    const wavAudioBase64 = encodeWav(audioBuffer);
-
-    return 'data:audio/wav;base64,' + wavAudioBase64;
-  }
-);
 
 function encodeWav(
   pcmData: Buffer,
