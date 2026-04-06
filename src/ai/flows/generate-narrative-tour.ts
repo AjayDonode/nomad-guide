@@ -49,18 +49,25 @@ export async function generateNarrativeTour(
 
   const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
 
-  const { media } = await ai.generate({
-    model: 'googleai/gemini-2.5-flash-preview-tts',
-    config: {
-      responseModalities: ['AUDIO'],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName },
+  let media;
+  try {
+    const response = await ai.generate({
+      model: 'googleai/gemini-2.0-flash',
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName },
+          },
         },
       },
-    },
-    prompt: output.narrationText,
-  });
+      prompt: output.narrationText,
+    });
+    media = response.media;
+  } catch (error: any) {
+    console.error("Genkit TTS SDK Error:", error);
+    throw new Error(`Genkit Generation Failed: ${error.message || 'Unknown API Exception'}`);
+  }
 
   if (!media) {
     throw new Error('No audio media returned from TTS model.');
