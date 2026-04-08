@@ -377,7 +377,26 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           console.log(`[Optimize] ✅ Successfully stored optimized narration for: ${poi.name}`);
         } catch (poiError: any) {
           console.error(`[Optimize] ❌ Failed to generate or store audio for POI: ${poi.name}`, poiError);
-          // Optional: we can choose to continue to the next POI instead of halting the entire process
+          
+          const errorText = poiError?.message || String(poiError);
+          
+          if (errorText.includes("503") || errorText.toLowerCase().includes("high demand") || errorText.toLowerCase().includes("service unavailable")) {
+            toast({
+              variant: "destructive",
+              title: "Google AI is Busy 🚦",
+              description: `Gemini is currently experiencing high global demand (503 Service Unavailable). The optimization paused at ${poi.name}. Please try again later.`,
+            });
+            // Break loop completely since subsequent parallel calls will also instantly 503 fail
+            setIsProcessingAI(false);
+            return;
+          } else {
+            toast({
+              variant: "destructive",
+              title: `Failed at ${poi.name}`,
+              description: "An unexpected error occurred. Please check your browser developer tools.",
+            });
+            // We gently continue down the chain to try the next POIs unless it's a catastrophic 503
+          }
         }
       }
       
