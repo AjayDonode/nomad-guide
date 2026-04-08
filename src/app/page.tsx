@@ -137,8 +137,25 @@ export default function DrivingDashboard() {
 
   const upcomingPois = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return [];
-    return recommendedPois.filter(poi => !narratedPois.current.has(poi.name));
-  }, [isDriving, recommendedPois, selectedPoiId]);
+    
+    // First, standard filter for narrated pois
+    let activePois = recommendedPois.filter(poi => !narratedPois.current.has(poi.name));
+    
+    // Auto-skip logic: If we have userLocation, and we have multiple remaining POIs
+    if (userLocation && activePois.length > 1) {
+       const distToCurrent = getDistance(userLocation[0], userLocation[1], activePois[0].latitude, activePois[0].longitude);
+       const distToNext = getDistance(userLocation[0], userLocation[1], activePois[1].latitude, activePois[1].longitude);
+       
+       // If the driver is significantly closer to the next POI than the current one,
+       // it means they physically drove past the current POI without triggering its proximity.
+       if (distToNext < (distToCurrent * 0.7)) { 
+           narratedPois.current.add(activePois[0].name); // Mark it as skipped/narrated
+           activePois = activePois.slice(1);
+       }
+    }
+    
+    return activePois;
+  }, [isDriving, recommendedPois, selectedPoiId, userLocation]);
 
   const upcomingStopName = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return null;
@@ -377,6 +394,24 @@ export default function DrivingDashboard() {
     )
   }
 
+  // Real-time Turn-by-Turn Native Browser TTS
+  const prevStepNameRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isDriving && autoNarrate && nextStep) {
+      const instruction = `${nextStep.maneuver.modifier || 'continue'}, ${nextStep.name}`;
+      
+      // We only speak when the step actually changes!
+      if (prevStepNameRef.current !== instruction) {
+          prevStepNameRef.current = instruction;
+          if ('speechSynthesis' in window) {
+             const utterance = new SpeechSynthesisUtterance(instruction);
+             utterance.rate = 1.05; // clear, slightly brisk pace
+             window.speechSynthesis.speak(utterance);
+          }
+      }
+    }
+  }, [nextStep, isDriving, autoNarrate]);
+
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-body selection:bg-primary/30">
       {/* Minimal Floating Top UI */}
@@ -417,7 +452,7 @@ export default function DrivingDashboard() {
       <main className="relative flex-1 h-full">
         <NavigationMap
           center={userLocation}
-          pois={recommendedPois}
+          pois={isDriving ? upcomingPois : recommendedPois}
           destination={destination}
           isDriving={isDriving}
           isCompassActive={isCompassActive}
