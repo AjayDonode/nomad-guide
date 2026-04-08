@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 const features = [
   {
     title: "AI-Powered Narration",
-    description: "Experience dynamic, location-aware audio tours that bring landmarks to life using Gemini AI generation.",
+    description: "Experience dynamic, location-aware audio tours that bring landmarks to life using Advanced AI generation.",
     icon: AudioLines,
     color: "from-blue-500 to-indigo-600",
     mockup: (
@@ -30,7 +30,7 @@ const features = [
   },
   {
     title: "Driver's 3D Perspective",
-    description: "Intuitive Waze-style 3D routing automatically aligns with your heading for distraction-free navigation.",
+    description: "Intuitive Advanced Maps-style 3D routing automatically aligns with your heading for distraction-free navigation.",
     icon: Navigation,
     color: "from-green-500 to-emerald-600",
     mockup: (
@@ -162,6 +162,34 @@ export default function PresentationPage() {
             </div>
           </Card>
         ))}
+      </div>
+
+      {/* Future Roadmap Section */}
+      <div className="px-4 pb-32 max-w-md mx-auto md:max-w-4xl">
+        <h3 className="text-2xl md:text-3xl font-headline font-bold mb-8 text-center tracking-tight">What's Coming in the Future</h3>
+        <div className="grid gap-6 md:grid-cols-3">
+          <Card className="p-6 glass-morphism border-white/10 shadow-xl hover:-translate-y-1 transition-transform duration-300">
+            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
+              <AudioLines className="w-5 h-5 text-blue-500" />
+            </div>
+            <h4 className="font-bold text-lg mb-2">Historical Narration</h4>
+            <p className="text-muted-foreground text-sm leading-relaxed">Rich historical and geographical narration about your surrounding area.</p>
+          </Card>
+          <Card className="p-6 glass-morphism border-white/10 shadow-xl hover:-translate-y-1 transition-transform duration-300">
+            <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center mb-4">
+              <Map className="w-5 h-5 text-green-500" />
+            </div>
+            <h4 className="font-bold text-lg mb-2">Community Updates</h4>
+            <p className="text-muted-foreground text-sm leading-relaxed">Users can add/update current images and real-time situations to help others plan trips.</p>
+          </Card>
+          <Card className="p-6 glass-morphism border-white/10 shadow-xl hover:-translate-y-1 transition-transform duration-300">
+            <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center mb-4">
+              <Sparkles className="w-5 h-5 text-purple-500" />
+            </div>
+            <h4 className="font-bold text-lg mb-2">Indoor Walkthroughs</h4>
+            <p className="text-muted-foreground text-sm leading-relaxed">Seamless indoor walkthroughs for detailed exploration of museums and walking trails.</p>
+          </Card>
+        </div>
       </div>
 
       {/* Sticky Bottom Call to Action */}
