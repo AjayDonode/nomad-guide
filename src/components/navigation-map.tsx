@@ -201,16 +201,43 @@ export function NavigationMap({
     setMounted(true)
   }, [])
 
+  const prevCenterRef = useRef<[number, number] | null>(null);
+
   useEffect(() => {
-    if (routePoints.length > 5) {
-      const nextPoint = routePoints[5]
-      if (nextPoint) {
-        setBearing(calculateBearing(center, nextPoint))
-      }
+    if (!center) return;
+    
+    // 1. Dominant: Physical Movement Vector (if user is actively driving)
+    if (prevCenterRef.current) {
+        const dist = calculateDistance(prevCenterRef.current, center);
+        if (dist > 1) { // User physically moved > 1 meter
+            const newBearing = calculateBearing(prevCenterRef.current, center);
+            setBearing(newBearing);
+            prevCenterRef.current = center;
+            return;
+        }
     } else {
-      setBearing(0)
+        prevCenterRef.current = center;
     }
-  }, [center, routePoints])
+    
+    // 2. Fallback: Snap to Route Geometry (if stationary or just loaded)
+    if (routePoints.length > 1) {
+        let closestIdx = 0;
+        let minDest = Infinity;
+        // Search the first chunk of the route for the closest point
+        for (let i = 0; i < Math.min(routePoints.length, 300); i++) {
+            const d = calculateDistance(center, routePoints[i]);
+            if (d < minDest) {
+                minDest = d;
+                closestIdx = i;
+            }
+        }
+        // Look slightly ahead of the closest point (approx 15-30 meters down the road)
+        const lookaheadIdx = Math.min(closestIdx + 4, routePoints.length - 1);
+        if (lookaheadIdx > closestIdx && lookaheadIdx < routePoints.length) {
+            setBearing(calculateBearing(center, routePoints[lookaheadIdx]));
+        }
+    }
+  }, [center, routePoints]);
 
   useEffect(() => {
     if (destination) {
