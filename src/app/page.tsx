@@ -43,6 +43,7 @@ import { UserMenu } from '@/components/user-menu'
 import { collection, query, orderBy, doc } from 'firebase/firestore'
 import { DrivingCaptions } from '@/components/driving-captions'
 import { AudioTourController } from '@/components/audio-tour-controller'
+import { UpcomingPoiGallery } from '@/components/upcoming-poi-gallery'
 import * as Tone from 'tone'
 import { set as idbSet, get as idbGet } from 'idb-keyval'
 
@@ -139,11 +140,15 @@ export default function DrivingDashboard() {
   }, [firestore, activeTripId, selectedPoiId])
   const { data: activePoi } = useDoc(activePoiRef)
 
+  const upcomingPois = useMemo(() => {
+    if (!isDriving || !recommendedPois.length) return [];
+    return recommendedPois.filter(poi => !narratedPois.current.has(poi.name));
+  }, [isDriving, recommendedPois, selectedPoiId]);
+
   const upcomingStopName = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return null;
-    const next = recommendedPois.find(poi => !narratedPois.current.has(poi.name));
-    return next?.name || "Final Destination";
-  }, [isDriving, recommendedPois]);
+    return upcomingPois.length > 0 ? upcomingPois[0].name : "Final Destination";
+  }, [isDriving, recommendedPois, upcomingPois]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
@@ -253,8 +258,11 @@ export default function DrivingDashboard() {
     }
 
     try {
-      if (document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen()
+      const docEl = document.documentElement as any;
+      if (docEl.requestFullscreen) {
+        await docEl.requestFullscreen().catch(() => {});
+      } else if (docEl.webkitRequestFullscreen) {
+        await docEl.webkitRequestFullscreen().catch(() => {});
       }
     } catch (e) {
       console.warn("Fullscreen request failed", e)
@@ -336,8 +344,13 @@ export default function DrivingDashboard() {
   const stopDriving = () => {
     setIsDriving(false)
     try {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(e => console.warn("Fullscreen exit failed", e))
+      const doc = document as any;
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        if (doc.exitFullscreen) {
+          doc.exitFullscreen().catch(() => {})
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen().catch(() => {})
+        }
       }
     } catch (e) { }
   }
@@ -536,9 +549,12 @@ export default function DrivingDashboard() {
         )}
 
         {isDriving && (
-          <div className="absolute bottom-10 left-4 z-40">
-            <Button onClick={stopDriving} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
-          </div>
+          <>
+            <div className="absolute bottom-10 left-4 z-40">
+              <Button onClick={stopDriving} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
+            </div>
+            <UpcomingPoiGallery upcomingPois={upcomingPois} />
+          </>
         )}
 
         <div className="absolute right-4 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-3">

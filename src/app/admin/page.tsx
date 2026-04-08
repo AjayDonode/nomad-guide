@@ -378,10 +378,10 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       return;
     }
     
-    // Find the nearest playable POI if current doesn't have content
+    // Find the nearest playable POI
     let currentIndex = startIndex;
     let poi = pois[currentIndex];
-    while (currentIndex < pois.length && !poi?.audioMaleDataUri && !poi?.audioFemaleDataUri) {
+    while (currentIndex < pois.length && !poi) {
       currentIndex++;
       poi = pois[currentIndex];
     }
@@ -406,37 +406,52 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
     let audioUri = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri
 
-    if (!audioUri) {
-      toast({
-        title: "Not Optimized",
-        description: "Please optimize narrations first before previewing.",
-      })
-      // Auto-skip to next
-      handlePreviewAudio(currentIndex + 1);
-      return
-    }
-
     try {
-      const player = new Tone.Player({
-        url: audioUri,
-        onload: () => {
-          player.start()
-          setIsPreviewing(true)
-          setPlayingPoiId(poi.id)
-        },
-        onerror: (err) => {
-          console.error("Tone.Player load error", err)
-          setIsPreviewing(false)
-        },
-        onstop: () => {
-          player.dispose()
-          playerRef.current = null
-          setPlayingPoiId(null)
-          // Automatically play the next audio
-          handlePreviewAudio(currentIndex + 1)
+      if (audioUri) {
+        // Play AI Generated Audio
+        const player = new Tone.Player({
+          url: audioUri,
+          onload: () => {
+            player.start()
+            setIsPreviewing(true)
+            setPlayingPoiId(poi.id)
+          },
+          onerror: (err) => {
+            console.error("Tone.Player load error", err)
+            setIsPreviewing(false)
+          },
+          onstop: () => {
+            player.dispose()
+            playerRef.current = null
+            setPlayingPoiId(null)
+            handlePreviewAudio(currentIndex + 1)
+          }
+        }).toDestination()
+        playerRef.current = player
+      } else {
+        // Fallback to Native TTS if not optimized yet
+        setIsPreviewing(true)
+        setPlayingPoiId(poi.id)
+        const textToRead = poi.narrationText || poi.description || poi.name
+        const utterance = new SpeechSynthesisUtterance(textToRead)
+        
+        if (voicePreference === 'male') {
+          const voices = window.speechSynthesis.getVoices()
+          const maleVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'))
+          if (maleVoice) utterance.voice = maleVoice
         }
-      }).toDestination()
-      playerRef.current = player
+
+        utterance.onend = () => {
+          setPlayingPoiId(null)
+          setTimeout(() => handlePreviewAudio(currentIndex + 1), 500)
+        }
+        utterance.onerror = () => {
+          setPlayingPoiId(null)
+          setIsPreviewing(false)
+        }
+        window.speechSynthesis.cancel()
+        window.speechSynthesis.speak(utterance)
+      }
     } catch (e) {
       console.error("Playback error", e)
       setIsPreviewing(false)
@@ -449,6 +464,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       playerRef.current.dispose()
       playerRef.current = null
     }
+    window.speechSynthesis.cancel()
     setIsPreviewing(false)
     setPlayingPoiId(null)
   }
@@ -533,9 +549,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }, [])
 
-  // Preview is possible strictly if we have pre-generated audio
-  const firstPlayablePoiIndex = pois?.findIndex(p => p.audioMaleDataUri || p.audioFemaleDataUri) ?? -1;
-  const canPlayPreview = firstPlayablePoiIndex !== -1;
+  // Preview is always possible if there are POIs
+  const canPlayPreview = (pois?.length ?? 0) > 0;
 
   return (
     <div className="h-full flex flex-col">
@@ -571,9 +586,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 Optimize Narrations
               </Button>
               <Button 
-                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(firstPlayablePoiIndex !== -1 ? firstPlayablePoiIndex : 0)}
-                disabled={!canPlayPreview || (isPreviewing && !playerRef.current)}
-                variant={canPlayPreview && (!isPreviewing || playerRef.current) ? "default" : "ghost"}
+                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(0)}
+                disabled={!canPlayPreview || (isPreviewing && !playerRef.current && typeof window !== 'undefined' && !window.speechSynthesis.speaking)}
+                variant={canPlayPreview && (!isPreviewing || playerRef.current || (typeof window !== 'undefined' && window.speechSynthesis.speaking)) ? "default" : "ghost"}
                 size="icon"
                 className={cn(
                   "rounded-xl h-11 w-11 transition-all", 
@@ -582,7 +597,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                   "text-muted-foreground hover:bg-white/5 opacity-50"
                 )}
               >
-                {isPreviewing && !playerRef.current ? (
+                {(isPreviewing && !playerRef.current && typeof window !== 'undefined' && !window.speechSynthesis.speaking) ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : isPreviewing ? (
                   <Pause className="w-5 h-5" />
@@ -650,16 +665,14 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           <p className="text-[10px] text-muted-foreground">{poi.category}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {(poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
-                            <Button 
-                              variant={playingPoiId === poi.id ? "default" : "ghost"}
-                              size="icon" 
-                              className={cn("h-8 w-8 transition-colors", playingPoiId === poi.id ? "bg-green-500 hover:bg-green-600 text-white" : "text-primary hover:bg-primary/10")}
-                              onClick={() => playingPoiId === poi.id ? stopPreview() : handlePreviewAudio(idx)}
-                            >
-                              {playingPoiId === poi.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                            </Button>
-                          )}
+                          <Button 
+                            variant={playingPoiId === poi.id ? "default" : "ghost"}
+                            size="icon" 
+                            className={cn("h-8 w-8 transition-colors", playingPoiId === poi.id ? "bg-green-500 hover:bg-green-600 text-white" : "text-primary hover:bg-primary/10")}
+                            onClick={() => playingPoiId === poi.id ? stopPreview() : handlePreviewAudio(idx)}
+                          >
+                            {playingPoiId === poi.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                          </Button>
                           <Button 
                             variant="ghost" 
                             size="icon" 
