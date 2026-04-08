@@ -378,53 +378,39 @@ export default function DrivingDashboard() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-body selection:bg-primary/30">
-      <div className="fixed top-0 left-0 right-0 z-[110] p-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          <div className="flex-1 glass-morphism p-3 rounded-2xl flex items-center gap-3">
-            <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors", isDriving ? "bg-green-500" : "bg-primary")}>
-              <Navigation className={cn("w-6 h-6 transition-transform duration-500", isDriving ? "rotate-0" : "rotate-45")} />
+      {/* Minimal Floating Top UI */}
+      <div className="fixed top-2 left-0 right-0 z-[110] p-4 pointer-events-none flex justify-between items-start">
+        {/* Driving: Waze-style Top Navigation Banner */}
+        {isDriving && nextStep ? (
+          <div className="pointer-events-auto bg-green-600/95 backdrop-blur-xl text-white p-4 rounded-3xl shadow-2xl flex items-center gap-4 max-w-md w-full mx-auto animate-in slide-in-from-top duration-500 border border-green-400/20">
+            <div className="w-14 h-14 bg-black/25 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
+               <TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} />
             </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-3xl font-bold tracking-tighter leading-none mb-1 drop-shadow-md">{formatStepDistance(nextStep.distance, units)}</div>
+              <div className="text-sm font-semibold opacity-90 truncate max-w-full drop-shadow-sm">{upcomingStopName || 'Following Route'}</div>
+            </div>
+          </div>
+        ) : (
+           <div className="flex-1" />
+        )}
 
-            <div className="flex-1 flex items-center gap-4">
-              <div className="min-w-0">
-                <div className="text-[10px] font-headline uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">
-                  {isDriving ? 'Next Stop' : activeTripId ? 'Selected Trip' : 'Status'}
-                </div>
-                <div className="text-lg font-headline font-bold leading-tight truncate max-w-[120px] sm:max-w-[200px]">
-                  {isDriving ? (upcomingStopName || 'Following Route') : activeTripId ? activeTripName : 'NomadGuide AI'}
-                </div>
-              </div>
-              {isDriving && nextStep && (
-                <div className="flex items-center gap-3 border-l border-white/10 pl-4">
-                  <div className="bg-accent/20 p-2 rounded-xl"><TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} /></div>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-accent font-bold mb-1">Next</div>
-                    <div className="text-sm font-bold">{formatStepDistance(nextStep.distance, units)}</div>
-                  </div>
-                </div>
+        {/* Floating Action Buttons (Top Right) */}
+        {!isDriving && (
+          <div className="pointer-events-auto flex flex-col gap-3 ml-auto">
+              {user ? <UserMenu /> : (
+                <Button onClick={() => router.push('/login')} variant="secondary" size="icon" className="h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10">
+                  <LogIn className="w-5 h-5 text-primary" />
+                </Button>
               )}
-            </div>
-
-            {activeTripId && !isDriving && !isLoading && (
-              <Button onClick={startDriving} className="bg-green-500 hover:bg-green-600 text-white font-headline font-bold px-6 rounded-xl h-12 shadow-lg">
-                <Play className="w-4 h-4 mr-2" /> GO
+              <Button variant="secondary" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", autoNarrate ? "text-accent bg-white/10" : "text-muted-foreground opacity-70")}>
+                {autoNarrate ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
               </Button>
-            )}
-          </div>
-
-          <div className="flex gap-2">
-
-
-            <Button variant="ghost" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("glass-morphism h-12 w-12 rounded-2xl", autoNarrate ? "text-accent" : "text-muted-foreground")}>
-              {autoNarrate ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
-            </Button>
-            {user ? <UserMenu /> : (
-              <Button onClick={() => router.push('/login')} variant="ghost" size="icon" className="glass-morphism h-12 w-12 rounded-2xl text-primary">
-                <LogIn className="w-6 h-6" />
+              <Button variant="secondary" size="icon" onClick={() => setIsCompassActive(!isCompassActive)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", isCompassActive && "bg-primary/20 text-primary")}>
+                <Compass className={cn("w-5 h-5 transition-transform duration-700", isCompassActive ? "rotate-45" : "rotate-0")} />
               </Button>
-            )}
           </div>
-        </div>
+        )}
       </div>
 
       <main className="relative flex-1 h-full">
@@ -439,54 +425,56 @@ export default function DrivingDashboard() {
           isTripMode={!!activeTripId}
         />
 
+        {/* Route Details Overview Bottom Sheet */}
         {!isDriving && activeTripId && recommendedPois.length > 0 && (
-          <div className="absolute top-24 left-4 z-[100] lg:max-w-md">
-            <Card className="bg-card/80 backdrop-blur-xl border-white/10 rounded-3xl p-4 shadow-2xl border-none overflow-hidden relative">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <MapIcon className="w-4 h-4 text-primary" />
-                  <span className="text-[10px] font-headline uppercase tracking-widest font-bold text-muted-foreground">Trip Itinerary</span>
+          <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card border-t border-white/10 rounded-t-3xl shadow-[0_-15px_50px_rgba(0,0,0,0.6)] flex flex-col max-h-[75vh] p-4 lg:max-w-2xl lg:mx-auto animate-in slide-in-from-bottom duration-500">
+            <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
+            
+            <div className="flex items-start justify-between mb-2">
+              <div className="pr-4">
+                <h2 className="text-2xl font-bold tracking-tight mb-1">{activeTripName}</h2>
+                <div className="flex items-center gap-2 text-muted-foreground text-xs font-bold uppercase tracking-wider">
+                  <MapIcon className="w-3 h-3" />
+                  <span>{recommendedPois.length} stops</span>
+                  <span>•</span>
+                  <span>{formatDisplayDistance(recommendedPois[recommendedPois.length-1].distance || 0, units)} total</span>
                 </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveTripId(null)}><X className="w-3 h-3" /></Button>
               </div>
-              <ScrollArea className="max-h-[300px]">
-                <div className="space-y-2">
-                  {recommendedPois.map((poi, idx) => (
-                    <div key={idx} className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors" onClick={() => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}>
-                      <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
-                        <span className="text-xs font-bold text-primary">{idx + 1}</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold truncate">{poi.name}</p>
-                        <p className="text-[10px] text-muted-foreground truncate">{poi.category}</p>
-                      </div>
+              <Button variant="ghost" size="icon" className="h-10 w-10 bg-white/5 rounded-full hover:bg-white/10 transition-colors" onClick={() => setActiveTripId(null)}><X className="w-5 h-5" /></Button>
+            </div>
+            
+            <ScrollArea className="flex-1 mt-4 mb-4 pr-2">
+              <div className="space-y-2">
+                {recommendedPois.map((poi, idx) => (
+                  <div key={idx} className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors active:bg-white/10 group" onClick={() => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}>
+                    <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center shrink-0 relative overflow-hidden group-hover:scale-105 transition-transform">
+                      <span className="text-sm font-bold text-primary relative z-10">{idx + 1}</span>
                     </div>
-                  ))}
-                </div>
-              </ScrollArea>
-              <div className="mt-4 pt-4 border-t border-white/5">
-                <Button onClick={startDriving} className="w-full bg-green-500 hover:bg-green-600 text-white font-headline font-bold rounded-xl h-12 shadow-lg">
-                  <Play className="w-4 h-4 mr-2" /> Start Navigation
-                </Button>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{poi.name}</p>
+                      <p className="text-xs text-muted-foreground truncate opacity-80">{poi.category}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </Card>
+            </ScrollArea>
+            
+            <div className="pt-2 sticky bottom-0 bg-card">
+              <Button onClick={startDriving} className="w-full bg-green-500 hover:bg-green-600 text-white font-headline tracking-wide font-bold rounded-full h-14 shadow-[0_0_20px_rgba(34,197,94,0.3)] text-lg transition-transform hover:scale-[1.02] active:scale-95">
+                <Play className="w-5 h-5 mr-2 fill-current" /> GO
+              </Button>
+            </div>
           </div>
         )}
 
         {isDriving && (
           <>
-            <div className="absolute bottom-10 left-4 z-40">
-              <Button onClick={stopDriving} variant="destructive" className="h-14 w-14 rounded-2xl shadow-xl"><X className="w-6 h-6" /></Button>
+            <div className="absolute bottom-[4.5rem] right-4 z-[90]">
+              <Button onClick={stopDriving} variant="destructive" className="h-12 px-6 rounded-full shadow-xl bg-red-600 hover:bg-red-700 tracking-wider font-bold text-sm">END</Button>
             </div>
             <UpcomingPoiGallery upcomingPois={upcomingPois} />
           </>
         )}
-
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-3">
-          <Button variant="secondary" size="icon" onClick={() => setIsCompassActive(!isCompassActive)} className={cn("h-14 w-14 rounded-2xl glass-morphism", isCompassActive && "bg-primary text-white scale-110")}>
-            <Compass className={cn("w-6 h-6 transition-transform duration-700", isCompassActive ? "rotate-45" : "rotate-0")} />
-          </Button>
-        </div>
 
         {/* Headless Audio Trigger */}
         <AudioTourController
