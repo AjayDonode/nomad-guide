@@ -377,9 +377,9 @@ export function NavigationMap({
 
   const is3DView = isDriving && currentZoom >= 16;
   const rotationStyle = is3DView ? {
-    transform: isCompassActive ? `perspective(1000px) rotateX(60deg) rotate(${-bearing}deg) scale(2.2) translateY(5%)` : `perspective(1000px) rotateX(60deg) scale(2.2) translateY(5%)`,
+    transform: isCompassActive ? `perspective(1000px) rotateX(30deg) rotate(${-bearing}deg) scale(1.3)` : `perspective(1000px) rotateX(30deg) scale(1.3)`,
     transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',
-    transformOrigin: 'center center'
+    transformOrigin: 'center 60%'
   } : {
     transform: isCompassActive && isDriving ? `perspective(1000px) rotateX(0deg) rotate(${-bearing}deg) scale(1)` : `perspective(1000px) rotateX(0deg) scale(1)`,
     transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',
