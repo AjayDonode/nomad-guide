@@ -5,6 +5,10 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid != null;
     }
 
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
       
@@ -14,21 +18,11 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      // Allow all users to read trip metadata and its subcollections
-      allow read: if true;
-      
-      // Ownership rules for modifications
-      allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
+      // Temporary: Removed all security for trips and trip_pois as requested
+      allow read, write: if true;
 
       match /trip_pois/{poiId} {
-        // Direct read access for all users to ensure sub-collection queries are safe
-        allow read: if true;
-        allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-        allow update, delete: if isSignedIn() && (
-          ('adminId' in resource.data && resource.data.adminId == request.auth.uid) || 
-          ('adminId' in get(/databases/$(database)/documents/trips/$(tripId)).data && get(/databases/$(database)/documents/trips/$(tripId)).data.adminId == request.auth.uid)
-        );
+        allow read, write: if true;
       }
     }
   }
