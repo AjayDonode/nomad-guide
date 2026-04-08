@@ -28,13 +28,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { Card } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
+
 import { cn } from '@/lib/utils'
 import type { RouteStep } from '@/components/navigation-map'
 import { useUser, useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase'
@@ -419,76 +413,7 @@ export default function DrivingDashboard() {
           </div>
 
           <div className="flex gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="glass-morphism h-12 px-4 rounded-2xl flex items-center gap-2">
-                  <Route className="w-5 h-5 text-primary" />
-                  <span className="hidden sm:inline text-xs font-bold uppercase tracking-widest">Trips</span>
-                  <ChevronDown className="w-4 h-4 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-72 bg-card/95 backdrop-blur-2xl border-white/10 rounded-2xl p-2" align="end">
-                <div className="p-2">
-                  <div className="relative mb-4">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Find Trips..."
-                      value={dropdownSearch}
-                      onChange={(e) => setDropdownSearch(e.target.value)}
-                      className="pl-9 h-10 bg-white/5 border-white/10 text-xs rounded-xl"
-                    />
-                  </div>
-                  <ScrollArea className="h-[400px]">
-                    {dropdownSearch.length > 0 ? (
-                      <div className="space-y-1">
-                        <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2">Search Results</DropdownMenuLabel>
-                        {filteredTrips.map((trip) => (
-                          <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="font-bold text-sm">{trip.name}</span>
-                              <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
-                            </div>
-                          </DropdownMenuItem>
-                        ))}
-                      </div>
-                    ) : (
-                      <>
-                        {categorizedTrips.favorites.length > 0 && (
-                          <div className="mb-4">
-                            <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-primary px-2 flex items-center gap-2">
-                              <Heart className="w-3 h-3 fill-current" /> Saved Trips
-                            </DropdownMenuLabel>
-                            {categorizedTrips.favorites.map((trip) => (
-                              <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10 flex items-center justify-between group">
-                                <div className="flex flex-col gap-0.5">
-                                  <span className="font-bold text-sm">{trip.name}</span>
-                                  <span className="text-[10px] text-muted-foreground line-clamp-1">{trip.description}</span>
-                                </div>
-                              </DropdownMenuItem>
-                            ))}
-                          </div>
-                        )}
-                        <div className="mb-2">
-                          <DropdownMenuLabel className="font-headline font-bold text-[10px] uppercase tracking-widest text-accent px-2 flex items-center gap-2">
-                            <Navigation2 className="w-3 h-3" /> Nearby Trips
-                          </DropdownMenuLabel>
-                          {categorizedTrips.nearby.map((trip) => (
-                            <DropdownMenuItem key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-xl focus:bg-primary/10 cursor-pointer p-3 flex items-center justify-between">
-                              <div className="flex flex-col gap-0.5">
-                                <span className="font-bold text-sm">{trip.name}</span>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="secondary" className="h-4 text-[8px] bg-white/5">{formatDisplayDistance(trip.distance, units)} away</Badge>
-                                </div>
-                              </div>
-                            </DropdownMenuItem>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </ScrollArea>
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
+
 
             <Button variant="ghost" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("glass-morphism h-12 w-12 rounded-2xl", autoNarrate ? "text-accent" : "text-muted-foreground")}>
               {autoNarrate ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
@@ -579,6 +504,74 @@ export default function DrivingDashboard() {
           isVisible={isCaptionVisible && !!activePoi}
           onClose={() => setIsCaptionVisible(false)}
         />
+
+        {/* Waze-style Bottom Sheet for trip selection */}
+        {user && !isDriving && !activeTripId && (
+          <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card border-t border-white/10 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex flex-col max-h-[70vh] p-4 pb-8 animate-in slide-in-from-bottom duration-500">
+            <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
+            
+            <div className="relative mb-6 px-2 lg:max-w-2xl lg:mx-auto lg:w-full">
+              <div className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground flex items-center justify-center">
+                 <Search className="w-full h-full" />
+              </div>
+              <Input
+                placeholder="Where to?"
+                value={dropdownSearch}
+                onChange={(e) => setDropdownSearch(e.target.value)}
+                className="pl-12 h-14 bg-white/5 border-white/10 text-base font-bold rounded-2xl shadow-inner w-full"
+              />
+            </div>
+            
+            <ScrollArea className="flex-1 px-2 lg:max-w-2xl lg:mx-auto lg:w-full min-h-[300px]">
+              {dropdownSearch.length > 0 ? (
+                <div className="space-y-1 pb-4">
+                  <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2 mb-2">Search Results</div>
+                  {filteredTrips.map((trip) => (
+                    <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-4 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-bold text-base">{trip.name}</span>
+                        <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="pb-4">
+                  {categorizedTrips.favorites.length > 0 && (
+                    <div className="mb-6">
+                      <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-primary px-2 flex items-center gap-2 mb-2">
+                        <Heart className="w-3 h-3 fill-current" /> Saved Trips
+                      </div>
+                      {categorizedTrips.favorites.map((trip) => (
+                        <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-4 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
+                          <div className="flex flex-col gap-1">
+                            <span className="font-bold text-base">{trip.name}</span>
+                            <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mb-2">
+                    <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-accent px-2 flex items-center gap-2 mb-2">
+                      <Navigation2 className="w-3 h-3" /> Nearby Trips
+                    </div>
+                    {categorizedTrips.nearby.map((trip) => (
+                      <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-4 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
+                        <div className="flex flex-col gap-1">
+                          <span className="font-bold text-base">{trip.name}</span>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="h-5 text-[10px] bg-white/5">{formatDisplayDistance(trip.distance, units)} away</Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        )}
       </main>
     </div>
   )
