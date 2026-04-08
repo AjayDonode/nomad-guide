@@ -34,28 +34,43 @@ const features = [
     icon: Navigation,
     color: "from-green-500 to-emerald-600",
     mockup: (
-      <div className="w-full h-full bg-orange-950/80 rounded-2xl border-4 border-slate-800 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl">
-         {/* Tilted Map Environment */}
+      <div className="w-full h-full bg-[#f1e5d5] rounded-2xl border-4 border-slate-800 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl">
+         {/* Simulated Map Terrain (Desert Map tiles for Monument Valley) */}
          <div 
-           className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1549492423-4002690ce1b8?auto=format&fit=crop&w=500&q=80')] bg-cover bg-center origin-bottom opacity-80"
-           style={{ transform: "perspective(600px) rotateX(45deg) scale(1.6) translateY(5%)" }}
-         ></div>
-         
-         {/* Routing Overlay Line */}
-         <div className="absolute bottom-8 w-[10px] h-32 bg-blue-500/80 rounded-full shadow-[0_0_20px_rgba(59,130,246,0.9)] origin-bottom" style={{ transform: "perspective(600px) rotateX(45deg) scale(1.6)" }}></div>
+           className="absolute inset-x-[-50%] inset-y-[-50%] origin-bottom"
+           style={{ transform: "perspective(600px) rotateX(35deg) scale(1.1) translateY(10%)" }}
+         >
+            {/* Topography Textures */}
+            <div className="absolute top-1/4 left-1/3 w-64 h-32 bg-[#e6d0b6] rounded-[100%] blur-xl opacity-80"></div>
+            <div className="absolute top-1/2 right-1/4 w-48 h-48 bg-[#dcbca1] rounded-[100%] blur-2xl opacity-60"></div>
+            <div className="absolute bottom-1/4 left-1/4 w-72 h-40 bg-[#d8c3a5] rounded-[100%] blur-2xl opacity-40"></div>
 
-         {/* Navigation Banner */}
+            {/* The Road (White Map Vector) */}
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[90%] bg-white opacity-90 shadow-sm" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 100%, 0% 100%)' }}></div>
+            
+            {/* The Active GPS Route (Leaflet Blue Polyline) */}
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[60%] bg-[#3b82f6] shadow-[0_0_15px_rgba(59,130,246,0.3)]" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 100%, 0% 100%)' }}></div>
+         </div>
+
+         {/* Navigation Banner (Authentic UI) */}
          <div className="absolute top-4 left-3 right-3 bg-green-600/95 backdrop-blur-md rounded-xl p-3 shadow-2xl flex items-center gap-3 border border-white/20 z-20">
-            <div className="bg-black/25 p-2 rounded-lg shadow-inner"><Navigation className="w-4 h-4 text-white -rotate-45" /></div>
-            <div>
+            <div className="bg-black/25 p-2 rounded-lg shadow-inner flex shrink-0"><Navigation className="w-4 h-4 text-white -rotate-45" /></div>
+            <div className="min-w-0">
               <p className="text-white font-bold leading-none text-sm drop-shadow-md">1.2 mi</p>
-              <p className="text-white/90 font-semibold text-[10px] mt-0.5 drop-shadow-sm">John Ford's Point</p>
+              <p className="text-white/90 font-semibold text-[10px] mt-0.5 drop-shadow-sm truncate">John Ford's Point</p>
             </div>
          </div>
          
-         {/* Red Car Avatar */}
-         <div className="absolute bottom-12 w-10 h-10 bg-red-600 rounded flex items-center justify-center shadow-2xl border border-red-400/50 z-20" style={{ transform: 'rotateX(20deg)' }}>
-             <Car className="w-6 h-6 text-white drop-shadow-lg" />
+         {/* Map Pointer Avatar (Default Authentic Blue Arrow) */}
+         <div className="absolute bottom-[30%] z-20 flex items-center justify-center drop-shadow-2xl">
+             <div className="w-12 h-12 rounded-full border-[3px] border-white bg-[#3b82f6] shadow-lg flex items-center justify-center transform -rotate-45">
+               <Navigation className="w-5 h-5 text-white fill-white ml-1 mt-1" />
+             </div>
+         </div>
+         
+         {/* Subtle Map Compass */}
+         <div className="absolute bottom-4 right-4 bg-white/90 p-2 rounded-full shadow-md z-20 border border-slate-200">
+            <Compass className="w-4 h-4 text-slate-700" />
          </div>
       </div>
     )
