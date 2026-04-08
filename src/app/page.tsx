@@ -383,17 +383,6 @@ export default function DrivingDashboard() {
     return meters > 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
   }
 
-  if (!userLocation) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <Navigation className="w-12 h-12 text-primary animate-pulse mx-auto" />
-          <p className="font-headline font-bold text-muted-foreground uppercase tracking-widest text-xs">Locating Position...</p>
-        </div>
-      </div>
-    )
-  }
-
   // Real-time Turn-by-Turn Native Browser TTS
   const prevStepNameRef = useRef<string | null>(null);
   useEffect(() => {
@@ -411,6 +400,17 @@ export default function DrivingDashboard() {
       }
     }
   }, [nextStep, isDriving, autoNarrate]);
+
+  if (!userLocation) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <Navigation className="w-12 h-12 text-primary animate-pulse mx-auto" />
+          <p className="font-headline font-bold text-muted-foreground uppercase tracking-widest text-xs">Locating Position...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-white font-body selection:bg-primary/30">
