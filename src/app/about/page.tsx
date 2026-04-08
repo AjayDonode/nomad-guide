@@ -3,7 +3,7 @@
 import React from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Map, AudioLines, Sparkles, Navigation, MonitorSmartphone, ArrowRight, Compass } from 'lucide-react'
+import { Map, AudioLines, Sparkles, Navigation, MonitorSmartphone, ArrowRight, Compass, Download } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const features = [
