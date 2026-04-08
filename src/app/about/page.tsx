@@ -166,8 +166,8 @@ export default function PresentationPage() {
 
       {/* Future Roadmap Section */}
       <div className="px-4 pb-32 max-w-md mx-auto md:max-w-4xl">
-        <h3 className="text-2xl md:text-3xl font-headline font-bold mb-8 text-center tracking-tight">What's Coming in the Future</h3>
-        <div className="grid gap-6 md:grid-cols-3">
+        <h3 className="text-2xl md:text-3xl font-headline font-bold mb-8 text-center tracking-tight">Coming Soon</h3>
+        <div className="grid gap-6 md:grid-cols-2">
           <Card className="p-6 glass-morphism border-white/10 shadow-xl hover:-translate-y-1 transition-transform duration-300">
             <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
               <AudioLines className="w-5 h-5 text-blue-500" />
@@ -188,6 +188,13 @@ export default function PresentationPage() {
             </div>
             <h4 className="font-bold text-lg mb-2">Indoor Walkthroughs</h4>
             <p className="text-muted-foreground text-sm leading-relaxed">Seamless indoor walkthroughs for detailed exploration of museums and walking trails.</p>
+          </Card>
+          <Card className="p-6 glass-morphism border-white/10 shadow-xl hover:-translate-y-1 transition-transform duration-300">
+            <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center mb-4">
+              <Car className="w-5 h-5 text-orange-500" />
+            </div>
+            <h4 className="font-bold text-lg mb-2">Character Voices</h4>
+            <p className="text-muted-foreground text-sm leading-relaxed">Different character voices to keep you entertained during long drives.</p>
           </Card>
         </div>
       </div>
