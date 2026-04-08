@@ -3,7 +3,7 @@
 import React from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Map, AudioLines, Sparkles, Navigation, MonitorSmartphone, ArrowRight, Compass, Download } from 'lucide-react'
+import { Map, AudioLines, Sparkles, Navigation, MonitorSmartphone, ArrowRight, Compass, Download, Car } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const features = [
@@ -34,17 +34,29 @@ const features = [
     icon: Navigation,
     color: "from-green-500 to-emerald-600",
     mockup: (
-      <div className="w-full h-full bg-[#b5d0d0] rounded-2xl border-4 border-slate-800 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl">
-         <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-emerald-500/20 to-transparent"></div>
-         <div className="w-16 h-32 bg-slate-300 w-[120%] rotate-12 absolute scale-150"></div>
-         <div className="absolute top-4 left-4 right-4 bg-green-600 rounded-xl p-3 shadow-lg flex items-center gap-3">
-            <div className="bg-black/20 p-2 rounded-lg"><Navigation className="w-4 h-4 text-white -rotate-45" /></div>
+      <div className="w-full h-full bg-orange-950/80 rounded-2xl border-4 border-slate-800 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl">
+         {/* Tilted Map Environment */}
+         <div 
+           className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1549492423-4002690ce1b8?auto=format&fit=crop&w=500&q=80')] bg-cover bg-center origin-bottom opacity-80"
+           style={{ transform: "perspective(600px) rotateX(45deg) scale(1.6) translateY(5%)" }}
+         ></div>
+         
+         {/* Routing Overlay Line */}
+         <div className="absolute bottom-8 w-[10px] h-32 bg-blue-500/80 rounded-full shadow-[0_0_20px_rgba(59,130,246,0.9)] origin-bottom" style={{ transform: "perspective(600px) rotateX(45deg) scale(1.6)" }}></div>
+
+         {/* Navigation Banner */}
+         <div className="absolute top-4 left-3 right-3 bg-green-600/95 backdrop-blur-md rounded-xl p-3 shadow-2xl flex items-center gap-3 border border-white/20 z-20">
+            <div className="bg-black/25 p-2 rounded-lg shadow-inner"><Navigation className="w-4 h-4 text-white -rotate-45" /></div>
             <div>
-              <p className="text-white font-bold leading-none">2.4 mi</p>
-              <p className="text-white/80 text-[10px] mt-0.5">Glacier Point</p>
+              <p className="text-white font-bold leading-none text-sm drop-shadow-md">1.2 mi</p>
+              <p className="text-white/90 font-semibold text-[10px] mt-0.5 drop-shadow-sm">John Ford's Point</p>
             </div>
          </div>
-         <Navigation className="w-10 h-10 text-blue-600 fill-blue-600 mt-10 shadow-xl drop-shadow-xl z-10" />
+         
+         {/* Red Car Avatar */}
+         <div className="absolute bottom-12 w-10 h-10 bg-red-600 rounded flex items-center justify-center shadow-2xl border border-red-400/50 z-20" style={{ transform: 'rotateX(20deg)' }}>
+             <Car className="w-6 h-6 text-white drop-shadow-lg" />
+         </div>
       </div>
     )
   },
