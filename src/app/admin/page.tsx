@@ -386,7 +386,14 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
               title: "Google AI is Busy 🚦",
               description: `Gemini is currently experiencing high global demand (503 Service Unavailable). The optimization paused at ${poi.name}. Please try again later.`,
             });
-            // Break loop completely since subsequent parallel calls will also instantly 503 fail
+            setIsProcessingAI(false);
+            return;
+          } else if (errorText.toLowerCase().includes("quota") || errorText.includes("429")) {
+            toast({
+              variant: "destructive",
+              title: "Daily Audio Quota Exceeded ⛔",
+              description: `You have reached the hard daily quota limit for AI Voice Generation (100 requests/day). The optimization paused at ${poi.name}.`,
+            });
             setIsProcessingAI(false);
             return;
           } else {
@@ -395,7 +402,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
               title: `Failed at ${poi.name}`,
               description: "An unexpected error occurred. Please check your browser developer tools.",
             });
-            // We gently continue down the chain to try the next POIs unless it's a catastrophic 503
+            // We gently continue down the chain to try the next POIs unless it's a catastrophic error
           }
         }
       }
