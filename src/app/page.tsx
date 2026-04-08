@@ -127,6 +127,7 @@ export default function DrivingDashboard() {
   const { data: profile } = useDoc(userDocRef)
   const voicePreference = (profile?.voicePreference as 'male' | 'female') || 'female'
   const units = profile?.units || 'metric'
+  const pointerPreference = profile?.pointerPreference || 'arrow'
 
   const activePoiRef = useMemoFirebase(() => {
     if (!firestore || !activeTripId || !selectedPoiId) return null
@@ -423,6 +424,7 @@ export default function DrivingDashboard() {
           onNextStepUpdate={setNextStep}
           onPoiSelect={(poi) => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}
           isTripMode={!!activeTripId}
+          pointerType={pointerPreference}
         />
 
         {/* Route Details Overview Bottom Sheet */}

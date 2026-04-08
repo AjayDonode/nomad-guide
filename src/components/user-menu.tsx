@@ -12,7 +12,8 @@ import {
   Loader2,
   Ruler,
   Camera,
-  Map as MapIcon
+  Map as MapIcon,
+  Navigation
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -117,10 +118,20 @@ export function UserMenu() {
     }
   };
 
+  const handlePointerChange = (value: string) => {
+    if (userDocRef) {
+      updateDoc(userDocRef, {
+        pointerPreference: value,
+        updatedAt: serverTimestamp()
+      });
+    }
+  };
+
   const displayName = profile?.displayName || user.displayName || user.email?.split('@')[0] || 'User';
   const isAdmin = profile?.isAdmin || false;
   const voicePreference = profile?.voicePreference || 'female';
   const unitsPreference = profile?.units || 'metric';
+  const pointerPreference = profile?.pointerPreference || 'arrow';
   const photoURL = profile?.photoURL || user.photoURL;
 
   return (
@@ -180,8 +191,8 @@ export function UserMenu() {
       </DropdownMenu>
 
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="bg-card/95 border-white/10 text-white rounded-[2.5rem] backdrop-blur-2xl max-w-md max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="p-8 pb-4">
+        <DialogContent className="bg-card/95 border-0 sm:border sm:border-white/10 text-white !rounded-none sm:!rounded-[2.5rem] backdrop-blur-3xl !max-w-none sm:!max-w-md !h-[100dvh] sm:!h-auto sm:!max-h-[90vh] !w-[100dvw] sm:!w-[90vw] !left-0 sm:!left-1/2 !top-0 sm:!top-1/2 !translate-x-0 !translate-y-0 sm:!-translate-x-1/2 sm:!-translate-y-1/2 overflow-hidden flex flex-col p-0 z-[150] data-[state=open]:!slide-in-from-bottom-[100%] sm:data-[state=open]:!slide-in-from-top-[48%] data-[state=closed]:!slide-out-to-bottom-[100%] sm:data-[state=closed]:!slide-out-to-top-[48%] !duration-500 shadow-2xl">
+          <DialogHeader className="p-8 pt-12 sm:pt-8 pb-4 bg-background/50 border-b border-white/5">
             <DialogTitle className="font-headline font-bold text-2xl">Discovery Hub</DialogTitle>
           </DialogHeader>
           
@@ -274,11 +285,40 @@ export function UserMenu() {
                     >
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                         <RadioGroupItem value="metric" id="metric" />
-                        <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">Metric</Label>
+                        <Label htmlFor="metric" className="text-xs font-bold cursor-pointer">Metric (KM)</Label>
                       </div>
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                        <RadioGroupItem value="metric" id="imperial" />
-                        <Label htmlFor="imperial" className="text-xs font-bold cursor-pointer">US Standard</Label>
+                        <RadioGroupItem value="imperial" id="imperial" />
+                        <Label htmlFor="imperial" className="text-xs font-bold cursor-pointer">US Standard (Miles)</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-3">
+                      <Navigation className="w-4 h-4 text-primary" />
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Map Pointer Setup</p>
+                    </div>
+                    <RadioGroup 
+                      defaultValue={pointerPreference} 
+                      onValueChange={handlePointerChange}
+                      className="grid grid-cols-2 gap-3"
+                    >
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="arrow" id="arrow" />
+                        <Label htmlFor="arrow" className="text-xs font-bold cursor-pointer">Classic Arrow</Label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="car-green" id="car-green" />
+                        <Label htmlFor="car-green" className="text-xs font-bold cursor-pointer text-green-400">Green Sedan</Label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="car-red" id="car-red" />
+                        <Label htmlFor="car-red" className="text-xs font-bold cursor-pointer text-red-400">Red Sport</Label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="car-blue" id="car-blue" />
+                        <Label htmlFor="car-blue" className="text-xs font-bold cursor-pointer text-blue-400">Blue SUV</Label>
                       </div>
                     </RadioGroup>
                   </div>
