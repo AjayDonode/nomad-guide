@@ -41,6 +41,7 @@ import {
   serverTimestamp,
   orderBy
 } from 'firebase/firestore'
+import { ref, uploadString, getDownloadURL } from 'firebase/storage'
 import { 
   setDocumentNonBlocking, 
   addDocumentNonBlocking, 
@@ -67,7 +68,7 @@ const AdminMap = dynamic(
 
 export default function AdminDashboard() {
   const router = useRouter()
-  const { firestore } = useFirebase()
+  const { firestore, storage } = useFirebase()
   const { user, isUserLoading } = useUser()
   const [editingTripId, setEditingTripId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
@@ -224,7 +225,7 @@ export default function AdminDashboard() {
 }
 
 function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () => void }) {
-  const { firestore, user } = useFirebase()
+  const { firestore, user, storage } = useFirebase()
   const { toast } = useToast()
   const [tripData, setTripData] = useState({
     name: "New Discovery Trip",
@@ -349,10 +350,20 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           preGeneratedText: maleResult.generatedText
         })
 
+        // Upload Male Audio to Firebase Storage
+        const maleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_male.wav`);
+        await uploadString(maleAudioRef, maleResult.audioDataUri, 'data_url');
+        const maleAudioUrl = await getDownloadURL(maleAudioRef);
+
+        // Upload Female Audio to Firebase Storage
+        const femaleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_female.wav`);
+        await uploadString(femaleAudioRef, femaleResult.audioDataUri, 'data_url');
+        const femaleAudioUrl = await getDownloadURL(femaleAudioRef);
+
         updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
           narrationText: maleResult.generatedText,
-          audioMaleDataUri: maleResult.audioDataUri,
-          audioFemaleDataUri: femaleResult.audioDataUri,
+          audioMaleDataUri: maleAudioUrl,
+          audioFemaleDataUri: femaleAudioUrl,
           updatedAt: serverTimestamp()
         })
       }
