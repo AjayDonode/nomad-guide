@@ -6,6 +6,21 @@ import { Toaster } from '@/components/ui/toaster';
 export const metadata: Metadata = {
   title: 'NomadGuide AI - Immersive Narrative Tours',
   description: 'AI-powered narrative tours with interactive 3D landmarks and personalized POI discovery.',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'NomadGuide',
+  },
+};
+
+export const viewport = {
+  themeColor: '#000000',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
