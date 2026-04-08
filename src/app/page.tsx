@@ -85,7 +85,7 @@ export default function DrivingDashboard() {
   const [dropdownSearch, setDropdownSearch] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isDriving, setIsDriving] = useState(false)
-  const [isCompassActive, setIsCompassActive] = useState(false)
+  const [isCompassActive, setIsCompassActive] = useState(true)
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null)
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
@@ -436,21 +436,21 @@ export default function DrivingDashboard() {
         )}
 
         {/* Floating Action Buttons (Top Right) */}
-        {!isDriving && (
-          <div className="pointer-events-auto flex flex-col gap-3 ml-auto">
-              {user ? <UserMenu /> : (
+        <div className="pointer-events-auto flex flex-col gap-3 ml-auto">
+            {!isDriving && (
+              user ? <UserMenu /> : (
                 <Button onClick={() => router.push('/login')} variant="secondary" size="icon" className="h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10">
                   <LogIn className="w-5 h-5 text-primary" />
                 </Button>
-              )}
-              <Button variant="secondary" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", autoNarrate ? "text-accent bg-white/10" : "text-muted-foreground opacity-70")}>
-                {autoNarrate ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-              </Button>
-              <Button variant="secondary" size="icon" onClick={() => setIsCompassActive(!isCompassActive)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", isCompassActive && "bg-primary/20 text-primary")}>
-                <Compass className={cn("w-5 h-5 transition-transform duration-700", isCompassActive ? "rotate-45" : "rotate-0")} />
-              </Button>
-          </div>
-        )}
+              )
+            )}
+            <Button variant="secondary" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", autoNarrate ? "text-accent bg-white/10" : "text-muted-foreground opacity-70")}>
+              {autoNarrate ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+            </Button>
+            <Button variant="secondary" size="icon" onClick={() => setIsCompassActive(!isCompassActive)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", isCompassActive ? "bg-primary/20 text-primary" : "bg-white/5 text-muted-foreground")}>
+              <Compass className={cn("w-5 h-5 transition-transform duration-700", isCompassActive ? "text-primary" : "opacity-50")} />
+            </Button>
+        </div>
       </div>
 
       <main className="relative flex-1 h-full">
