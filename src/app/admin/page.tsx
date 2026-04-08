@@ -323,49 +323,62 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       for (let i = 0; i < pois.length; i++) {
         const poi = pois[i];
         
-        // Add a 4-second API rate limit buffer before generating Male Audio to respect GenAI 15 RPM Free Tier
-        if (i > 0) await new Promise(r => setTimeout(r, 4500));
-        
-        // Process Male Voice
-        const maleResult = await generateNarrativeTour({
-          poiName: poi.name,
-          poiDescription: poi.description,
-          userPreferences: "captivating tour guide",
-          locationContext: "arriving at landmark",
-          language: "en",
-          voicePreference: 'male'
-        })
+        try {
+          console.log(`[Optimize] Processing POI ${i+1}/${pois.length}: ${poi.name}...`);
+          
+          // Add a 4-second API rate limit buffer before generating Male Audio to respect GenAI 15 RPM Free Tier
+          if (i > 0) await new Promise(r => setTimeout(r, 4500));
+          
+          // Process Male Voice
+          const maleResult = await generateNarrativeTour({
+            poiName: poi.name,
+            poiDescription: poi.description,
+            userPreferences: "captivating tour guide",
+            locationContext: "arriving at landmark",
+            language: "en",
+            voicePreference: 'male'
+          })
 
-        // Add a 4-second API rate limit buffer before generating Female Audio
-        await new Promise(r => setTimeout(r, 4500));
+          // Add a 4-second API rate limit buffer before generating Female Audio
+          await new Promise(r => setTimeout(r, 4500));
 
-        // Process Female Voice reusing the identical text seamlessly
-        const femaleResult = await generateNarrativeTour({
-          poiName: poi.name,
-          poiDescription: poi.description,
-          userPreferences: "captivating tour guide",
-          locationContext: "arriving at landmark",
-          language: "en",
-          voicePreference: 'female',
-          preGeneratedText: maleResult.generatedText
-        })
+          // Process Female Voice reusing the identical text seamlessly
+          const femaleResult = await generateNarrativeTour({
+            poiName: poi.name,
+            poiDescription: poi.description,
+            userPreferences: "captivating tour guide",
+            locationContext: "arriving at landmark",
+            language: "en",
+            voicePreference: 'female',
+            preGeneratedText: maleResult.generatedText
+          })
 
-        // Upload Male Audio to Firebase Storage
-        const maleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_male.wav`);
-        await uploadString(maleAudioRef, maleResult.audioDataUri, 'data_url');
-        const maleAudioUrl = await getDownloadURL(maleAudioRef);
+          console.log(`[Optimize] AI Generation successful for ${poi.name}. Uploading audio to Storage...`);
 
-        // Upload Female Audio to Firebase Storage
-        const femaleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_female.wav`);
-        await uploadString(femaleAudioRef, femaleResult.audioDataUri, 'data_url');
-        const femaleAudioUrl = await getDownloadURL(femaleAudioRef);
+          // Upload Male Audio to Firebase Storage
+          const maleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_male.wav`);
+          await uploadString(maleAudioRef, maleResult.audioDataUri, 'data_url');
+          const maleAudioUrl = await getDownloadURL(maleAudioRef);
 
-        updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
-          narrationText: maleResult.generatedText,
-          audioMaleDataUri: maleAudioUrl,
-          audioFemaleDataUri: femaleAudioUrl,
-          updatedAt: serverTimestamp()
-        })
+          // Upload Female Audio to Firebase Storage
+          const femaleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_female.wav`);
+          await uploadString(femaleAudioRef, femaleResult.audioDataUri, 'data_url');
+          const femaleAudioUrl = await getDownloadURL(femaleAudioRef);
+
+          console.log(`[Optimize] Storage upload successful for ${poi.name}. Updating Firestore POI document...`);
+
+          updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
+            narrationText: maleResult.generatedText,
+            audioMaleDataUri: maleAudioUrl,
+            audioFemaleDataUri: femaleAudioUrl,
+            updatedAt: serverTimestamp()
+          })
+
+          console.log(`[Optimize] ✅ Successfully stored optimized narration for: ${poi.name}`);
+        } catch (poiError: any) {
+          console.error(`[Optimize] ❌ Failed to generate or store audio for POI: ${poi.name}`, poiError);
+          // Optional: we can choose to continue to the next POI instead of halting the entire process
+        }
       }
       
       toast({
