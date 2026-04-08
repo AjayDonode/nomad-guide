@@ -52,6 +52,15 @@ const features = [
             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[60%] bg-[#3b82f6] shadow-[0_0_15px_rgba(59,130,246,0.3)]" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 100%, 0% 100%)' }}></div>
          </div>
 
+         {/* Monument Valley Physical Horizon Fade overlay */}
+         <div 
+            className="absolute top-0 inset-x-0 h-[60%] bg-[url('https://images.unsplash.com/photo-1549492423-4002690ce1b8?auto=format&fit=crop&w=500&q=80')] bg-cover bg-[center_top_30%] z-10 pointer-events-none" 
+            style={{ 
+               WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 100%)', 
+               maskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 100%)' 
+            }}
+         ></div>
+
          {/* Navigation Banner (Authentic UI) */}
          <div className="absolute top-4 left-3 right-3 bg-green-600/95 backdrop-blur-md rounded-xl p-3 shadow-2xl flex items-center gap-3 border border-white/20 z-20">
             <div className="bg-black/25 p-2 rounded-lg shadow-inner flex shrink-0"><Navigation className="w-4 h-4 text-white -rotate-45" /></div>
