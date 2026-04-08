@@ -98,8 +98,11 @@ export default function DrivingDashboard() {
   const [isCaptionVisible, setIsCaptionVisible] = useState(false)
 
   const narratedPois = useRef<Set<string>>(new Set())
+  const ignoredSkipsRef = useRef<Set<string>>(new Set())
   const introPlayed = useRef<boolean>(false)
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
+  
+  const [suggestedSkipPoi, setSuggestedSkipPoi] = useState<any | null>(null)
 
   // Subscriptions
   const tripsQuery = useMemoFirebase(() => {
@@ -137,25 +140,26 @@ export default function DrivingDashboard() {
 
   const upcomingPois = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return [];
-    
-    // First, standard filter for narrated pois
-    let activePois = recommendedPois.filter(poi => !narratedPois.current.has(poi.name));
-    
-    // Auto-skip logic: If we have userLocation, and we have multiple remaining POIs
-    if (userLocation && activePois.length > 1) {
-       const distToCurrent = getDistance(userLocation[0], userLocation[1], activePois[0].latitude, activePois[0].longitude);
-       const distToNext = getDistance(userLocation[0], userLocation[1], activePois[1].latitude, activePois[1].longitude);
-       
-       // If the driver is significantly closer to the next POI than the current one,
-       // it means they physically drove past the current POI without triggering its proximity.
-       if (distToNext < (distToCurrent * 0.7)) { 
-           narratedPois.current.add(activePois[0].name); // Mark it as skipped/narrated
-           activePois = activePois.slice(1);
-       }
+    return recommendedPois.filter(poi => !narratedPois.current.has(poi.name));
+  }, [isDriving, recommendedPois, selectedPoiId, suggestedSkipPoi]);
+
+  useEffect(() => {
+    if (isDriving && userLocation && recommendedPois.length) {
+      let activePois = recommendedPois.filter(poi => !narratedPois.current.has(poi.name));
+      if (activePois.length > 1) {
+         const distToCurrent = getDistance(userLocation[0], userLocation[1], activePois[0].latitude, activePois[0].longitude);
+         const distToNext = getDistance(userLocation[0], userLocation[1], activePois[1].latitude, activePois[1].longitude);
+         
+         // If significantly closer to the next stop, display the prompt
+         if (distToNext < (distToCurrent * 0.8)) { 
+             const skippedPoi = activePois[0];
+             if (!ignoredSkipsRef.current.has(skippedPoi.name) && (!suggestedSkipPoi || suggestedSkipPoi.name !== skippedPoi.name)) {
+                 setSuggestedSkipPoi(skippedPoi);
+             }
+         }
+      }
     }
-    
-    return activePois;
-  }, [isDriving, recommendedPois, selectedPoiId, userLocation]);
+  }, [isDriving, userLocation, recommendedPois, suggestedSkipPoi]);
 
   const upcomingStopName = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return null;
@@ -522,6 +526,31 @@ export default function DrivingDashboard() {
             </div>
             <UpcomingPoiGallery upcomingPois={upcomingPois} />
           </>
+        )}
+
+        {/* Skipped Route Prompt */}
+        {isDriving && suggestedSkipPoi && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm z-[200] bg-background/95 backdrop-blur-xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-4 text-primary">
+               <Navigation className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Off Route?</h3>
+            <p className="text-sm text-muted-foreground mb-8">It looks like you're bypassing <strong>{suggestedSkipPoi.name}</strong>. Should we skip to the next point?</p>
+            <div className="flex gap-4 w-full">
+              <Button onClick={() => {
+                ignoredSkipsRef.current.add(suggestedSkipPoi.name);
+                setSuggestedSkipPoi(null);
+              }} variant="secondary" className="flex-1 rounded-full h-14 bg-white/10 hover:bg-white/20 font-bold text-base shadow-lg">
+                Continue
+              </Button>
+              <Button onClick={() => {
+                narratedPois.current.add(suggestedSkipPoi.name);
+                setSuggestedSkipPoi(null);
+              }} className="flex-1 rounded-full h-14 bg-primary hover:bg-primary/90 text-white font-bold text-base shadow-[0_0_15px_rgba(110,43,204,0.5)]">
+                Skip Point
+              </Button>
+            </div>
+          </div>
         )}
 
         {/* Headless Audio Trigger */}
