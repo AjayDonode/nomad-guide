@@ -449,8 +449,16 @@ export default function DrivingDashboard() {
               <div className="space-y-2">
                 {recommendedPois.map((poi, idx) => (
                   <div key={idx} className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors active:bg-white/10 group" onClick={() => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}>
-                    <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center shrink-0 relative overflow-hidden group-hover:scale-105 transition-transform">
-                      <span className="text-sm font-bold text-primary relative z-10">{idx + 1}</span>
+                    <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center shrink-0 relative overflow-hidden group-hover:scale-105 transition-transform">
+                      {poi.images && poi.images.length > 0 ? (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={poi.images[0]} alt={poi.name} className="absolute inset-0 w-full h-full object-cover opacity-80 mix-blend-overlay" />
+                          <span className="text-sm font-bold text-white relative z-10 drop-shadow-md">{idx + 1}</span>
+                        </>
+                      ) : (
+                        <span className="text-sm font-bold text-primary relative z-10">{idx + 1}</span>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-sm truncate">{poi.name}</p>

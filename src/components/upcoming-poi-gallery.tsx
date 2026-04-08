@@ -13,16 +13,17 @@ interface UpcomingPoiGalleryProps {
 export function UpcomingPoiGallery({ upcomingPois }: UpcomingPoiGalleryProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
-  // Collect all images from the upcoming POIs preserving associations
+  // Collect only the images for the IMMEDIATE next upcoming POI
   const allImages = useMemo(() => {
     const images: { url: string; poiName: string }[] = []
-    upcomingPois.forEach(poi => {
-      if (poi.images && Array.isArray(poi.images)) {
-        poi.images.forEach((url: string) => {
-          images.push({ url, poiName: poi.name })
+    if (upcomingPois.length > 0) {
+      const nextPoi = upcomingPois[0];
+      if (nextPoi.images && Array.isArray(nextPoi.images)) {
+        nextPoi.images.forEach((url: string) => {
+          images.push({ url, poiName: nextPoi.name })
         })
       }
-    })
+    }
     return images
   }, [upcomingPois])
 
@@ -30,9 +31,9 @@ export function UpcomingPoiGallery({ upcomingPois }: UpcomingPoiGalleryProps) {
 
   return (
     <>
-      <div className="absolute bottom-10 left-24 right-4 z-40 pointer-events-none">
-        <div className="w-full flex items-center justify-end pointer-events-auto">
-          <ScrollArea className="w-full max-w-[calc(100vw-7rem)] bg-black/20 backdrop-blur-md rounded-2xl p-2 shadow-2xl border border-white/10">
+      <div className="absolute bottom-[4.5rem] right-4 z-40 pointer-events-none max-w-[calc(100vw-6rem)]">
+        <div className="flex justify-end pointer-events-auto">
+          <ScrollArea className="bg-black/20 backdrop-blur-md rounded-2xl p-2 shadow-2xl border border-white/10 max-w-full">
             <div className="flex w-max space-x-3">
               {allImages.map((img, idx) => (
                 <div 
