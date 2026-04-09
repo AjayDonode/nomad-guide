@@ -10,16 +10,25 @@ export default function InstallPWA() {
   const router = useRouter()
 
   return (
-    <div className="min-h-screen bg-background text-foreground font-body pb-20">
-      <div className="max-w-md mx-auto pt-16 px-6">
+    <div className="min-h-screen text-foreground font-body pb-20 relative overflow-hidden">
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <img 
+          src="https://images.unsplash.com/photo-1527549993586-dff825b37782?auto=format&fit=crop&w=2000&q=80" 
+          alt="install background" 
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-black/40" />
+      </div>
+
+      <div className="relative z-10 max-w-md mx-auto pt-16 px-6">
         
         {/* Header */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 glass-morphism p-8 rounded-[2rem]">
           <div className="w-20 h-20 bg-primary/20 rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-xl shadow-primary/10">
             <Download className="w-10 h-10 text-primary" />
           </div>
-          <h1 className="text-3xl font-headline font-bold mb-4">Install Native App</h1>
-          <p className="text-muted-foreground text-lg leading-relaxed">
+          <h1 className="text-3xl font-headline font-bold mb-4 drop-shadow-lg">Install Native App</h1>
+          <p className="text-muted-foreground text-lg leading-relaxed font-medium">
             NomadGuide runs directly on your device. Follow these simple steps to install the zero-footprint app.
           </p>
         </div>
@@ -89,8 +98,8 @@ export default function InstallPWA() {
         </div>
 
         <div className="mt-16 flex gap-4">
-           <Button onClick={() => router.push('/')} variant="outline" className="flex-1 rounded-full h-14 border-white/20 glass-morphism shadow-xl"><ArrowRight className="w-4 h-4 mr-2 rotate-180" /> Back to App</Button>
-           <Button onClick={() => router.push('/about')} className="flex-1 rounded-full h-14 bg-primary text-white shadow-[0_0_20px_rgba(110,43,204,0.4)]"><Compass className="w-4 h-4 mr-2" /> View Demo</Button>
+           <Button onClick={() => router.push('/')} variant="outline" className="flex-1 rounded-full h-14 border-white/20 glass-morphism font-bold shadow-xl"><ArrowRight className="w-4 h-4 mr-2 rotate-180" /> Back to App</Button>
+           <Button onClick={() => router.push('/about')} className="flex-1 rounded-full h-14 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20"><Compass className="w-4 h-4 mr-2" /> View Demo</Button>
         </div>
 
       </div>

@@ -126,12 +126,20 @@ const features = [
 
 export default function PresentationPage() {
   const router = useRouter()
-
   return (
-    <div className="min-h-screen bg-background text-foreground font-body">
-      
-      {/* Hero Section */}
-      <div className="pt-20 pb-12 px-6 text-center">
+    <div className="min-h-screen text-foreground font-body relative overflow-hidden">
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <img 
+          src="https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=2000&auto=format&fit=crop" 
+          alt="about background" 
+          className="w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-black/40" />
+      </div>
+
+      <div className="relative z-10 w-full h-full pb-32">
+        {/* Hero Section */}
+        <div className="pt-20 pb-12 px-6 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-bold tracking-widest uppercase mb-4 border border-primary/20">
           <Sparkles className="w-3 h-3" /> Next-Gen Travel
         </div>
@@ -198,13 +206,14 @@ export default function PresentationPage() {
           </Card>
         </div>
       </div>
+      </div>
 
       {/* Sticky Bottom Call to Action */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-xl border-t border-white/10 flex gap-3 z-50">
-         <Button onClick={() => router.push('/install')} variant="outline" className="flex-[0.4] rounded-full h-14 border-white/20 shadow-lg font-bold">
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-card/40 backdrop-blur-2xl border-t border-white/20 flex gap-3 z-50 shadow-[0_-15px_50px_rgba(0,0,0,0.6)]">
+         <Button onClick={() => router.push('/install')} variant="outline" className="flex-[0.4] rounded-full h-14 border-white/20 glass-morphism shadow-lg font-bold">
             <Download className="w-4 h-4 mr-2" /> Install
          </Button>
-         <Button onClick={() => router.push('/')} className="flex-1 rounded-full h-14 bg-primary text-white shadow-[0_0_20px_rgba(110,43,204,0.4)] font-bold text-lg">
+         <Button onClick={() => router.push('/')} className="flex-1 rounded-full h-14 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 font-bold text-lg">
             Launch App <ArrowRight className="w-5 h-5 ml-2" />
          </Button>
       </div>
