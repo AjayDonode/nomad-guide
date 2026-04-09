@@ -476,7 +476,7 @@ export default function DrivingDashboard() {
 
         {/* Route Details Overview Bottom Sheet */}
         {!isDriving && activeTripId && recommendedPois.length > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card border-t border-white/10 rounded-t-3xl shadow-[0_-15px_50px_rgba(0,0,0,0.6)] flex flex-col max-h-[75vh] p-4 lg:max-w-2xl lg:mx-auto animate-in slide-in-from-bottom duration-500">
+          <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card/40 backdrop-blur-2xl border-t border-white/20 rounded-t-3xl shadow-[0_-15px_50px_rgba(0,0,0,0.6)] flex flex-col max-h-[75vh] p-4 lg:max-w-2xl lg:mx-auto animate-in slide-in-from-bottom duration-500">
             <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
             
             <div className="flex items-start justify-between mb-2">
@@ -520,7 +520,7 @@ export default function DrivingDashboard() {
               <Button onClick={() => setActiveTripId(null)} variant="secondary" className="flex-[0.4] bg-white/10 hover:bg-white/20 text-white font-headline font-bold rounded-full h-14 shadow-lg text-base" disabled={isStartingTour}>
                 Cancel
               </Button>
-              <Button onClick={startDriving} disabled={isStartingTour} className="flex-1 bg-green-500 hover:bg-green-600 text-white font-headline tracking-wide font-bold rounded-full h-14 shadow-[0_0_20px_rgba(34,197,94,0.3)] text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
+              <Button onClick={startDriving} disabled={isStartingTour} className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-headline tracking-wide font-bold rounded-full h-14 shadow-lg shadow-primary/20 text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
                 {isStartingTour ? (
                   <span className="flex items-center"><Navigation className="w-5 h-5 mr-2 animate-spin" /> DOWNLOADING...</span>
                 ) : (
@@ -542,7 +542,7 @@ export default function DrivingDashboard() {
 
         {/* Skipped Route Prompt */}
         {isDriving && suggestedSkipPoi && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm z-[200] bg-background/95 backdrop-blur-xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm z-[200] bg-card/40 backdrop-blur-2xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
             <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-4 text-primary">
                <Navigation className="w-8 h-8" />
             </div>
@@ -558,7 +558,7 @@ export default function DrivingDashboard() {
               <Button onClick={() => {
                 narratedPois.current.add(suggestedSkipPoi.name);
                 setSuggestedSkipPoi(null);
-              }} className="flex-1 rounded-full h-14 bg-primary hover:bg-primary/90 text-white font-bold text-base shadow-[0_0_15px_rgba(110,43,204,0.5)]">
+              }} className="flex-1 rounded-full h-14 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-base shadow-lg shadow-primary/20">
                 Skip Point
               </Button>
             </div>
@@ -584,18 +584,18 @@ export default function DrivingDashboard() {
 
         {/* Waze-style Bottom Sheet for trip selection */}
         {user && !isDriving && !activeTripId && (
-          <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card border-t border-white/10 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex flex-col max-h-[70vh] p-4 pb-8 animate-in slide-in-from-bottom duration-500">
+          <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card/40 backdrop-blur-2xl border-t border-white/20 rounded-t-3xl shadow-2xl flex flex-col max-h-[70vh] p-4 pb-8 animate-in slide-in-from-bottom duration-500">
             <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
             
             <div className="relative mb-6 px-2 lg:max-w-2xl lg:mx-auto lg:w-full">
-              <div className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground flex items-center justify-center">
+              <div className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 flex items-center justify-center">
                  <Search className="w-full h-full" />
               </div>
               <Input
                 placeholder="Where to?"
                 value={dropdownSearch}
                 onChange={(e) => setDropdownSearch(e.target.value)}
-                className="pl-12 h-14 bg-white/5 border-white/10 text-base font-bold rounded-2xl shadow-inner w-full"
+                className="pl-12 h-14 bg-black/40 border-black/50 text-white placeholder:text-white/50 text-base font-bold rounded-2xl shadow-inner w-full"
               />
             </div>
             
