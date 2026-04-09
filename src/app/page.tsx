@@ -80,7 +80,13 @@ export default function DrivingDashboard() {
   const { toast } = useToast()
   const router = useRouter()
   const { firestore } = useFirebase()
-  const { user } = useUser()
+  const { user, isUserLoading } = useUser()
+
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      router.push('/login')
+    }
+  }, [user, isUserLoading, router])
 
   const [dropdownSearch, setDropdownSearch] = useState("")
   const [isLoading, setIsLoading] = useState(false)

@@ -20,6 +20,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Navigation, Loader2, Sparkles, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
+const PARKS_IMAGES = [
+  "https://images.unsplash.com/photo-1615729947596-a598e5de0ab3?q=80&w=2000&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=2000&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1502784444187-359ac188053e?q=80&w=2000&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?q=80&w=2000&auto=format&fit=crop"
+];
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -33,6 +40,15 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  // Background Slider Effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % PARKS_IMAGES.length);
+    }, 6000); // Change image every 6 seconds
+    return () => clearInterval(timer);
+  }, []);
 
   const isAdminRoute = pathname.includes('/admin') || searchParams.get('role') === 'admin';
 
@@ -101,23 +117,40 @@ function LoginForm() {
 
   return (
     <div className="h-screen flex flex-col items-center justify-center bg-background p-6 relative overflow-hidden">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/20 blur-[120px] rounded-full -z-10" />
+      {/* Sliding Background Images */}
+      {PARKS_IMAGES.map((src, idx) => (
+        <div 
+          key={src}
+          className={`absolute inset-0 z-0 transition-opacity duration-1000 ease-in-out ${
+            idx === currentImageIndex ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          <div className="absolute inset-0 bg-black/40 z-10" /> {/* Dark overlay for readability */}
+          <img 
+            src={src} 
+            alt="National Park Background" 
+            className="object-cover w-full h-full"
+          />
+        </div>
+      ))}
       
-      <div className="mb-12 text-center flex flex-col items-center gap-4">
-        <div className="w-16 h-16 rounded-[2rem] bg-primary flex items-center justify-center shadow-2xl shadow-primary/40 mb-2">
-          {isAdminRoute ? <ShieldCheck className="w-8 h-8 text-white" /> : <Navigation className="w-8 h-8 text-white" />}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/20 blur-[120px] rounded-full z-0 pointer-events-none" />
+      
+      <div className="relative z-10 mb-12 text-center flex flex-col items-center gap-4">
+        <div className="w-16 h-16 rounded-[2rem] bg-primary flex items-center justify-center shadow-2xl shadow-primary/40 mb-2 border border-white/20">
+          {isAdminRoute ? <ShieldCheck className="w-8 h-8 text-primary-foreground" /> : <Navigation className="w-8 h-8 text-primary-foreground" />}
         </div>
         <div>
-          <h1 className="text-4xl font-headline font-bold tracking-tight">
-            {isAdminRoute ? 'Admin Portal' : 'NomadGuide AI'}
+          <h1 className="text-4xl font-headline font-bold tracking-tight text-white drop-shadow-md">
+            {isAdminRoute ? 'Admin Portal' : 'NomadGuide'}
           </h1>
-          <p className="text-muted-foreground font-body">
-            {isAdminRoute ? 'Sign in to access the Trip Designer' : 'Begin your narrative journey'}
+          <p className="text-white/80 font-body drop-shadow-sm font-medium px-4">
+            {isAdminRoute ? 'Sign in to access the Trip Designer' : "Don't just chase the destination—uncover the stories along the way."}
           </p>
         </div>
       </div>
 
-      <Card className="w-full max-w-md bg-card/40 backdrop-blur-2xl border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden">
+      <Card className="relative z-10 w-full max-w-md bg-white/95 dark:bg-card/40 backdrop-blur-2xl border-white/20 rounded-[2.5rem] shadow-2xl overflow-hidden">
         <CardHeader className="pt-8 px-8 pb-4">
           <CardTitle className="font-headline font-bold text-xl">
             {isSignUp ? 'Create Discovery Account' : 'Welcome Back'}
@@ -136,7 +169,7 @@ function LoginForm() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Explorer Name" 
-                  className="flex h-12 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-12 w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   required
                 />
               </div>
@@ -149,7 +182,7 @@ function LoginForm() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com" 
-                className="flex h-12 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-12 w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 required
               />
             </div>
@@ -161,7 +194,7 @@ function LoginForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••" 
-                className="flex h-12 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-12 w-full rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 required
               />
             </div>
@@ -186,7 +219,7 @@ function LoginForm() {
         </CardContent>
       </Card>
       
-      <p className="mt-8 text-[10px] text-muted-foreground uppercase tracking-[0.3em] font-bold">
+      <p className="relative z-10 mt-8 text-[10px] text-white/50 uppercase tracking-[0.3em] font-bold">
         Protected by NomadGuide Security Engine
       </p>
     </div>
