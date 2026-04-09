@@ -38,6 +38,9 @@ export default function RootLayout({
       <body className="font-body antialiased selection:bg-primary/30 selection:text-primary">
         <FirebaseClientProvider>
           {children}
+          <div className="fixed bottom-1 left-2 z-[9999] pointer-events-none text-[8px] sm:text-[10px] text-muted-foreground/40 font-mono tracking-widest uppercase">
+            copyright Dnex Org : Beta 1.0
+          </div>
           <Toaster />
         </FirebaseClientProvider>
       </body>
