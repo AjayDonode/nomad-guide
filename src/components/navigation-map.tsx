@@ -29,6 +29,8 @@ interface POI {
 interface NavigationMapProps {
   center?: [number, number]
   pois?: POI[]
+  allPois?: POI[]
+  narratedPoiNames?: Set<string>
   onPoiSelect?: (poi: POI) => void
   selectedPoi?: POI | null
   destination?: [number, number] | null
@@ -77,9 +79,9 @@ const DestIcon = L.divIcon({
   iconAnchor: [16, 16],
 })
 
-const POIIcon = (isSelected: boolean, idx?: number) => L.divIcon({
+const POIIcon = (isSelected: boolean, idx?: number, isVisited: boolean = false) => L.divIcon({
   className: 'poi-marker',
-  html: `<div class="w-8 h-8 ${isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125 font-bold text-white text-[10px]">${idx !== undefined ? idx + 1 : ''}</div>`,
+  html: `<div class="w-8 h-8 ${isVisited ? 'bg-gray-500/80 saturate-0 scale-90' : isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125 font-bold text-white text-[10px]">${idx !== undefined ? idx + 1 : ''}</div>`,
   iconSize: [32, 32],
   iconAnchor: [16, 16],
 })
@@ -178,6 +180,8 @@ function MapEventsTracker({ onZoomChange, onUserActivity }: { onZoomChange: (z: 
 export function NavigationMap({ 
   center = [37.7749, -122.4194], 
   pois = [], 
+  allPois,
+  narratedPoiNames,
   onPoiSelect, 
   selectedPoi, 
   destination, 
@@ -189,6 +193,7 @@ export function NavigationMap({
 }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
+  const [fullTripRoutePoints, setFullTripRoutePoints] = useState<[number, number][]>([])
   const [bearing, setBearing] = useState(0)
   const [currentZoom, setCurrentZoom] = useState(14)
   
@@ -196,6 +201,8 @@ export function NavigationMap({
   const cachedRoutePointsRef = useRef<[number, number][] | null>(null);
   const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now())
   const [forceRevertToDrive, setForceRevertToDrive] = useState(0)
+  const lastRouteSignatureRef = useRef<string>("")
+  const lastTripSignatureRef = useRef<string>("")
 
   const handleUserActivity = React.useCallback(() => {
     setLastActivityTime(Date.now())
@@ -255,7 +262,24 @@ export function NavigationMap({
   }, [center, routePoints]);
 
   useEffect(() => {
+    if (allPois && allPois.length > 0) {
+      const fullSignature = `all-${allPois.map(p => p.id).join('-')}`;
+      if (lastTripSignatureRef.current !== fullSignature) {
+         setFullTripRoutePoints([]);
+         lastTripSignatureRef.current = fullSignature;
+      }
+    }
+
     if (destination) {
+      const currentSignature = `${destination[0]},${destination[1]}-${pois.map(p => p.id).join('-')}`;
+      if (lastRouteSignatureRef.current !== currentSignature) {
+         cachedRoutePointsRef.current = null;
+         lastFetchedCenterRef.current = null;
+         // Visually clear out the old path immediately!
+         setRoutePoints([]); 
+         lastRouteSignatureRef.current = currentSignature;
+      }
+
       // Calculate coordinates immediately so we have a straight line fallback if route fails
       const fallbackPoints = [
         center,
@@ -265,7 +289,7 @@ export function NavigationMap({
 
       const fetchRoute = () => {
         const abortController = new AbortController();
-        const timerId = setTimeout(async () => {
+        const runFetch = async () => {
           try {
             // Distance check to heavily throttle Valhalla 429s (require 50m movement)
             if (lastFetchedCenterRef.current) {
@@ -311,11 +335,6 @@ export function NavigationMap({
               throw new Error(`Valhalla status ${response.status}`);
             }
             
-            if (!response.ok) {
-              setRoutePoints(fallbackPoints)
-              return
-            }
-
             const data = await response.json()
             if (data.trip && data.trip.legs) {
               const decodePolyline = (str: string, precision = 6) => {
@@ -336,6 +355,10 @@ export function NavigationMap({
               setRoutePoints(coords);
               cachedRoutePointsRef.current = coords;
               lastFetchedCenterRef.current = center;
+              
+              if (!isDriving) {
+                setFullTripRoutePoints(coords);
+              }
               
               if (data.trip.legs[0] && data.trip.legs[0].maneuvers) {
                 // Find next real maneuver (skip type 1/2/3 which are transit/straight)
@@ -367,12 +390,20 @@ export function NavigationMap({
                }
              }
           }
-        }, 3000); // Throttled update interval
-        
-        return () => {
-          clearTimeout(timerId);
-          abortController.abort();
         };
+
+        if (!cachedRoutePointsRef.current) {
+          // Fetch immediately the first time
+          runFetch();
+          return () => abortController.abort();
+        } else {
+          // Throttle updates while moving
+          const timerId = setTimeout(runFetch, 3000);
+          return () => {
+            clearTimeout(timerId);
+            abortController.abort();
+          };
+        }
       }
       
       const cleanup = fetchRoute()
@@ -422,6 +453,12 @@ export function NavigationMap({
 
           {destination && <Marker position={destination} icon={DestIcon} />}
 
+          {fullTripRoutePoints.length > 1 && (
+            <>
+              <Polyline positions={fullTripRoutePoints} color="#888888" weight={6} opacity={0.6} lineCap="round" lineJoin="round" />
+            </>
+          )}
+
           {routePoints.length > 1 && (
             <>
               <Polyline positions={routePoints} color="#0088FF" weight={6} opacity={0.9} lineCap="round" lineJoin="round" />
@@ -429,21 +466,24 @@ export function NavigationMap({
             </>
           )}
 
-          {pois.map((poi, idx) => (
-            <Marker 
-              key={`${poi.id}-${idx}`} 
-              position={[poi.latitude, poi.longitude]}
-              icon={POIIcon(selectedPoi?.id === poi.id, isTripMode ? idx : undefined)}
-              eventHandlers={{ click: () => onPoiSelect?.(poi) }}
-            >
-              <Popup>
-                <div className="text-black p-1">
-                  <strong className="block text-lg font-headline">{poi.name}</strong>
-                  <span className="text-xs text-primary font-bold uppercase tracking-wider">{poi.category}</span>
-                </div>
-              </Popup>
-            </Marker>
-          ))}
+          {(allPois || pois).map((poi, idx) => {
+            const isVisited = narratedPoiNames?.has(poi.name) || false;
+            return (
+              <Marker 
+                key={`${poi.id}-${idx}`} 
+                position={[poi.latitude, poi.longitude]}
+                icon={POIIcon(selectedPoi?.id === poi.id, isTripMode ? idx : undefined, isVisited)}
+                eventHandlers={{ click: () => onPoiSelect?.(poi) }}
+              >
+                <Popup>
+                  <div className="text-black p-1">
+                    <strong className="block text-lg font-headline">{poi.name}</strong>
+                    <span className="text-xs text-primary font-bold uppercase tracking-wider">{poi.category}</span>
+                  </div>
+                </Popup>
+              </Marker>
+            )
+          })}
         </MapContainer>
       </div>
     </div>

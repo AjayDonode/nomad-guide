@@ -57,6 +57,7 @@ import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import Image from 'next/image'
 import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
+import { composeFillerText } from '@/ai/flows/compose-filler'
 import { useToast } from '@/hooks/use-toast'
 import * as Tone from 'tone'
 
@@ -89,9 +90,9 @@ export default function AdminDashboard() {
 
   const tripsQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null
+    // Query ALL trips so admins can collaborate globally
     return query(
-      collection(firestore, 'trips'),
-      where('adminId', '==', user.uid)
+      collection(firestore, 'trips')
     )
   }, [firestore, user])
 
@@ -233,10 +234,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     startLatitude: 37.7749,
     startLongitude: -122.4194,
     endLatitude: 37.7833,
-    endLongitude: -122.4167
+    endLongitude: -122.4167,
+    fillerBaseText: "",
+    fillerMood: "Captivating",
+    fillerGeneratedText: ""
   })
   const [isSaving, setIsSaving] = useState(false)
   const [isProcessingAI, setIsProcessingAI] = useState(false)
+  const [isComposingFiller, setIsComposingFiller] = useState(false)
+  const [processingPoiId, setProcessingPoiId] = useState<string | null>(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
   const playerRef = useRef<Tone.Player | null>(null)
@@ -265,7 +271,10 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         startLatitude: existingTrip.startLatitude || 37.7749,
         startLongitude: existingTrip.startLongitude || -122.4194,
         endLatitude: existingTrip.endLatitude || 37.7833,
-        endLongitude: existingTrip.endLongitude || -122.4167
+        endLongitude: existingTrip.endLongitude || -122.4167,
+        fillerBaseText: existingTrip.fillerBaseText || "",
+        fillerMood: existingTrip.fillerMood || "Captivating",
+        fillerGeneratedText: existingTrip.fillerGeneratedText || ""
       })
     }
   }, [existingTrip])
@@ -419,6 +428,89 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       })
     } finally {
       setIsProcessingAI(false)
+    }
+  }
+
+  const handleComposeFiller = async () => {
+    if (!tripData.fillerBaseText) return;
+    setIsComposingFiller(true);
+    toast({ title: "Composing", description: "Gemini is rephrasing your filler dialog..." });
+
+    try {
+      const generated = await composeFillerText({
+        baseText: tripData.fillerBaseText,
+        mood: tripData.fillerMood,
+        tripName: tripData.name
+      });
+      setTripData(prev => ({ ...prev, fillerGeneratedText: generated }));
+      toast({ title: "Compose Success", description: "Filler dialog generated." });
+    } catch(err: any) {
+      toast({ variant: "destructive", title: "Composition Failed", description: err.message || String(err) });
+    } finally {
+      setIsComposingFiller(false);
+    }
+  }
+
+  const handleProcessSinglePoi = async (poi: any) => {
+    if (!firestore || !tripId) return
+    setProcessingPoiId(poi.id)
+    
+    toast({
+      title: `Optimizing ${poi.name}`,
+      description: `Generating offline narrative audio...`,
+    })
+
+    try {
+      // Process Male Voice
+      const maleResult = await generateNarrativeTour({
+        poiName: poi.name,
+        poiDescription: poi.description,
+        userPreferences: "captivating tour guide",
+        locationContext: "arriving at landmark",
+        language: "en",
+        voicePreference: 'male'
+      })
+
+      // Ensure API cooldown
+      await new Promise(r => setTimeout(r, 4500));
+
+      const femaleResult = await generateNarrativeTour({
+        poiName: poi.name,
+        poiDescription: poi.description,
+        userPreferences: "captivating tour guide",
+        locationContext: "arriving at landmark",
+        language: "en",
+        voicePreference: 'female',
+        preGeneratedText: maleResult.generatedText
+      })
+
+      const maleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_male.wav`);
+      await uploadString(maleAudioRef, maleResult.audioDataUri, 'data_url');
+      const maleAudioUrl = await getDownloadURL(maleAudioRef);
+
+      const femaleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_female.wav`);
+      await uploadString(femaleAudioRef, femaleResult.audioDataUri, 'data_url');
+      const femaleAudioUrl = await getDownloadURL(femaleAudioRef);
+
+      updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
+        narrationText: maleResult.generatedText,
+        audioMaleDataUri: maleAudioUrl,
+        audioFemaleDataUri: femaleAudioUrl,
+        updatedAt: serverTimestamp()
+      })
+
+      toast({
+        title: "Stop Optimized",
+        description: `Successfully published audio for ${poi.name}.`,
+      })
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: `Failed to Generate ${poi.name}`,
+        description: e.message || String(e),
+      })
+    } finally {
+      setProcessingPoiId(null)
     }
   }
 
@@ -683,6 +775,55 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 />
               </section>
 
+              <section className="space-y-4">
+                <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Continuous Conversation Organizer</Label>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Raw Facts or Base Dialog</Label>
+                    <Textarea 
+                      value={tripData.fillerBaseText}
+                      onChange={(e) => setTripData({...tripData, fillerBaseText: e.target.value})}
+                      placeholder="Enter raw history, funny stories, or generic dialogue to play between stops..."
+                      className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[80px] focus:border-primary/30"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 space-y-2">
+                      <Label className="text-xs text-muted-foreground">AI Mood / Style</Label>
+                      <select 
+                        value={tripData.fillerMood} 
+                        onChange={(e) => setTripData({...tripData, fillerMood: e.target.value})}
+                        className="w-full h-10 bg-black/20 rounded-xl px-3 text-xs border border-white/5 outline-none focus:border-primary/30 text-white"
+                      >
+                        <option value="Captivating">Captivating</option>
+                        <option value="Historical & Educational">Historical & Educational</option>
+                        <option value="Humorous & Playful">Humorous & Playful</option>
+                        <option value="Dramatic & Mysterious">Dramatic & Mysterious</option>
+                        <option value="Relaxing & Informative">Relaxing & Informative</option>
+                      </select>
+                    </div>
+                    <Button 
+                      onClick={handleComposeFiller} 
+                      disabled={isComposingFiller || !tripData.fillerBaseText} 
+                      className="h-10 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-lg border-none"
+                    >
+                      {isComposingFiller ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                      Rephrase
+                    </Button>
+                  </div>
+                  {tripData.fillerGeneratedText && (
+                    <div className="space-y-2 pt-4 border-t border-white/10 mt-4">
+                      <Label className="text-xs text-green-400">GenAI Processed Dialog</Label>
+                      <Textarea 
+                        value={tripData.fillerGeneratedText}
+                        onChange={(e) => setTripData({...tripData, fillerGeneratedText: e.target.value})}
+                        className="bg-green-500/10 border-green-500/20 rounded-xl text-xs min-h-[120px] focus:border-green-500/50"
+                      />
+                    </div>
+                  )}
+                </div>
+              </section>
+
               <section className="space-y-6">
                 <div className="flex items-center justify-between">
                   <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Sequential Stops</Label>
@@ -714,12 +855,23 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           />
                           <p className="text-[10px] text-muted-foreground">{poi.category}</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            disabled={processingPoiId === poi.id || isProcessingAI}
+                            className="h-8 w-8 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors"
+                            onClick={() => handleProcessSinglePoi(poi)}
+                            title="Generate & Publish Narrations for this stop"
+                          >
+                            {processingPoiId === poi.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                          </Button>
                           <Button 
                             variant={playingPoiId === poi.id ? "default" : "ghost"}
                             size="icon" 
                             className={cn("h-8 w-8 transition-colors", playingPoiId === poi.id ? "bg-green-500 hover:bg-green-600 text-white" : "text-primary hover:bg-primary/10")}
                             onClick={() => playingPoiId === poi.id ? stopPreview() : handlePreviewAudio(idx)}
+                            title="Preview current audio"
                           >
                             {playingPoiId === poi.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                           </Button>

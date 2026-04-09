@@ -96,6 +96,7 @@ export default function DrivingDashboard() {
   const [activeTripId, setActiveTripId] = useState<string | null>(null)
   const [activeTripName, setActiveTripName] = useState("")
   const [isCaptionVisible, setIsCaptionVisible] = useState(false)
+  const [isStartingTour, setIsStartingTour] = useState(false)
 
   const narratedPois = useRef<Set<string>>(new Set())
   const ignoredSkipsRef = useRef<Set<string>>(new Set())
@@ -284,6 +285,46 @@ export default function DrivingDashboard() {
       console.warn("Fullscreen request failed", e)
     }
 
+    setIsStartingTour(true)
+
+    // Prefetch all POI audio for OFFLINE access first
+    if (recommendedPois.length > 0) {
+      toast({ title: "Downloading Trip", description: "Caching audio for offline access..." })
+
+      let cachedCount = 0;
+      for (let i = 0; i < recommendedPois.length; i++) {
+        const poi = recommendedPois[i];
+
+        try {
+          const cachedUrl = await idbGet(`audio_${poi.id}_${voicePreference}`);
+          if (cachedUrl) {
+            cachedCount++;
+            continue; // Already downloaded in local browser
+          }
+
+          // Check if Admin already pre-generated it in Firestore
+          const adminAudio = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
+          if (adminAudio) {
+            await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudio);
+            cachedCount++;
+            continue; // Successfully pulled offline from Admin cache
+          }
+
+          // If Admin audio isn't present, we intentionally DO NOT generate it here.
+          // By skipping dynamic AI Generation during end-user usage, we strictly enforce 
+          // 0 AI Token usage. Instead, AudioTourController natively will fall back to
+          // window.speechSynthesis for free natively in the browser if no audio file exists.
+        } catch (err) {
+          console.error("Failed to prefetch audio for POI: ", poi.name, err);
+        }
+      }
+
+      if (cachedCount === recommendedPois.length && recommendedPois.length > 0) {
+        toast({ title: "Trip Downloaded", description: "You're fully ready for offline navigation!" });
+      }
+    }
+
+    setIsStartingTour(false)
     setIsDriving(true)
 
     if (!introPlayed.current) {
@@ -313,47 +354,6 @@ export default function DrivingDashboard() {
       } catch (e) {
         console.warn("Intro audio failed to play", e)
       }
-    }
-
-    // Prefetch all POI audio for OFFLINE access
-    if (recommendedPois.length > 0) {
-      toast({ title: "Downloading Trip", description: "Caching audio for offline access..." })
-
-      // We don't await this so we don't block driving
-      setTimeout(async () => {
-        let cachedCount = 0;
-        for (let i = 0; i < recommendedPois.length; i++) {
-          const poi = recommendedPois[i];
-          const nextName = recommendedPois[i + 1]?.name;
-
-          try {
-            const cachedUrl = await idbGet(`audio_${poi.id}_${voicePreference}`);
-            if (cachedUrl) {
-              cachedCount++;
-              continue; // Already downloaded in local browser
-            }
-
-            // Check if Admin already pre-generated it in Firestore
-            const adminAudio = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
-            if (adminAudio) {
-              await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudio);
-              cachedCount++;
-              continue; // Successfully pulled offline from Admin cache
-            }
-
-            // If Admin audio isn't present, we intentionally DO NOT generate it here.
-            // By skipping dynamic AI Generation during end-user usage, we strictly enforce 
-            // 0 AI Token usage. Instead, AudioTourController natively will fall back to
-            // window.speechSynthesis for free natively in the browser if no audio file exists.
-          } catch (err) {
-            console.error("Failed to prefetch audio for POI: ", poi.name, err);
-          }
-        }
-
-        if (cachedCount === recommendedPois.length) {
-          toast({ title: "Trip Downloaded", description: "You're fully ready for offline navigation!" });
-        }
-      }, 1000);
     }
   }
 
@@ -457,6 +457,8 @@ export default function DrivingDashboard() {
         <NavigationMap
           center={userLocation}
           pois={isDriving ? upcomingPois : recommendedPois}
+          allPois={recommendedPois}
+          narratedPoiNames={narratedPois.current}
           destination={destination}
           isDriving={isDriving}
           isCompassActive={isCompassActive}
@@ -509,11 +511,15 @@ export default function DrivingDashboard() {
             </ScrollArea>
             
             <div className="pt-2 pb-2 sticky bottom-0 bg-card flex gap-3">
-              <Button onClick={() => setActiveTripId(null)} variant="secondary" className="flex-[0.4] bg-white/10 hover:bg-white/20 text-white font-headline font-bold rounded-full h-14 shadow-lg text-base">
+              <Button onClick={() => setActiveTripId(null)} variant="secondary" className="flex-[0.4] bg-white/10 hover:bg-white/20 text-white font-headline font-bold rounded-full h-14 shadow-lg text-base" disabled={isStartingTour}>
                 Cancel
               </Button>
-              <Button onClick={startDriving} className="flex-1 bg-green-500 hover:bg-green-600 text-white font-headline tracking-wide font-bold rounded-full h-14 shadow-[0_0_20px_rgba(34,197,94,0.3)] text-lg transition-transform hover:scale-[1.02] active:scale-95">
-                <Play className="w-5 h-5 mr-2 fill-current" /> GO
+              <Button onClick={startDriving} disabled={isStartingTour} className="flex-1 bg-green-500 hover:bg-green-600 text-white font-headline tracking-wide font-bold rounded-full h-14 shadow-[0_0_20px_rgba(34,197,94,0.3)] text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
+                {isStartingTour ? (
+                  <span className="flex items-center"><Navigation className="w-5 h-5 mr-2 animate-spin" /> DOWNLOADING...</span>
+                ) : (
+                  <><Play className="w-5 h-5 mr-2 fill-current" /> GO</>
+                )}
               </Button>
             </div>
           </div>
