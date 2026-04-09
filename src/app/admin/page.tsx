@@ -805,7 +805,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                     <Button 
                       onClick={handleComposeFiller} 
                       disabled={isComposingFiller || !tripData.fillerBaseText} 
-                      className="h-10 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-lg border-none"
+                      className="h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl shadow-lg border-none"
                     >
                       {isComposingFiller ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
                       Rephrase
@@ -860,7 +860,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                             variant="ghost" 
                             size="icon" 
                             disabled={processingPoiId === poi.id || isProcessingAI}
-                            className="h-8 w-8 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors"
+                            className="h-8 w-8 text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors"
                             onClick={() => handleProcessSinglePoi(poi)}
                             title="Generate & Publish Narrations for this stop"
                           >
