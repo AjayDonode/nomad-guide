@@ -136,6 +136,16 @@ function MapUpdater({ center, destination, isDriving, pois, forceRevertToDrive }
     }
   }, [center, destination, isDriving, map, pois, hasStartedDriving, forceRevertToDrive, prevForceRevert])
   
+  useEffect(() => {
+    // Add ResizeObserver to properly handle dynamic map sizing without visually jumping or corrupting bounds.
+    const container = map.getContainer()
+    const ro = new ResizeObserver(() => {
+        map.invalidateSize()
+    })
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [map])
+
   return null
 }
 
@@ -377,18 +387,21 @@ export function NavigationMap({
 
   const is3DView = isDriving && currentZoom >= 16;
   const rotationStyle = is3DView ? {
-    transform: isCompassActive ? `perspective(1000px) rotateX(30deg) rotate(${-bearing}deg) scale(1.3)` : `perspective(1000px) rotateX(30deg) scale(1.3)`,
+    transform: isCompassActive ? `translate(-50%, -50%) perspective(1000px) rotateX(30deg) rotate(${-bearing}deg) scale(1.3)` : `translate(-50%, -50%) perspective(1000px) rotateX(30deg) scale(1.3)`,
     transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',
-    transformOrigin: 'center 60%'
+    transformOrigin: 'center center'
   } : {
-    transform: isCompassActive && isDriving ? `perspective(1000px) rotateX(0deg) rotate(${-bearing}deg) scale(1)` : `perspective(1000px) rotateX(0deg) scale(1)`,
+    transform: isCompassActive && isDriving ? `translate(-50%, -50%) perspective(1000px) rotateX(0deg) rotate(${-bearing}deg) scale(1)` : `translate(-50%, -50%) perspective(1000px) rotateX(0deg) scale(1)`,
     transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',
     transformOrigin: 'center center'
   }
 
   return (
     <div className="relative w-full h-full z-0 overflow-hidden bg-slate-50">
-      <div className="w-full h-full" style={rotationStyle}>
+      <div 
+        className={`absolute top-1/2 left-1/2 ${isDriving ? 'w-[150vmax] h-[150vmax]' : 'w-full h-full'}`} 
+        style={rotationStyle}
+      >
         <MapContainer 
           center={center} 
           zoom={14} 
@@ -398,6 +411,9 @@ export function NavigationMap({
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            keepBuffer={8}
+            updateWhenIdle={false}
+            updateWhenZooming={false}
           />
           <MapEventsTracker onZoomChange={setCurrentZoom} onUserActivity={handleUserActivity} />
           <MapUpdater center={center} destination={destination} isDriving={isDriving} pois={pois} forceRevertToDrive={forceRevertToDrive} />
