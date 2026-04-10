@@ -95,6 +95,7 @@ export default function DrivingDashboard() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null)
   const [recommendedPois, setRecommendedPois] = useState<any[]>([])
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
+  const [activePoi, setActivePoi] = useState<any | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
   const [destination, setDestination] = useState<[number, number] | null>(null)
   const [autoNarrate, setAutoNarrate] = useState(true)
@@ -139,11 +140,8 @@ export default function DrivingDashboard() {
   const units = profile?.units || 'metric'
   const pointerPreference = profile?.pointerPreference || 'arrow'
 
-  const activePoiRef = useMemoFirebase(() => {
-    if (!firestore || !activeTripId || !selectedPoiId) return null
-    return doc(firestore, 'trips', activeTripId, 'trip_pois', selectedPoiId)
-  }, [firestore, activeTripId, selectedPoiId])
-  const { data: activePoi } = useDoc(activePoiRef)
+  // activePoi is set directly from in-memory recommendedPois to avoid a Firestore
+  // round-trip race condition on GPS proximity trigger while driving.
 
   const upcomingPois = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return [];
@@ -246,7 +244,9 @@ export default function DrivingDashboard() {
           } else {
             setNextPoiInfo(null)
           }
+          // Fix: set full poi object from memory — no Firestore re-fetch needed
           setSelectedPoiId(poi.id)
+          setActivePoi(poi)
           setIsCaptionVisible(true)
 
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
@@ -302,31 +302,51 @@ export default function DrivingDashboard() {
         const poi = recommendedPois[i];
 
         try {
-          const cachedUrl = await idbGet(`audio_${poi.id}_${voicePreference}`);
-          if (cachedUrl) {
+          // Check if already cached as a data URI
+          const cachedDataUri = await idbGet(`audio_${poi.id}_${voicePreference}`);
+          if (cachedDataUri) {
             cachedCount++;
-            continue; // Already downloaded in local browser
+            continue;
           }
 
-          // Check if Admin already pre-generated it in Firestore
-          const adminAudio = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
-          if (adminAudio) {
-            await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudio);
-            cachedCount++;
-            continue; // Successfully pulled offline from Admin cache
+          // Admin pre-generated audio URL from Firebase Storage
+          const adminAudioUrl = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
+          if (adminAudioUrl) {
+            try {
+              // FIX: Download audio bytes NOW and cache as data URI so Tone.js plays from
+              // local memory — no CORS or network needed while actually driving.
+              const response = await fetch(adminAudioUrl);
+              if (response.ok) {
+                const blob = await response.blob();
+                const dataUri = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result as string);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+                });
+                await idbSet(`audio_${poi.id}_${voicePreference}`, dataUri);
+                cachedCount++;
+                continue;
+              }
+            } catch (fetchErr) {
+              console.warn(`Could not download audio for ${poi.name}, saving URL as fallback.`, fetchErr);
+              // Fallback: store raw URL — plays if CORS is configured on storage bucket
+              await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudioUrl);
+              cachedCount++;
+              continue;
+            }
           }
 
-          // If Admin audio isn't present, we intentionally DO NOT generate it here.
-          // By skipping dynamic AI Generation during end-user usage, we strictly enforce 
-          // 0 AI Token usage. Instead, AudioTourController natively will fall back to
-          // window.speechSynthesis for free natively in the browser if no audio file exists.
+          // No Admin audio — AudioTourController will use window.speechSynthesis (0 AI tokens).
         } catch (err) {
           console.error("Failed to prefetch audio for POI: ", poi.name, err);
         }
       }
 
       if (cachedCount === recommendedPois.length && recommendedPois.length > 0) {
-        toast({ title: "Trip Downloaded", description: "You're fully ready for offline navigation!" });
+        toast({ title: "Trip Downloaded ✓", description: "All stops ready for offline navigation!" });
+      } else if (cachedCount > 0) {
+        toast({ title: `${cachedCount}/${recommendedPois.length} stops cached`, description: "Some audio will stream while driving." });
       }
     }
 

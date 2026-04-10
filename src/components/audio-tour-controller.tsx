@@ -53,21 +53,26 @@ export function AudioTourController({
   }, [autoStart, poi, voicePreference])
 
   const handleInitialTrigger = async () => {
-    // Priority 1: Use pre-generated audio from Firestore if available
-    let savedAudio = voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri;
+    if (!poi) return;
 
-    // Priority 2: Use locally cached offline audio from IndexedDB
-    if (!savedAudio && poi) {
-      savedAudio = await idbGet(`audio_${poi.id}_${voicePreference}`);
+    // Priority 1: Use locally cached data URI (downloaded during trip start — works fully offline)
+    const cachedDataUri = await idbGet(`audio_${poi.id}_${voicePreference}`);
+    if (cachedDataUri) {
+      setAudioUrl(cachedDataUri);
+      playAudio(cachedDataUri);
+      return;
     }
 
-    if (savedAudio) {
-      setAudioUrl(savedAudio);
-      playAudio(savedAudio);
-    } else {
-      // Priority 3: Fallback to real-time generation only if not stored
-      handleGenerateAndPlay();
+    // Priority 2: Use Firebase Storage URL directly (requires CORS on bucket)
+    const remoteUrl = voicePreference === 'male' ? poi?.audioMaleDataUri : poi?.audioFemaleDataUri;
+    if (remoteUrl) {
+      setAudioUrl(remoteUrl);
+      playAudio(remoteUrl);
+      return;
     }
+
+    // Priority 3: Fall back to real-time AI generation (online) or speechSynthesis
+    handleGenerateAndPlay();
   }
 
   const playAudio = async (url: string) => {
@@ -87,6 +92,21 @@ export function AudioTourController({
       onload: () => {
         player.start()
         setIsPlaying(true)
+      },
+      onerror: (err) => {
+        // FIX Issue 4: Surface audio load errors instead of silent failure.
+        // Fallback to free browser TTS so the user still hears narration.
+        console.error("Tone.Player failed to load audio:", err)
+        setIsPlaying(false)
+        if (poi?.narrationText || poi?.description) {
+          try {
+            window.speechSynthesis.cancel()
+            const utterance = new SpeechSynthesisUtterance(poi.narrationText || poi.description)
+            window.speechSynthesis.speak(utterance)
+          } catch (synthErr) {
+            console.warn("speechSynthesis fallback also failed:", synthErr)
+          }
+        }
       },
       onstop: () => {
         setIsPlaying(false)
