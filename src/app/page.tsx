@@ -363,29 +363,8 @@ export default function DrivingDashboard() {
       }
     }
 
-    // Prefetch filler audio (between-stop narration)
-    const fillerAudioUrl = voicePreference === 'male' ? activeTrip?.fillerAudioMaleUrl : activeTrip?.fillerAudioFemaleUrl;
-    if (fillerAudioUrl) {
-      const fillerCacheKey = `filler_${activeTripId}_${voicePreference}`;
-      const cachedFiller = await idbGet(fillerCacheKey);
-      if (!cachedFiller) {
-        try {
-          const res = await fetch(fillerAudioUrl);
-          if (res.ok) {
-            const blob = await res.blob();
-            const dataUri = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-            await idbSet(fillerCacheKey, dataUri);
-          }
-        } catch(e) {
-          console.warn('Could not prefetch filler audio', e);
-        }
-      }
-    }
+      // Filler audio streams directly from Firebase Storage at playback time.
+      // No prefetch needed — streaming avoids IndexedDB size limits for long files.
 
     setIsStartingTour(false)
     setIsDriving(true)
@@ -441,40 +420,58 @@ export default function DrivingDashboard() {
     } catch (e) { }
   }
 
-  // Plays pre-generated filler audio between POI stops
+  // Plays filler narration between POI stops.
+  // Streams directly from Firebase Storage URL — no IndexedDB download needed.
+  // This keeps filler fully functional for arbitrarily long audio without hitting
+  // Safari's ~50MB IndexedDB per-origin limit.
   const playFillerAudio = async () => {
     if (!activeTripId || !autoNarrate) return;
-    const fillerCacheKey = `filler_${activeTripId}_${voicePreference}`;
-    const fillerDataUri = await idbGet(fillerCacheKey);
 
-    if (!fillerDataUri) {
-      // No pre-generated filler — fall back to speechSynthesis with filler text
-      const fillerText = activeTrip?.fillerGeneratedText || activeTrip?.fillerBaseText;
-      if (fillerText) {
-        try {
-          window.speechSynthesis.cancel();
-          const synth = new SpeechSynthesisUtterance(fillerText);
-          synth.rate = 0.95;
-          window.speechSynthesis.speak(synth);
-        } catch(e) { console.warn('Filler speechSynthesis fallback failed', e); }
+    // Get the Firebase Storage URL directly from the active trip document
+    const fillerUrl = voicePreference === 'male'
+      ? activeTrip?.fillerAudioMaleUrl
+      : activeTrip?.fillerAudioFemaleUrl;
+
+    if (fillerUrl) {
+      // Stream: Tone.js fetches via HTTP range requests — starts playing in ~1s
+      try {
+        if (Tone.getContext().state !== 'running') await Tone.start();
+        if (fillerPlayerRef.current) {
+          try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+          fillerPlayerRef.current = null;
+        }
+        const player = new Tone.Player({
+          url: fillerUrl,
+          onload: () => { player.start(); setIsFillerPlaying(true); },
+          onstop: () => { setIsFillerPlaying(false); },
+          onerror: (err) => {
+            // URL failed — fall through to speechSynthesis text fallback
+            console.warn('Filler stream failed, falling back to TTS:', err);
+            setIsFillerPlaying(false);
+            speakFillerFallback();
+          }
+        }).toDestination();
+        fillerPlayerRef.current = player;
+        return;
+      } catch(e) {
+        console.warn('Tone.Player filler stream error:', e);
       }
-      return;
     }
 
+    // Fallback: no audio URL published yet — read the text and speak it natively
+    speakFillerFallback();
+  }
+
+  // Free native TTS fallback for when Filler audio hasn't been published yet
+  const speakFillerFallback = () => {
+    const fillerText = activeTrip?.fillerGeneratedText || activeTrip?.fillerBaseText;
+    if (!fillerText) return;
     try {
-      if (Tone.getContext().state !== 'running') await Tone.start();
-      if (fillerPlayerRef.current) {
-        try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
-        fillerPlayerRef.current = null;
-      }
-      const player = new Tone.Player({
-        url: fillerDataUri,
-        onload: () => { player.start(); setIsFillerPlaying(true); },
-        onstop: () => { setIsFillerPlaying(false); },
-        onerror: (err) => { console.error('Filler player error:', err); setIsFillerPlaying(false); }
-      }).toDestination();
-      fillerPlayerRef.current = player;
-    } catch(e) { console.warn('Failed to play filler audio:', e); }
+      window.speechSynthesis.cancel();
+      const synth = new SpeechSynthesisUtterance(fillerText);
+      synth.rate = 0.95;
+      window.speechSynthesis.speak(synth);
+    } catch(e) { console.warn('Filler speechSynthesis fallback failed', e); }
   }
 
   const formatDisplayDistance = (km: number, unitType: string) => {
