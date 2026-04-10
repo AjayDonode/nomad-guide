@@ -109,8 +109,10 @@ export default function DrivingDashboard() {
   const ignoredSkipsRef = useRef<Set<string>>(new Set())
   const introPlayed = useRef<boolean>(false)
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
+  const fillerPlayerRef = useRef<any | null>(null)
   
   const [suggestedSkipPoi, setSuggestedSkipPoi] = useState<any | null>(null)
+  const [isFillerPlaying, setIsFillerPlaying] = useState(false)
 
   // Subscriptions
   const tripsQuery = useMemoFirebase(() => {
@@ -142,6 +144,9 @@ export default function DrivingDashboard() {
 
   // activePoi is set directly from in-memory recommendedPois to avoid a Firestore
   // round-trip race condition on GPS proximity trigger while driving.
+
+  // Derive the full active trip object (contains filler audio URLs)
+  const activeTrip = allTrips?.find(t => t.id === activeTripId) || null;
 
   const upcomingPois = useMemo(() => {
     if (!isDriving || !recommendedPois.length) return [];
@@ -249,6 +254,14 @@ export default function DrivingDashboard() {
           setActivePoi(poi)
           setIsCaptionVisible(true)
 
+          // Stop filler audio so POI narration takes over immediately
+          if (fillerPlayerRef.current) {
+            try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+            fillerPlayerRef.current = null;
+            setIsFillerPlaying(false);
+          }
+          window.speechSynthesis.cancel();
+
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
           captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
         }
@@ -350,6 +363,30 @@ export default function DrivingDashboard() {
       }
     }
 
+    // Prefetch filler audio (between-stop narration)
+    const fillerAudioUrl = voicePreference === 'male' ? activeTrip?.fillerAudioMaleUrl : activeTrip?.fillerAudioFemaleUrl;
+    if (fillerAudioUrl) {
+      const fillerCacheKey = `filler_${activeTripId}_${voicePreference}`;
+      const cachedFiller = await idbGet(fillerCacheKey);
+      if (!cachedFiller) {
+        try {
+          const res = await fetch(fillerAudioUrl);
+          if (res.ok) {
+            const blob = await res.blob();
+            const dataUri = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            await idbSet(fillerCacheKey, dataUri);
+          }
+        } catch(e) {
+          console.warn('Could not prefetch filler audio', e);
+        }
+      }
+    }
+
     setIsStartingTour(false)
     setIsDriving(true)
 
@@ -385,6 +422,13 @@ export default function DrivingDashboard() {
 
   const stopDriving = () => {
     setIsDriving(false)
+    // Stop filler audio
+    if (fillerPlayerRef.current) {
+      try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+      fillerPlayerRef.current = null;
+      setIsFillerPlaying(false);
+    }
+    window.speechSynthesis.cancel();
     try {
       const doc = document as any;
       if (doc.fullscreenElement || doc.webkitFullscreenElement) {
@@ -395,6 +439,42 @@ export default function DrivingDashboard() {
         }
       }
     } catch (e) { }
+  }
+
+  // Plays pre-generated filler audio between POI stops
+  const playFillerAudio = async () => {
+    if (!activeTripId || !autoNarrate) return;
+    const fillerCacheKey = `filler_${activeTripId}_${voicePreference}`;
+    const fillerDataUri = await idbGet(fillerCacheKey);
+
+    if (!fillerDataUri) {
+      // No pre-generated filler — fall back to speechSynthesis with filler text
+      const fillerText = activeTrip?.fillerGeneratedText || activeTrip?.fillerBaseText;
+      if (fillerText) {
+        try {
+          window.speechSynthesis.cancel();
+          const synth = new SpeechSynthesisUtterance(fillerText);
+          synth.rate = 0.95;
+          window.speechSynthesis.speak(synth);
+        } catch(e) { console.warn('Filler speechSynthesis fallback failed', e); }
+      }
+      return;
+    }
+
+    try {
+      if (Tone.getContext().state !== 'running') await Tone.start();
+      if (fillerPlayerRef.current) {
+        try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+        fillerPlayerRef.current = null;
+      }
+      const player = new Tone.Player({
+        url: fillerDataUri,
+        onload: () => { player.start(); setIsFillerPlaying(true); },
+        onstop: () => { setIsFillerPlaying(false); },
+        onerror: (err) => { console.error('Filler player error:', err); setIsFillerPlaying(false); }
+      }).toDestination();
+      fillerPlayerRef.current = player;
+    } catch(e) { console.warn('Failed to play filler audio:', e); }
   }
 
   const formatDisplayDistance = (km: number, unitType: string) => {
@@ -592,7 +672,11 @@ export default function DrivingDashboard() {
           nextPoiDistance={nextPoiInfo?.distance}
           autoStart={autoNarrate}
           hidden={true}
-          onFinish={() => setIsCaptionVisible(false)}
+          onFinish={() => {
+            setIsCaptionVisible(false);
+            // Start playing between-stop filler narration automatically
+            playFillerAudio();
+          }}
         />
 
         {/* Driving Captions Overlay */}

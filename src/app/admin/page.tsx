@@ -56,7 +56,7 @@ import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import Image from 'next/image'
-import { generateNarrativeTour } from '@/ai/flows/generate-narrative-tour'
+import { generateNarrativeTour, simpleNarrate } from '@/ai/flows/generate-narrative-tour'
 import { composeFillerText } from '@/ai/flows/compose-filler'
 import { useToast } from '@/hooks/use-toast'
 import * as Tone from 'tone'
@@ -242,6 +242,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [isSaving, setIsSaving] = useState(false)
   const [isProcessingAI, setIsProcessingAI] = useState(false)
   const [isComposingFiller, setIsComposingFiller] = useState(false)
+  const [isPublishingFiller, setIsPublishingFiller] = useState(false)
   const [processingPoiId, setProcessingPoiId] = useState<string | null>(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
@@ -448,6 +449,42 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       toast({ variant: "destructive", title: "Composition Failed", description: err.message || String(err) });
     } finally {
       setIsComposingFiller(false);
+    }
+  }
+
+  const handlePublishFillerAudio = async () => {
+    if (!tripId || !firestore || !tripData.fillerGeneratedText) return;
+    setIsPublishingFiller(true);
+    toast({ title: "Publishing Filler Audio", description: "Generating TTS for both voices..." });
+
+    try {
+      // Generate male filler audio
+      const maleDataUri = await simpleNarrate(tripData.fillerGeneratedText, 'male');
+      await new Promise(r => setTimeout(r, 4500)); // API cooldown
+      // Generate female filler audio
+      const femaleDataUri = await simpleNarrate(tripData.fillerGeneratedText, 'female');
+
+      // Upload both to Firebase Storage
+      const maleRef = ref(storage, `trips/${tripId}/audio/filler_male.wav`);
+      await uploadString(maleRef, maleDataUri, 'data_url');
+      const maleUrl = await getDownloadURL(maleRef);
+
+      const femaleRef = ref(storage, `trips/${tripId}/audio/filler_female.wav`);
+      await uploadString(femaleRef, femaleDataUri, 'data_url');
+      const femaleUrl = await getDownloadURL(femaleRef);
+
+      // Save URLs back to the trip document
+      updateDocumentNonBlocking(doc(firestore, 'trips', tripId), {
+        fillerAudioMaleUrl: maleUrl,
+        fillerAudioFemaleUrl: femaleUrl,
+        updatedAt: serverTimestamp()
+      });
+
+      toast({ title: "Filler Audio Published ✓", description: "Between-stop narration is now live for drivers." });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Filler Publish Failed", description: err.message || String(err) });
+    } finally {
+      setIsPublishingFiller(false);
     }
   }
 
@@ -819,6 +856,17 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                         onChange={(e) => setTripData({...tripData, fillerGeneratedText: e.target.value})}
                         className="bg-green-500/10 border-green-500/20 rounded-xl text-xs min-h-[120px] focus:border-green-500/50"
                       />
+                      <Button
+                        onClick={handlePublishFillerAudio}
+                        disabled={isPublishingFiller || !tripId}
+                        className="w-full h-10 bg-green-600 hover:bg-green-700 text-white rounded-xl shadow-lg border-none mt-2"
+                      >
+                        {isPublishingFiller ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing Audio...</>
+                        ) : (
+                          <><Volume2 className="w-4 h-4 mr-2" /> Publish Filler Audio (Both Voices)</>
+                        )}
+                      </Button>
                     </div>
                   )}
                 </div>
