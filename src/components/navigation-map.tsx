@@ -220,7 +220,10 @@ export function NavigationMap({
   }, [isDriving, lastActivityTime, currentZoom])
 
   useEffect(() => {
-    setMounted(true)
+    // Defer mount by one tick to guarantee the container <div> is in the real DOM
+    // before Leaflet calls appendChild. This prevents the HMR race condition.
+    const id = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(id);
   }, [])
 
   const prevCenterRef = useRef<[number, number] | null>(null);
@@ -428,12 +431,13 @@ export function NavigationMap({
   }
 
   return (
-    <div className="relative w-full h-full z-0 overflow-hidden bg-slate-50">
+    <div className="relative w-full h-full z-0 overflow-hidden bg-slate-50" id="nomad-map-root">
       <div 
         className={`absolute top-1/2 left-1/2 ${isDriving ? 'w-[150vmax] h-[150vmax]' : 'w-full h-full'}`} 
         style={rotationStyle}
       >
         <MapContainer 
+          key="nomad-leaflet-map"
           center={center} 
           zoom={14} 
           style={{ height: '100%', width: '100%' }}

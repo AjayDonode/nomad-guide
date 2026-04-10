@@ -40,6 +40,7 @@ import { AudioTourController } from '@/components/audio-tour-controller'
 import { UpcomingPoiGallery } from '@/components/upcoming-poi-gallery'
 import * as Tone from 'tone'
 import { set as idbSet, get as idbGet } from 'idb-keyval'
+import { ref as storageRef, listAll, getDownloadURL } from 'firebase/storage'
 
 // Dynamic imports
 const NavigationMap = dynamic(
@@ -66,20 +67,54 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 }
 
 const TurnIcon = ({ type, modifier }: { type: string, modifier?: string }) => {
-  const iconClass = "w-5 h-5 text-accent"
-  if (modifier === 'uturn' || type === 'u-turn') return <RotateCcw className={iconClass} />
+  const base = "text-emerald-400"
+  if (modifier === 'uturn' || type === 'u-turn')
+    return <RotateCcw className={cn(base, "w-9 h-9 stroke-[2.5]")} />
   if (type === 'turn' || type === 'ramp' || type === 'merge' || type === 'fork') {
-    if (modifier?.includes('left')) return <CornerUpLeft className={iconClass} />
-    if (modifier?.includes('right')) return <CornerUpRight className={iconClass} />
+    if (modifier?.includes('sharp left'))  return <CornerUpLeft  className={cn(base, "w-9 h-9 stroke-[2.5] -rotate-45")} />
+    if (modifier?.includes('sharp right')) return <CornerUpRight className={cn(base, "w-9 h-9 stroke-[2.5] rotate-45")} />
+    if (modifier?.includes('left'))  return <CornerUpLeft  className={cn(base, "w-9 h-9 stroke-[2.5]")} />
+    if (modifier?.includes('right')) return <CornerUpRight className={cn(base, "w-9 h-9 stroke-[2.5]")} />
   }
-  if (type === 'off ramp') return <SquareArrowOutUpRight className={iconClass} />
-  return <MoveUp className={iconClass} />
+  if (type === 'off ramp') return <SquareArrowOutUpRight className={cn(base, "w-9 h-9 stroke-[2]")} />
+  return <MoveUp className={cn(base, "w-9 h-9 stroke-[2.5]")} />
+}
+
+/** Converts raw OSRM step data into a natural spoken driving instruction */
+function buildInstruction(step: RouteStep, distanceM: number, unitType: string): string {
+  const { type, modifier } = step.maneuver;
+  const road = step.name ? `onto ${step.name}` : '';
+
+  // Distance phrasing
+  let dist = '';
+  if (distanceM > 1600) {
+    const miles = (distanceM / 1609.34).toFixed(1);
+    dist = `In ${miles} miles, `;
+  } else if (distanceM > 400) {
+    const miles = (distanceM / 1609.34).toFixed(1);
+    dist = `In ${miles} miles, `;
+  } else if (distanceM > 0) {
+    const feet = Math.round(distanceM * 3.28084 / 50) * 50;
+    dist = `In ${feet} feet, `;
+  }
+
+  if (modifier === 'uturn' || type === 'u-turn') return `${dist}make a U-turn`;
+  if (type === 'arrive') return `You have arrived at your destination`;
+  if (type === 'depart') return `Head ${modifier || 'straight'} ${road}`.trim();
+  if (type === 'roundabout' || type === 'rotary') return `${dist}enter the roundabout and exit ${road}`.trim();
+  if (modifier?.includes('slight left'))  return `${dist}bear left ${road}`.trim();
+  if (modifier?.includes('slight right')) return `${dist}bear right ${road}`.trim();
+  if (modifier?.includes('sharp left'))   return `${dist}turn sharp left ${road}`.trim();
+  if (modifier?.includes('sharp right'))  return `${dist}turn sharp right ${road}`.trim();
+  if (modifier?.includes('left'))   return `${dist}turn left ${road}`.trim();
+  if (modifier?.includes('right'))  return `${dist}turn right ${road}`.trim();
+  return `${dist}continue straight ${road}`.trim();
 }
 
 export default function DrivingDashboard() {
   const { toast } = useToast()
   const router = useRouter()
-  const { firestore } = useFirebase()
+  const { firestore, storage } = useFirebase()
   const { user, isUserLoading } = useUser()
 
   useEffect(() => {
@@ -110,6 +145,9 @@ export default function DrivingDashboard() {
   const introPlayed = useRef<boolean>(false)
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
   const fillerPlayerRef = useRef<any | null>(null)
+  const musicPlayerRef = useRef<any | null>(null)
+  const musicGainRef = useRef<any | null>(null)
+  const musicTracksRef = useRef<string[]>([])
   
   const [suggestedSkipPoi, setSuggestedSkipPoi] = useState<any | null>(null)
   const [isFillerPlaying, setIsFillerPlaying] = useState(false)
@@ -261,6 +299,7 @@ export default function DrivingDashboard() {
             setIsFillerPlaying(false);
           }
           window.speechSynthesis.cancel();
+          duckMusic(); // Duck ambient music during POI narration
 
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
           captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
@@ -396,6 +435,8 @@ export default function DrivingDashboard() {
       } catch (e) {
         console.warn("Intro audio failed to play", e)
       }
+      // Start ambient music right after intro — it plays beneath everything
+      startAmbientMusic();
     }
   }
 
@@ -408,6 +449,7 @@ export default function DrivingDashboard() {
       setIsFillerPlaying(false);
     }
     window.speechSynthesis.cancel();
+    stopAmbientMusic(); // Fade out music gracefully
     try {
       const doc = document as any;
       if (doc.fullscreenElement || doc.webkitFullscreenElement) {
@@ -419,6 +461,102 @@ export default function DrivingDashboard() {
       }
     } catch (e) { }
   }
+
+  // ─── Ambient Music System ──────────────────────────────────────────────────
+
+  /** Fetches track URLs from Firebase Storage /road-music/ folder (cached in ref) */
+  const fetchMusicTracks = async (): Promise<string[]> => {
+    if (musicTracksRef.current.length > 0) return musicTracksRef.current;
+    if (!storage) return [];
+    try {
+      const folderRef = storageRef(storage, 'road-music');
+      const result = await listAll(folderRef);
+      const urls = await Promise.all(result.items.map(item => getDownloadURL(item)));
+      musicTracksRef.current = urls;
+      return urls;
+    } catch (e) {
+      console.warn('Could not fetch ambient music tracks:', e);
+      return [];
+    }
+  }
+
+  /** Picks a random track URL, avoiding the one currently playing */
+  const pickRandomTrack = (tracks: string[], currentUrl?: string | null): string | null => {
+    if (!tracks.length) return null;
+    const pool = tracks.length > 1 ? tracks.filter(t => t !== currentUrl) : tracks;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  /** Starts ambient music: fade-in over 2s, auto-advances to next random track */
+  const startAmbientMusic = async () => {
+    if (!autoNarrate) return;
+    const tracks = await fetchMusicTracks();
+    if (!tracks.length) return;
+
+    try {
+      if (Tone.getContext().state !== 'running') await Tone.start();
+
+      // Create a shared Gain node for smooth volume control (duck/restore)
+      if (!musicGainRef.current) {
+        musicGainRef.current = new Tone.Gain(0).toDestination(); // start silent
+      }
+
+      const playTrack = (url: string) => {
+        if (musicPlayerRef.current) {
+          try { musicPlayerRef.current.stop(); musicPlayerRef.current.dispose(); } catch(e){}
+          musicPlayerRef.current = null;
+        }
+        const player = new Tone.Player({
+          url,
+          onload: () => {
+            player.start();
+            // Fade in from 0 → -22dB (very light) over 2 seconds
+            musicGainRef.current?.gain.rampTo(0.08, 2);
+          },
+          onstop: () => {
+            // Auto-advance to next random track
+            const nextUrl = pickRandomTrack(musicTracksRef.current, url);
+            if (nextUrl && musicGainRef.current) playTrack(nextUrl);
+          },
+          onerror: (err: any) => console.warn('Music player error:', err)
+        }).connect(musicGainRef.current!);
+        musicPlayerRef.current = player;
+      };
+
+      const firstUrl = pickRandomTrack(tracks);
+      if (firstUrl) playTrack(firstUrl);
+    } catch (e) {
+      console.warn('Failed to start ambient music:', e);
+    }
+  }
+
+  /** Ducks music volume during narration (fade to nearly inaudible over 1.5s) */
+  const duckMusic = () => {
+    musicGainRef.current?.gain.rampTo(0.01, 1.5);
+  }
+
+  /** Restores music after narration ends (fade back to ambient level over 2s) */
+  const restoreMusic = () => {
+    musicGainRef.current?.gain.rampTo(0.08, 2);
+  }
+
+  /** Stops ambient music gracefully with a 2s fade-out */
+  const stopAmbientMusic = () => {
+    if (!musicGainRef.current) return;
+    musicGainRef.current.gain.rampTo(0, 2);
+    setTimeout(() => {
+      if (musicPlayerRef.current) {
+        try { musicPlayerRef.current.stop(); musicPlayerRef.current.dispose(); } catch(e){}
+        musicPlayerRef.current = null;
+      }
+      if (musicGainRef.current) {
+        try { musicGainRef.current.dispose(); } catch(e){}
+        musicGainRef.current = null;
+      }
+    }, 2200);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Plays filler narration between POI stops.
   // Streams directly from Firebase Storage URL — no IndexedDB download needed.
@@ -494,19 +632,24 @@ export default function DrivingDashboard() {
   const prevStepNameRef = useRef<string | null>(null);
   useEffect(() => {
     if (isDriving && autoNarrate && nextStep) {
-      const instruction = `${nextStep.maneuver.modifier || 'continue'}, ${nextStep.name}`;
+      const spokenInstruction = buildInstruction(nextStep, nextStep.distance, units);
       
-      // We only speak when the step actually changes!
-      if (prevStepNameRef.current !== instruction) {
-          prevStepNameRef.current = instruction;
-          if ('speechSynthesis' in window) {
-             const utterance = new SpeechSynthesisUtterance(instruction);
-             utterance.rate = 1.05; // clear, slightly brisk pace
-             window.speechSynthesis.speak(utterance);
-          }
+      // Only speak when the instruction actually changes
+      if (prevStepNameRef.current !== spokenInstruction) {
+        prevStepNameRef.current = spokenInstruction;
+        if ('speechSynthesis' in window) {
+          // Duck ambient music briefly so directions are heard clearly
+          duckMusic();
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(spokenInstruction);
+          utterance.rate = 1.0;
+          utterance.pitch = 1.05;
+          utterance.onend = () => restoreMusic(); // Restore after spoken
+          window.speechSynthesis.speak(utterance);
+        }
       }
     }
-  }, [nextStep, isDriving, autoNarrate]);
+  }, [nextStep, isDriving, autoNarrate, units]);
 
   if (!userLocation) {
     return (
@@ -525,13 +668,22 @@ export default function DrivingDashboard() {
       <div className="fixed top-2 left-0 right-0 z-[110] p-4 pointer-events-none flex justify-between items-start">
         {/* Driving: Waze-style Top Navigation Banner */}
         {isDriving && nextStep ? (
-          <div className="pointer-events-auto bg-green-600/95 backdrop-blur-xl text-white p-4 rounded-3xl shadow-2xl flex items-center gap-4 max-w-md w-full mx-auto animate-in slide-in-from-top duration-500 border border-green-400/20">
-            <div className="w-14 h-14 bg-black/25 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
-               <TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} />
+          <div className="pointer-events-auto bg-slate-900/80 backdrop-blur-2xl text-white px-4 py-3 rounded-3xl shadow-2xl flex items-center gap-4 max-w-md w-full mx-auto animate-in slide-in-from-top duration-500 border border-white/10">
+            {/* Arrow box — emerald green, login-theme accent */}
+            <div className="w-16 h-16 bg-emerald-500/20 border border-emerald-400/30 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
+              <TurnIcon type={nextStep.maneuver.type} modifier={nextStep.maneuver.modifier} />
             </div>
+            {/* Text block */}
             <div className="min-w-0 flex-1">
-              <div className="text-3xl font-bold tracking-tighter leading-none mb-1 drop-shadow-md">{formatStepDistance(nextStep.distance, units)}</div>
-              <div className="text-sm font-semibold opacity-90 truncate max-w-full drop-shadow-sm">{upcomingStopName || 'Following Route'}</div>
+              <div className="text-2xl font-black tracking-tight leading-none mb-1 text-white drop-shadow">
+                {formatStepDistance(nextStep.distance, units)}
+              </div>
+              <div className="text-xs font-semibold text-emerald-300 uppercase tracking-widest truncate">
+                {buildInstruction(nextStep, nextStep.distance, units)}
+              </div>
+              <div className="text-[10px] text-white/50 truncate mt-0.5 font-medium uppercase tracking-wider">
+                Next: {upcomingStopName || 'Final Stop'}
+              </div>
             </div>
           </div>
         ) : (
@@ -671,8 +823,8 @@ export default function DrivingDashboard() {
           hidden={true}
           onFinish={() => {
             setIsCaptionVisible(false);
-            // Start playing between-stop filler narration automatically
-            playFillerAudio();
+            restoreMusic();     // Fade music back up after narration
+            playFillerAudio();  // Start between-stop filler narration
           }}
         />
 
