@@ -10,7 +10,8 @@ import {
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,7 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   // Background Slider Effect
@@ -104,6 +106,35 @@ function LoginForm() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!email) {
+      toast({
+        variant: "destructive",
+        title: "Email Required",
+        description: "Please enter your email address to reset your password.",
+      });
+      return;
+    }
+    
+    setIsResetting(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      toast({
+        title: "Reset Email Sent",
+        description: "Check your inbox for instructions to reset your password.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Reset Failed",
+        description: error.message,
+      });
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -187,7 +218,19 @@ function LoginForm() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs uppercase tracking-widest font-bold text-muted-foreground ml-1">Password</Label>
+              <div className="flex items-center justify-between pr-2">
+                <Label htmlFor="password" className="text-xs uppercase tracking-widest font-bold text-muted-foreground ml-1">Password</Label>
+                {!isSignUp && (
+                  <button 
+                    type="button"
+                    onClick={handleResetPassword}
+                    disabled={isResetting}
+                    className="text-xs font-bold text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
+                  >
+                    {isResetting ? 'Sending...' : 'Forgot password?'}
+                  </button>
+                )}
+              </div>
               <input 
                 id="password" 
                 type="password" 
