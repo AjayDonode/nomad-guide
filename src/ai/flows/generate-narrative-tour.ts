@@ -114,6 +114,28 @@ export async function simpleNarrate(text: string, voicePreference: 'male' | 'fem
   return 'data:audio/wav;base64,' + wavAudioBase64;
 }
 
+/**
+ * Generates narration TEXT only (no audio) for a POI.
+ * Used by the admin ✨ button so the admin can review/edit the script
+ * before triggering the Cloud Function to generate audio.
+ */
+export async function generateNarrationText(input: {
+  poiName: string;
+  poiDescription?: string;
+  tripDescription?: string;
+}): Promise<string> {
+  const { output } = await narrativePrompt({
+    poiName: input.poiName,
+    poiDescription: input.poiDescription,
+    userPreferences: "captivating, warm, and concise tour guide — like a knowledgeable local friend",
+    locationContext: input.tripDescription || "arriving at this landmark on a scenic driving tour",
+    language: "en-US",
+    voicePreference: "female",
+  });
+  if (!output?.narrationText) throw new Error("Failed to generate narration text.");
+  return output.narrationText;
+}
+
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
   model: 'googleai/gemini-2.5-flash-lite',

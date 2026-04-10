@@ -56,8 +56,27 @@ import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
 import Image from 'next/image'
-import { generateNarrativeTour, simpleNarrate } from '@/ai/flows/generate-narrative-tour'
 import { composeFillerText } from '@/ai/flows/compose-filler'
+import { generateNarrationText } from '@/ai/flows/generate-narrative-tour'
+
+// ── Cloud Function URL ────────────────────────────────────────────────────────
+// This is the deployed publishVoiceAudio function. It runs on Google's servers,
+// so there is no browser timeout, no memory limit, and no Genkit overhead.
+const PUBLISH_VOICE_AUDIO_URL = "https://us-central1-studio-3110244339-6cbfd.cloudfunctions.net/publishVoiceAudio"
+
+/** Calls the publishVoiceAudio Cloud Function to generate + upload audio server-side */
+async function callPublishVoice(tripId: string, assetId: string, text: string, voice: 'male' | 'female'): Promise<string> {
+  const res = await fetch(PUBLISH_VOICE_AUDIO_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tripId, assetId, text, voice })
+  })
+  const data = await res.json()
+  if (!res.ok || data.status !== 'ok') {
+    throw new Error(data.message || `Function returned HTTP ${res.status}`)
+  }
+  return data.url as string
+}
 import { useToast } from '@/hooks/use-toast'
 import * as Tone from 'tone'
 
@@ -240,10 +259,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     fillerGeneratedText: ""
   })
   const [isSaving, setIsSaving] = useState(false)
-  const [isProcessingAI, setIsProcessingAI] = useState(false)
+  const [isPublishingAll, setIsPublishingAll] = useState(false)
   const [isComposingFiller, setIsComposingFiller] = useState(false)
   const [isPublishingFiller, setIsPublishingFiller] = useState(false)
-  const [processingPoiId, setProcessingPoiId] = useState<string | null>(null)
+  // Per-POI state: draft narration texts (editable before publishing)
+  const [poiDraftTexts, setPoiDraftTexts] = useState<Record<string, string>>({})
+  // Which POI is having its text AI-generated right now
+  const [generatingTextPoiId, setGeneratingTextPoiId] = useState<string | null>(null)
+  // Which POI is having its audio published right now
+  const [publishingAudioPoiId, setPublishingAudioPoiId] = useState<string | null>(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
   const playerRef = useRef<Tone.Player | null>(null)
@@ -320,115 +344,105 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }, 800)
   }
 
-  const handleBulkProcessAI = async () => {
-    if (!firestore || !tripId || !pois || pois.length === 0) return
-    setIsProcessingAI(true)
-    
-    toast({
-      title: "Optimizing Trip",
-      description: `Pre-generating narrations for ${pois.length} stops...`,
-    })
+  // ── Step 1: ✨ Generate suggested narration TEXT for a single POI ──────────
+  // User can then edit before publishing audio
+  const handleGeneratePoiText = async (poi: any) => {
+    if (!firestore || !tripId) return
+    setGeneratingTextPoiId(poi.id)
+    toast({ title: `✨ Suggesting script for ${poi.name}`, description: "Gemini is writing your narration..." })
 
     try {
+      const text = await generateNarrationText({
+        poiName: poi.name,
+        poiDescription: poi.description,
+        tripDescription: tripData.description
+      })
+      // Store in local draft state — NOT saved to Firestore yet
+      setPoiDraftTexts(prev => ({ ...prev, [poi.id]: text }))
+      toast({ title: "Script ready ✓", description: "Review and edit below, then click Publish Voice." })
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Generation Failed", description: e.message || String(e) })
+    } finally {
+      setGeneratingTextPoiId(null)
+    }
+  }
+
+  // ── Step 2: 🔊 Publish audio using the current draft text ─────────────────
+  const handlePublishSinglePoiAudio = async (poi: any) => {
+    if (!firestore || !tripId) return
+    const narrationText = poiDraftTexts[poi.id] || poi.narrationText || poi.description || poi.name
+    if (!narrationText?.trim()) {
+      toast({ variant: "destructive", title: "No Script", description: "Generate or type a narration script first." })
+      return
+    }
+    setPublishingAudioPoiId(poi.id)
+    toast({ title: `🔊 Publishing audio for ${poi.name}`, description: "Cloud Function generating both voices..." })
+
+    try {
+      const maleUrl = await callPublishVoice(tripId, poi.id, narrationText, 'male')
+      await new Promise(r => setTimeout(r, 2000))
+      const femaleUrl = await callPublishVoice(tripId, poi.id, narrationText, 'female')
+
+      // Save the narration script + audio URLs to Firestore
+      updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
+        narrationText,
+        audioMaleDataUri: maleUrl,
+        audioFemaleDataUri: femaleUrl,
+        updatedAt: serverTimestamp()
+      })
+
+      // Clear local draft (saved to Firestore now)
+      setPoiDraftTexts(prev => { const n = { ...prev }; delete n[poi.id]; return n })
+      toast({ title: `${poi.name} — Published ✓`, description: "Audio is now live for both voices." })
+    } catch (e: any) {
+      toast({ variant: "destructive", title: `Failed: ${poi.name}`, description: e.message || String(e) })
+    } finally {
+      setPublishingAudioPoiId(null)
+    }
+  }
+
+  // ── Bulk publish: publishes audio for all POIs that have a script ──────────
+  const handleBulkPublishAudio = async () => {
+    if (!firestore || !tripId || !pois || pois.length === 0) return
+    setIsPublishingAll(true)
+    toast({ title: "Publishing All Audio", description: `Sending ${pois.length} stops to server...` })
+
+    let successCount = 0
+    try {
       for (let i = 0; i < pois.length; i++) {
-        const poi = pois[i];
-        
+        const poi = pois[i]
+        const narrationText = poiDraftTexts[poi.id] || poi.narrationText || poi.description || poi.name
+        if (!narrationText?.trim()) continue
+
         try {
-          console.log(`[Optimize] Processing POI ${i+1}/${pois.length}: ${poi.name}...`);
-          
-          // Add a 4-second API rate limit buffer before generating Male Audio to respect GenAI 15 RPM Free Tier
-          if (i > 0) await new Promise(r => setTimeout(r, 4500));
-          
-          // Process Male Voice
-          const maleResult = await generateNarrativeTour({
-            poiName: poi.name,
-            poiDescription: poi.description,
-            userPreferences: "captivating tour guide",
-            locationContext: "arriving at landmark",
-            language: "en",
-            voicePreference: 'male'
-          })
-
-          // Add a 4-second API rate limit buffer before generating Female Audio
-          await new Promise(r => setTimeout(r, 4500));
-
-          // Process Female Voice reusing the identical text seamlessly
-          const femaleResult = await generateNarrativeTour({
-            poiName: poi.name,
-            poiDescription: poi.description,
-            userPreferences: "captivating tour guide",
-            locationContext: "arriving at landmark",
-            language: "en",
-            voicePreference: 'female',
-            preGeneratedText: maleResult.generatedText
-          })
-
-          console.log(`[Optimize] AI Generation successful for ${poi.name}. Uploading audio to Storage...`);
-
-          // Upload Male Audio to Firebase Storage
-          const maleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_male.wav`);
-          await uploadString(maleAudioRef, maleResult.audioDataUri, 'data_url');
-          const maleAudioUrl = await getDownloadURL(maleAudioRef);
-
-          // Upload Female Audio to Firebase Storage
-          const femaleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_female.wav`);
-          await uploadString(femaleAudioRef, femaleResult.audioDataUri, 'data_url');
-          const femaleAudioUrl = await getDownloadURL(femaleAudioRef);
-
-          console.log(`[Optimize] Storage upload successful for ${poi.name}. Updating Firestore POI document...`);
+          if (i > 0) await new Promise(r => setTimeout(r, 2500))
+          const maleUrl  = await callPublishVoice(tripId, poi.id, narrationText, 'male')
+          await new Promise(r => setTimeout(r, 1500))
+          const femaleUrl = await callPublishVoice(tripId, poi.id, narrationText, 'female')
 
           updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
-            narrationText: maleResult.generatedText,
-            audioMaleDataUri: maleAudioUrl,
-            audioFemaleDataUri: femaleAudioUrl,
+            narrationText,
+            audioMaleDataUri: maleUrl,
+            audioFemaleDataUri: femaleUrl,
             updatedAt: serverTimestamp()
           })
-
-          console.log(`[Optimize] ✅ Successfully stored optimized narration for: ${poi.name}`);
-        } catch (poiError: any) {
-          console.error(`[Optimize] ❌ Failed to generate or store audio for POI: ${poi.name}`, poiError);
-          
-          const errorText = poiError?.message || String(poiError);
-          
-          if (errorText.includes("503") || errorText.toLowerCase().includes("high demand") || errorText.toLowerCase().includes("service unavailable")) {
-            toast({
-              variant: "destructive",
-              title: "Google AI is Busy 🚦",
-              description: `Gemini is currently experiencing high global demand (503 Service Unavailable). The optimization paused at ${poi.name}. Please try again later.`,
-            });
-            setIsProcessingAI(false);
-            return;
-          } else if (errorText.toLowerCase().includes("quota") || errorText.includes("429")) {
-            toast({
-              variant: "destructive",
-              title: "Daily Audio Quota Exceeded ⛔",
-              description: `You have reached the hard daily quota limit for AI Voice Generation (100 requests/day). The optimization paused at ${poi.name}.`,
-            });
-            setIsProcessingAI(false);
-            return;
-          } else {
-            toast({
-              variant: "destructive",
-              title: `Failed at ${poi.name}`,
-              description: "An unexpected error occurred. Please check your browser developer tools.",
-            });
-            // We gently continue down the chain to try the next POIs unless it's a catastrophic error
+          successCount++
+        } catch (poiErr: any) {
+          const msg = poiErr?.message || String(poiErr)
+          if (msg.includes("503") || msg.includes("quota") || msg.includes("429")) {
+            toast({ variant: "destructive", title: "Paused", description: `Stopped at ${poi.name}: ${msg}` })
+            setIsPublishingAll(false)
+            return
           }
+          toast({ variant: "destructive", title: `Skipped: ${poi.name}`, description: msg })
         }
       }
-      
-      toast({
-        title: "Optimization Complete",
-        description: "All narrations have been saved for offline use.",
-      })
+      setPoiDraftTexts({})
+      toast({ title: "All Audio Published ✓", description: `${successCount} stops live.` })
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Optimization Failed",
-        description: error.message,
-      })
+      toast({ variant: "destructive", title: "Publish Failed", description: error.message })
     } finally {
-      setIsProcessingAI(false)
+      setIsPublishingAll(false)
     }
   }
 
@@ -453,32 +467,29 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   }
 
   const handlePublishFillerAudio = async () => {
-    if (!tripId || !firestore || !tripData.fillerGeneratedText) return;
+    if (!tripId || !tripData.fillerGeneratedText) return;
     setIsPublishingFiller(true);
-    toast({ title: "Publishing Filler Audio", description: "Generating TTS for both voices..." });
+    toast({ title: "Publishing Filler Audio", description: "Generating TTS on server — this takes ~30s..." });
 
     try {
-      // Generate male filler audio
-      const maleDataUri = await simpleNarrate(tripData.fillerGeneratedText, 'male');
-      await new Promise(r => setTimeout(r, 4500)); // API cooldown
-      // Generate female filler audio
-      const femaleDataUri = await simpleNarrate(tripData.fillerGeneratedText, 'female');
+      // Call the Cloud Function for male voice
+      const maleUrl = await callPublishVoice(tripId, 'filler', tripData.fillerGeneratedText, 'male')
 
-      // Upload both to Firebase Storage
-      const maleRef = ref(storage, `trips/${tripId}/audio/filler_male.wav`);
-      await uploadString(maleRef, maleDataUri, 'data_url');
-      const maleUrl = await getDownloadURL(maleRef);
+      // Small delay between API calls to avoid rate limiting
+      await new Promise(r => setTimeout(r, 2000));
 
-      const femaleRef = ref(storage, `trips/${tripId}/audio/filler_female.wav`);
-      await uploadString(femaleRef, femaleDataUri, 'data_url');
-      const femaleUrl = await getDownloadURL(femaleRef);
+      // Call the Cloud Function for female voice
+      const femaleUrl = await callPublishVoice(tripId, 'filler', tripData.fillerGeneratedText, 'female')
 
-      // Save URLs back to the trip document
-      updateDocumentNonBlocking(doc(firestore, 'trips', tripId), {
-        fillerAudioMaleUrl: maleUrl,
-        fillerAudioFemaleUrl: femaleUrl,
-        updatedAt: serverTimestamp()
-      });
+      // Save both URLs directly to Firestore
+      // (The function already wrote them, but we also update here for UI freshness)
+      if (firestore) {
+        updateDocumentNonBlocking(doc(firestore, 'trips', tripId), {
+          fillerAudioMaleUrl: maleUrl,
+          fillerAudioFemaleUrl: femaleUrl,
+          updatedAt: serverTimestamp()
+        });
+      }
 
       toast({ title: "Filler Audio Published ✓", description: "Between-stop narration is now live for drivers." });
     } catch (err: any) {
@@ -488,68 +499,6 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }
 
-  const handleProcessSinglePoi = async (poi: any) => {
-    if (!firestore || !tripId) return
-    setProcessingPoiId(poi.id)
-    
-    toast({
-      title: `Optimizing ${poi.name}`,
-      description: `Generating offline narrative audio...`,
-    })
-
-    try {
-      // Process Male Voice
-      const maleResult = await generateNarrativeTour({
-        poiName: poi.name,
-        poiDescription: poi.description,
-        userPreferences: "captivating tour guide",
-        locationContext: "arriving at landmark",
-        language: "en",
-        voicePreference: 'male'
-      })
-
-      // Ensure API cooldown
-      await new Promise(r => setTimeout(r, 4500));
-
-      const femaleResult = await generateNarrativeTour({
-        poiName: poi.name,
-        poiDescription: poi.description,
-        userPreferences: "captivating tour guide",
-        locationContext: "arriving at landmark",
-        language: "en",
-        voicePreference: 'female',
-        preGeneratedText: maleResult.generatedText
-      })
-
-      const maleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_male.wav`);
-      await uploadString(maleAudioRef, maleResult.audioDataUri, 'data_url');
-      const maleAudioUrl = await getDownloadURL(maleAudioRef);
-
-      const femaleAudioRef = ref(storage, `trips/${tripId}/audio/${poi.id}_female.wav`);
-      await uploadString(femaleAudioRef, femaleResult.audioDataUri, 'data_url');
-      const femaleAudioUrl = await getDownloadURL(femaleAudioRef);
-
-      updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
-        narrationText: maleResult.generatedText,
-        audioMaleDataUri: maleAudioUrl,
-        audioFemaleDataUri: femaleAudioUrl,
-        updatedAt: serverTimestamp()
-      })
-
-      toast({
-        title: "Stop Optimized",
-        description: `Successfully published audio for ${poi.name}.`,
-      })
-    } catch (e: any) {
-      toast({
-        variant: "destructive",
-        title: `Failed to Generate ${poi.name}`,
-        description: e.message || String(e),
-      })
-    } finally {
-      setProcessingPoiId(null)
-    }
-  }
 
   const handlePreviewAudio = async (startIndex: number = 0) => {
     if (!pois || pois.length === 0 || startIndex >= pois.length) {
@@ -756,13 +705,13 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           {tripId && (
             <>
               <Button 
-                onClick={handleBulkProcessAI}
-                disabled={isProcessingAI || pois?.length === 0}
+                onClick={handleBulkPublishAudio}
+                disabled={isPublishingAll || pois?.length === 0}
                 variant="outline"
-                className="rounded-xl border-primary/30 text-primary hover:bg-primary/5 h-11 px-6 font-bold"
+                className="rounded-xl border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 h-11 px-6 font-bold"
               >
-                {isProcessingAI ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                Optimize Narrations
+                {isPublishingAll ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Volume2 className="w-4 h-4 mr-2" />}
+                Publish All Audio
               </Button>
               <Button 
                 onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(0)}
@@ -904,25 +853,17 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           <p className="text-[10px] text-muted-foreground">{poi.category}</p>
                         </div>
                         <div className="flex items-center gap-1">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            disabled={processingPoiId === poi.id || isProcessingAI}
-                            className="h-8 w-8 text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors"
-                            onClick={() => handleProcessSinglePoi(poi)}
-                            title="Generate & Publish Narrations for this stop"
-                          >
-                            {processingPoiId === poi.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                          </Button>
+                          {/* Preview button */}
                           <Button 
                             variant={playingPoiId === poi.id ? "default" : "ghost"}
                             size="icon" 
-                            className={cn("h-8 w-8 transition-colors", playingPoiId === poi.id ? "bg-green-500 hover:bg-green-600 text-white" : "text-primary hover:bg-primary/10")}
+                            className={cn("h-8 w-8 transition-colors", playingPoiId === poi.id ? "bg-emerald-500 hover:bg-emerald-600 text-white" : "text-primary hover:bg-primary/10")}
                             onClick={() => playingPoiId === poi.id ? stopPreview() : handlePreviewAudio(idx)}
-                            title="Preview current audio"
+                            title="Preview audio"
                           >
                             {playingPoiId === poi.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                           </Button>
+                          {/* Delete button */}
                           <Button 
                             variant="ghost" 
                             size="icon" 
@@ -933,55 +874,108 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           </Button>
                         </div>
                       </CardHeader>
-                      <CardContent className="px-4 pb-4 space-y-4">
-                         <Textarea 
-                            defaultValue={poi.description || ""}
-                            onBlur={(e) => {
-                              updateDocumentNonBlocking(doc(firestore!, 'trips', tripId!, 'trip_pois', poi.id), {
-                                description: e.target.value
-                              })
-                            }}
-                            placeholder="Add point specific narrative details..."
-                            className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[80px] focus:border-primary/30"
-                         />
-                         
-                         <div className="space-y-2">
-                           <div className="flex items-center justify-between">
-                             <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Gallery ({poi.images?.length || 0}/5)</Label>
-                             {(poi.images?.length || 0) < 5 && (
-                               <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] uppercase tracking-tighter" asChild>
-                                 <label className="cursor-pointer">
-                                   <ImagePlus className="w-3 h-3 mr-1" /> Add Image
-                                   <input 
-                                     type="file" 
-                                     className="hidden" 
-                                     accept="image/*" 
-                                     multiple 
-                                     onChange={(e) => handleImageUpload(poi.id, poi.images || [], e)} 
-                                   />
-                                 </label>
-                               </Button>
-                             )}
-                           </div>
-                           <div className="grid grid-cols-5 gap-2">
-                              {poi.images?.map((img: string, i: number) => (
-                                <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group/img">
-                                  <Image src={img} alt={`POI image ${i}`} fill className="object-cover" unoptimized />
-                                  <button 
-                                    onClick={() => removeImage(poi.id, poi.images, i)}
-                                    className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
-                                  >
-                                    <X className="w-4 h-4 text-white" />
-                                  </button>
-                                </div>
-                              ))}
-                              {Array.from({ length: 5 - (poi.images?.length || 0) }).map((_, i) => (
-                                <div key={`empty-${i}`} className="aspect-square rounded-lg bg-white/5 border border-dashed border-white/10 flex items-center justify-center">
-                                  <ImagePlus className="w-4 h-4 text-white/10" />
-                                </div>
-                              ))}
-                           </div>
-                         </div>
+                      <CardContent className="px-4 pb-4 space-y-3">
+                        {/* POI description (raw details) */}
+                        <Textarea 
+                          defaultValue={poi.description || ""}
+                          onBlur={(e) => {
+                            updateDocumentNonBlocking(doc(firestore!, 'trips', tripId!, 'trip_pois', poi.id), {
+                              description: e.target.value
+                            })
+                          }}
+                          placeholder="Add location details, facts, or notes for the AI to use..."
+                          className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[60px] focus:border-primary/30"
+                        />
+
+                        {/* ── Narration Script Section ── */}
+                        <div className="rounded-2xl border border-white/10 bg-black/20 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                              Voice Script
+                              {(poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
+                                <span className="ml-2 text-emerald-400">● Live</span>
+                              )}
+                            </Label>
+                            {/* ✨ Step 1: Generate suggested text */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={generatingTextPoiId === poi.id}
+                              onClick={() => handleGeneratePoiText(poi)}
+                              className="h-7 px-3 text-[10px] font-bold text-primary hover:bg-primary/10 rounded-lg uppercase tracking-wider"
+                            >
+                              {generatingTextPoiId === poi.id
+                                ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                : <Sparkles className="w-3 h-3 mr-1" />}
+                              Suggest Script
+                            </Button>
+                          </div>
+
+                          {/* Editable narration text — shows draft or saved */}
+                          <Textarea
+                            value={poiDraftTexts[poi.id] ?? (poi.narrationText || "")}
+                            onChange={(e) => setPoiDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
+                            placeholder="Click ✨ Suggest Script above, or type your narration here..."
+                            className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[80px] focus:border-emerald-500/40 text-slate-200 placeholder:text-white/20"
+                          />
+
+                          {/* 🔊 Step 2: Publish audio from the script */}
+                          <Button
+                            onClick={() => handlePublishSinglePoiAudio(poi)}
+                            disabled={publishingAudioPoiId === poi.id || !(poiDraftTexts[poi.id] || poi.narrationText)}
+                            className={cn(
+                              "w-full h-9 rounded-xl text-xs font-bold border-none transition-all",
+                              (poiDraftTexts[poi.id] || poi.narrationText)
+                                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-900/30"
+                                : "bg-white/5 text-muted-foreground cursor-not-allowed"
+                            )}
+                          >
+                            {publishingAudioPoiId === poi.id ? (
+                              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing Audio...</>
+                            ) : (
+                              <><Volume2 className="w-3.5 h-3.5 mr-2" />Publish Voice (Both Voices)</>
+                            )}
+                          </Button>
+                        </div>
+
+                        {/* Gallery */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Gallery ({poi.images?.length || 0}/5)</Label>
+                            {(poi.images?.length || 0) < 5 && (
+                              <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] uppercase tracking-tighter" asChild>
+                                <label className="cursor-pointer">
+                                  <ImagePlus className="w-3 h-3 mr-1" /> Add Image
+                                  <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept="image/*" 
+                                    multiple 
+                                    onChange={(e) => handleImageUpload(poi.id, poi.images || [], e)} 
+                                  />
+                                </label>
+                              </Button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-5 gap-2">
+                            {poi.images?.map((img: string, i: number) => (
+                              <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group/img">
+                                <Image src={img} alt={`POI image ${i}`} fill className="object-cover" unoptimized />
+                                <button 
+                                  onClick={() => removeImage(poi.id, poi.images, i)}
+                                  className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+                                >
+                                  <X className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            ))}
+                            {Array.from({ length: 5 - (poi.images?.length || 0) }).map((_, i) => (
+                              <div key={`empty-${i}`} className="aspect-square rounded-lg bg-white/5 border border-dashed border-white/10 flex items-center justify-center">
+                                <ImagePlus className="w-4 h-4 text-white/10" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   ))}

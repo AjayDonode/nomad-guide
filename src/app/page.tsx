@@ -148,6 +148,7 @@ export default function DrivingDashboard() {
   const musicPlayerRef = useRef<any | null>(null)
   const musicGainRef = useRef<any | null>(null)
   const musicTracksRef = useRef<string[]>([])
+  const wakeLockRef = useRef<any | null>(null)
   
   const [suggestedSkipPoi, setSuggestedSkipPoi] = useState<any | null>(null)
   const [isFillerPlaying, setIsFillerPlaying] = useState(false)
@@ -650,6 +651,52 @@ export default function DrivingDashboard() {
       }
     }
   }, [nextStep, isDriving, autoNarrate, units]);
+
+  // ── Screen Wake Lock ───────────────────────────────────────────────────────
+  // Prevents the phone screen from sleeping during active navigation.
+  // The lock is automatically released by the browser when the page is hidden
+  // (e.g. user switches apps), so we re-acquire it when the page becomes
+  // visible again — as long as we're still driving.
+  useEffect(() => {
+    const acquireWakeLock = async () => {
+      if (!('wakeLock' in navigator)) return; // API not supported (iOS < 16.4)
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        console.log('[NomadGuide] Screen wake lock acquired — screen will stay on.');
+      } catch (err: any) {
+        console.warn('[NomadGuide] Wake lock request failed:', err.message);
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        try { await wakeLockRef.current.release(); } catch(e){}
+        wakeLockRef.current = null;
+        console.log('[NomadGuide] Screen wake lock released.');
+      }
+    };
+
+    // Re-acquire when page becomes visible again (browser auto-releases on hide)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isDriving) {
+        acquireWakeLock();
+      }
+    };
+
+    if (isDriving) {
+      acquireWakeLock();
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    } else {
+      releaseWakeLock();
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      releaseWakeLock();
+    };
+  }, [isDriving]);
+  // ──────────────────────────────────────────────────────────────────────────
+
 
   if (!userLocation) {
     return (
