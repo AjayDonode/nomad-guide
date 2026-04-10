@@ -20,7 +20,10 @@ import {
   Heart,
   Navigation2,
   Search,
-  Map as MapIcon
+  Map as MapIcon,
+  MessageCircle,
+  Menu,
+  LogOut
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +41,7 @@ import { collection, query, orderBy, doc } from 'firebase/firestore'
 import { DrivingCaptions } from '@/components/driving-captions'
 import { AudioTourController } from '@/components/audio-tour-controller'
 import { UpcomingPoiGallery } from '@/components/upcoming-poi-gallery'
+import { TripChat } from '@/components/trip-chat'
 import * as Tone from 'tone'
 import { set as idbSet, get as idbGet } from 'idb-keyval'
 import { ref as storageRef, listAll, getDownloadURL } from 'firebase/storage'
@@ -152,6 +156,8 @@ export default function DrivingDashboard() {
   
   const [suggestedSkipPoi, setSuggestedSkipPoi] = useState<any | null>(null)
   const [isFillerPlaying, setIsFillerPlaying] = useState(false)
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [isFabOpen, setIsFabOpen] = useState(false)
 
   // Subscriptions
   const tripsQuery = useMemoFirebase(() => {
@@ -431,10 +437,17 @@ export default function DrivingDashboard() {
            if (maleVoice) utterance.voice = maleVoice;
         }
         
+        utterance.onend = () => {
+          // Play filler narration immediately after the short intro finishes to cover the distance to the first point.
+          playFillerAudio();
+        };
+        
         window.speechSynthesis.cancel(); // Cancel any existing speech
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn("Intro audio failed to play", e)
+        // Fallback: If intro fails, at least try to start filler
+        playFillerAudio();
       }
       // Start ambient music right after intro — it plays beneath everything
       startAmbientMusic();
@@ -829,9 +842,53 @@ export default function DrivingDashboard() {
 
         {isDriving && (
           <>
-            <div className="absolute bottom-[4.5rem] right-4 z-[90]">
-              <Button onClick={stopDriving} variant="destructive" className="h-12 px-6 rounded-full shadow-xl bg-red-600 hover:bg-red-700 tracking-wider font-bold text-sm">END</Button>
+            {/* ── Speed Dial FAB — bottom right ── */}
+            <div className="absolute bottom-6 right-4 z-[500] flex flex-col-reverse items-end gap-3">
+
+              {/* Sub-actions — slide in when FAB is open */}
+              <div
+                className={cn(
+                  "flex flex-col-reverse items-end gap-3 transition-all duration-300 overflow-hidden",
+                  isFabOpen ? "max-h-40 opacity-100 translate-y-0" : "max-h-0 opacity-0 translate-y-4 pointer-events-none"
+                )}
+              >
+                {/* Exit Trip */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-300 bg-slate-800/80 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 shadow">End Trip</span>
+                  <button
+                    onClick={() => { stopDriving(); setIsFabOpen(false); }}
+                    className="w-12 h-12 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-95 flex items-center justify-center shadow-xl shadow-red-900/50 transition-all"
+                  >
+                    <LogOut className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+
+                {/* Open Chat */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-300 bg-slate-800/80 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 shadow">Traveler Chat</span>
+                  <button
+                    onClick={() => { setIsChatOpen(true); setIsFabOpen(false); }}
+                    className="w-12 h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 flex items-center justify-center shadow-xl shadow-emerald-900/50 transition-all relative"
+                  >
+                    <MessageCircle className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Main FAB button */}
+              <button
+                onClick={() => setIsFabOpen(prev => !prev)}
+                className={cn(
+                  "w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl transition-all duration-300 active:scale-95",
+                  isFabOpen
+                    ? "bg-slate-700 hover:bg-slate-600 rotate-45"
+                    : "bg-slate-800 hover:bg-slate-700 border border-white/10"
+                )}
+              >
+                <Menu className={cn("w-6 h-6 text-white transition-transform duration-300", isFabOpen && "rotate-45")} />
+              </button>
             </div>
+
             <UpcomingPoiGallery upcomingPois={upcomingPois} />
           </>
         )}
@@ -859,6 +916,17 @@ export default function DrivingDashboard() {
               </Button>
             </div>
           </div>
+        )}
+
+        {/* Chat panel — renders as overlay, map stays live underneath */}
+        <TripChat isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+
+        {/* Tap-outside to close FAB */}
+        {isFabOpen && (
+          <div
+            className="absolute inset-0 z-[490]"
+            onClick={() => setIsFabOpen(false)}
+          />
         )}
 
         {/* Headless Audio Trigger */}

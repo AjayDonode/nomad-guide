@@ -18,12 +18,33 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      // Temporary: Removed all security for trips and trip_pois as requested
       allow read, write: if true;
 
       match /trip_pois/{poiId} {
         allow read, write: if true;
       }
+    }
+
+    // Global traveler chat — all signed-in users can read and post
+    match /globalChat/{messageId} {
+      allow read: if isSignedIn();
+
+      // Create: must own the message, max 140 chars, required fields
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 140
+        && request.resource.data.authorName is string;
+
+      // Messages are immutable — no edit or delete
+      allow update, delete: if false;
+    }
+
+    // System health docs (written only by Cloud Functions / Admin SDK)
+    match /_system/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
   }
 }
