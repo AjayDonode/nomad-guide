@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState, useRef } from 'react'
 import 'leaflet/dist/leaflet.css'
-import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
+import type L from 'leaflet'
 
 export interface RouteStep {
   maneuver: {
@@ -72,19 +72,7 @@ const UserIcon = (isDriving: boolean, isReady: boolean, bearing: number, pointer
   })
 }
 
-const DestIcon = L.divIcon({
-  className: 'dest-marker',
-  html: '<div class="w-8 h-8 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg"><svg viewBox="0 0 24 24" class="w-4 h-4 text-white" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg></div>',
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-})
 
-const POIIcon = (isSelected: boolean, idx?: number, isVisited: boolean = false) => L.divIcon({
-  className: 'poi-marker',
-  html: `<div class="w-8 h-8 ${isVisited ? 'bg-gray-500/80 saturate-0 scale-90' : isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125 font-bold text-white text-[10px]">${idx !== undefined ? idx + 1 : ''}</div>`,
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-})
 
 function calculateBearing(start: [number, number], end: [number, number]) {
   const startLat = (start[0] * Math.PI) / 180;
@@ -220,10 +208,15 @@ export function NavigationMap({
   }, [isDriving, lastActivityTime, currentZoom])
 
   useEffect(() => {
-    // Defer mount by one tick to guarantee the container <div> is in the real DOM
-    // before Leaflet calls appendChild. This prevents the HMR race condition.
-    const id = setTimeout(() => setMounted(true), 0);
-    return () => clearTimeout(id);
+    if (typeof window === 'undefined') return;
+    // Use requestAnimationFrame to guarantee the container <div> is fully
+    // painted in the real DOM before Leaflet calls appendChild.
+    // setTimeout(0) is not reliable under Turbopack HMR.
+    let rafId: number;
+    rafId = requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => setMounted(true));
+    });
+    return () => cancelAnimationFrame(rafId);
   }, [])
 
   const prevCenterRef = useRef<[number, number] | null>(null);
@@ -417,7 +410,25 @@ export function NavigationMap({
     }
   }, [center, destination, pois])
 
-  if (!mounted) return null
+  if (!mounted || typeof window === 'undefined') return null
+
+  // Lazily import L only on client — avoids SSR crashes and Turbopack HMR issues
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const L = require('leaflet') as typeof import('leaflet')
+
+  const DestIcon = L.divIcon({
+    className: 'dest-marker',
+    html: '<div class="w-8 h-8 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg"><svg viewBox="0 0 24 24" class="w-4 h-4 text-white" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg></div>',
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  })
+
+  const POIIcon = (isSelected: boolean, idx?: number, isVisited: boolean = false) => L.divIcon({
+    className: 'poi-marker',
+    html: `<div class="w-8 h-8 ${isVisited ? 'bg-gray-500/80 saturate-0 scale-90' : isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125 font-bold text-white text-[10px]">${idx !== undefined ? idx + 1 : ''}</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  })
 
   const is3DView = isDriving && currentZoom >= 16;
   const rotationStyle = is3DView ? {

@@ -417,6 +417,65 @@ export default function DrivingDashboard() {
 
     if (!introPlayed.current) {
       introPlayed.current = true
+
+      // Snapshot trip data now — closures inside callbacks can be stale after re-render
+      const snapshotTripId   = activeTripId;
+      const snapshotTrip     = activeTrip;
+      const snapshotVoice    = voicePreference;
+
+      // Inner helper that uses snapshot values — safe to call from any async context
+      const triggerFiller = async () => {
+        if (!snapshotTripId) return;
+
+        const fillerUrl = snapshotVoice === 'male'
+          ? snapshotTrip?.fillerAudioMaleUrl
+          : snapshotTrip?.fillerAudioFemaleUrl;
+
+        if (fillerUrl) {
+          try {
+            if (Tone.getContext().state !== 'running') await Tone.start();
+            if (fillerPlayerRef.current) {
+              try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+              fillerPlayerRef.current = null;
+            }
+            const player = new Tone.Player({
+              url: fillerUrl,
+              onload: () => { player.start(); setIsFillerPlaying(true); },
+              onstop: () => { setIsFillerPlaying(false); },
+              onerror: (err: any) => {
+                console.warn('Filler stream failed (intro trigger):', err);
+                setIsFillerPlaying(false);
+                // Text TTS fallback
+                const fillerText = snapshotTrip?.fillerGeneratedText || snapshotTrip?.fillerBaseText;
+                if (fillerText) {
+                  try {
+                    window.speechSynthesis.cancel();
+                    const synth = new SpeechSynthesisUtterance(fillerText);
+                    synth.rate = 0.95;
+                    window.speechSynthesis.speak(synth);
+                  } catch(e) {}
+                }
+              }
+            }).toDestination();
+            fillerPlayerRef.current = player;
+            return;
+          } catch(e) {
+            console.warn('Filler Tone.Player error (intro trigger):', e);
+          }
+        }
+
+        // Text fallback when no audio URL is published yet
+        const fillerText = snapshotTrip?.fillerGeneratedText || snapshotTrip?.fillerBaseText;
+        if (fillerText) {
+          try {
+            window.speechSynthesis.cancel();
+            const synth = new SpeechSynthesisUtterance(fillerText);
+            synth.rate = 0.95;
+            window.speechSynthesis.speak(synth);
+          } catch(e) { console.warn('Filler TTS fallback failed', e); }
+        }
+      };
+
       try {
         let introText = `Let's go explore ${activeTripName}.`;
 
@@ -431,23 +490,31 @@ export default function DrivingDashboard() {
 
         // Use 100% Free Native Browser Speech API for the Intro. No AI tokens.
         const utterance = new SpeechSynthesisUtterance(introText);
-        if (voicePreference === 'male') {
+        if (snapshotVoice === 'male') {
            const voices = window.speechSynthesis.getVoices();
            const maleVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
            if (maleVoice) utterance.voice = maleVoice;
         }
-        
+
+        // Safety: some desktop browsers (Chrome) fire onend unreliably.
+        // Estimate speech duration + 1s buffer and use setTimeout as a backup trigger.
+        const estimatedDurationMs = Math.max(introText.length * 65, 2000);
+        let fillerTriggered = false;
+        const fillerSafetyTimer = setTimeout(() => {
+          if (!fillerTriggered) { fillerTriggered = true; triggerFiller(); }
+        }, estimatedDurationMs + 1000);
+
         utterance.onend = () => {
-          // Play filler narration immediately after the short intro finishes to cover the distance to the first point.
-          playFillerAudio();
+          clearTimeout(fillerSafetyTimer);
+          if (!fillerTriggered) { fillerTriggered = true; triggerFiller(); }
         };
         
         window.speechSynthesis.cancel(); // Cancel any existing speech
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn("Intro audio failed to play", e)
-        // Fallback: If intro fails, at least try to start filler
-        playFillerAudio();
+        // Fallback: If intro throws, trigger filler immediately
+        triggerFiller();
       }
       // Start ambient music right after intro — it plays beneath everything
       startAmbientMusic();
@@ -786,9 +853,9 @@ export default function DrivingDashboard() {
         {/* Route Details Overview Bottom Sheet */}
         {!isDriving && activeTripId && recommendedPois.length > 0 && (
           <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card/40 backdrop-blur-2xl border-t border-white/20 rounded-t-3xl shadow-[0_-15px_50px_rgba(0,0,0,0.6)] flex flex-col max-h-[75vh] p-4 lg:max-w-2xl lg:mx-auto animate-in slide-in-from-bottom duration-500">
-            <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
+            <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6 shrink-0" />
             
-            <div className="flex items-start justify-between mb-2">
+            <div className="flex items-start justify-between mb-2 shrink-0">
               <div className="pr-4">
                 <h2 className="text-2xl font-bold tracking-tight mb-1">{activeTripName}</h2>
                 <div className="flex items-center gap-2 text-muted-foreground text-xs font-bold uppercase tracking-wider">
@@ -801,7 +868,7 @@ export default function DrivingDashboard() {
               <Button variant="ghost" size="icon" className="h-10 w-10 bg-white/5 rounded-full hover:bg-white/10 transition-colors" onClick={() => setActiveTripId(null)}><X className="w-5 h-5" /></Button>
             </div>
             
-            <ScrollArea className="flex-1 mt-4 mb-4 pr-2">
+            <div className="flex-1 overflow-y-auto min-h-0 mt-4 mb-4 pr-2 scroll-smooth">
               <div className="space-y-2">
                 {recommendedPois.map((poi, idx) => (
                   <div key={idx} className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors active:bg-white/10 group" onClick={() => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}>
@@ -823,9 +890,9 @@ export default function DrivingDashboard() {
                   </div>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
             
-            <div className="pt-2 pb-2 sticky bottom-0 bg-card flex gap-3">
+            <div className="pt-4 pb-2 mt-auto flex gap-3 border-t border-white/10 shrink-0">
               <Button onClick={() => setActiveTripId(null)} variant="secondary" className="flex-[0.4] bg-white/10 hover:bg-white/20 text-white font-headline font-bold rounded-full h-14 shadow-lg text-base" disabled={isStartingTour}>
                 Cancel
               </Button>
