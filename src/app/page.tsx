@@ -43,7 +43,7 @@ import { AudioTourController } from '@/components/audio-tour-controller'
 import { UpcomingPoiGallery } from '@/components/upcoming-poi-gallery'
 import { TripChat } from '@/components/trip-chat'
 import * as Tone from 'tone'
-import { set as idbSet, get as idbGet } from 'idb-keyval'
+import { set as idbSet, get as idbGet, del as idbDel } from 'idb-keyval'
 import { ref as storageRef, listAll, getDownloadURL } from 'firebase/storage'
 
 // Dynamic imports
@@ -115,6 +115,27 @@ function buildInstruction(step: RouteStep, distanceM: number, unitType: string):
   return `${dist}continue straight ${road}`.trim();
 }
 
+// ── Trip Session (crash/close recovery) ───────────────────────────────────────
+const TRIP_SESSION_KEY = 'nomadguide_trip_session'
+const SESSION_AUTO_RESUME_MS  = 4  * 60 * 60 * 1000 // < 4h  → silent auto-resume
+const SESSION_PROMPT_MS       = 12 * 60 * 60 * 1000 // 4–12h → ask user; >12h → discard
+
+interface TripSession {
+  tripId: string
+  tripName: string
+  narratedPoiNames: string[]   // matches narratedPois.current (Set of poi.name)
+  lastVisitedPoiIndex: number  // 0-based index in the ordered POI list
+  lastUpdatedAt: number        // epoch ms
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Segmented Narration Scheduler ─────────────────────────────────────────────
+// Filler is played in chunks separated by music-only breaks so the narration
+// is distributed across the full trip rather than front-loaded.
+const FILLER_SEGMENT_MS = 10 * 60 * 1000  // 10 min: narration plays
+const MUSIC_BREAK_MS    =  7 * 60 * 1000  //  7 min: ambient music only
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function DrivingDashboard() {
   const { toast } = useToast()
   const router = useRouter()
@@ -149,6 +170,15 @@ export default function DrivingDashboard() {
   const introPlayed = useRef<boolean>(false)
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
   const fillerPlayerRef = useRef<any | null>(null)
+  const fillerGainRef = useRef<any | null>(null)           // Gain node for filler fade control
+  const fillerOffsetRef = useRef<number>(0)                // Saved playback position (seconds)
+  const fillerStartTimeRef = useRef<number>(0)             // Tone time when current segment started
+  const fillerUrlRef = useRef<string | null>(null)         // URL of active filler audio
+  const fillerFadedPoisRef = useRef<Set<string>>(new Set()) // POIs that triggered 100m fade
+  const fillerFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const segmentStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)  // fires after FILLER_SEGMENT_MS
+  const segmentBreakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null) // fires after MUSIC_BREAK_MS
+  const fillerExhaustedRef = useRef<boolean>(false)        // true when filler audio has fully played through
   const musicPlayerRef = useRef<any | null>(null)
   const musicGainRef = useRef<any | null>(null)
   const musicTracksRef = useRef<string[]>([])
@@ -158,6 +188,8 @@ export default function DrivingDashboard() {
   const [isFillerPlaying, setIsFillerPlaying] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isFabOpen, setIsFabOpen] = useState(false)
+  const [resumeSession, setResumeSession] = useState<TripSession | null>(null) // 4–12h prompt
+  const sessionChecked = useRef(false)
 
   // Subscriptions
   const tripsQuery = useMemoFirebase(() => {
@@ -165,6 +197,38 @@ export default function DrivingDashboard() {
     return query(collection(firestore, 'trips'))
   }, [firestore])
   const { data: allTrips } = useCollection(tripsQuery)
+
+  // ── Session recovery: runs once when trip data first loads ─────────────────────
+  useEffect(() => {
+    if (!allTrips || sessionChecked.current) return
+    sessionChecked.current = true
+    ;(async () => {
+      const session: TripSession | undefined = await idbGet(TRIP_SESSION_KEY)
+      if (!session) return
+
+      const age = Date.now() - session.lastUpdatedAt
+      if (age > SESSION_PROMPT_MS) {
+        // Session is stale — discard quietly
+        await idbDel(TRIP_SESSION_KEY)
+        return
+      }
+
+      // Verify the trip still exists in Firestore
+      if (!allTrips.find(t => t.id === session.tripId)) {
+        await idbDel(TRIP_SESSION_KEY)
+        return
+      }
+
+      if (age < SESSION_AUTO_RESUME_MS) {
+        // Auto-resume: silent, no prompt needed
+        applySession(session)
+      } else {
+        // 4–12 hours: ask the user
+        setResumeSession(session)
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTrips])
 
   const favoritesQuery = useMemoFirebase(() => {
     if (!firestore || !user) return null
@@ -281,9 +345,22 @@ export default function DrivingDashboard() {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
 
-        // Trigger at 50ft (approx 0.015km). Using 0.02km (20m) for better GPS reliability.
+        // ── ZONE 1: 100m — Begin fading filler narration ──────────────────────
+        // Smoothly duck filler over 3 seconds so the transition to POI audio
+        // feels natural rather than an abrupt cut.
+        if (dist < 0.1 && !fillerFadedPoisRef.current.has(poi.name)) {
+          fillerFadedPoisRef.current.add(poi.name)
+          if (isFillerPlaying) {
+            fadeOutFiller(3)
+          }
+        }
+
+        // ── ZONE 2: 20m — Hard-stop filler, trigger POI narration ─────────────
         if (dist < 0.02) {
           narratedPois.current.add(poi.name)
+
+          // ── Persist checkpoint immediately — survives crash/close ──
+          saveTripSession([...narratedPois.current], index)
           const nextPoi = recommendedPois[index + 1] || null
           if (nextPoi) {
             const nextDist = getDistance(poi.latitude, poi.longitude, nextPoi.latitude, nextPoi.longitude)
@@ -294,19 +371,14 @@ export default function DrivingDashboard() {
           } else {
             setNextPoiInfo(null)
           }
-          // Fix: set full poi object from memory — no Firestore re-fetch needed
           setSelectedPoiId(poi.id)
           setActivePoi(poi)
           setIsCaptionVisible(true)
 
-          // Stop filler audio so POI narration takes over immediately
-          if (fillerPlayerRef.current) {
-            try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
-            fillerPlayerRef.current = null;
-            setIsFillerPlaying(false);
-          }
+          // Hard-stop filler (saves position so we can resume after POI narration)
+          stopFillerAndSave();
           window.speechSynthesis.cancel();
-          duckMusic(); // Duck ambient music during POI narration
+          duckMusic();
 
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
           captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
@@ -314,7 +386,7 @@ export default function DrivingDashboard() {
       })
     }
     checkProximity()
-  }, [userLocation, isDriving, recommendedPois, autoNarrate, units])
+  }, [userLocation, isDriving, recommendedPois, autoNarrate, units, isFillerPlaying])
 
   const handleSelectTrip = (trip: any) => {
     setIsLoading(true)
@@ -325,7 +397,50 @@ export default function DrivingDashboard() {
     narratedPois.current.clear()
     introPlayed.current = false
     setIsCaptionVisible(false)
+    // Reset filler position tracking for the new trip
+    fillerOffsetRef.current = 0
+    fillerUrlRef.current = null
+    fillerFadedPoisRef.current = new Set()
+    if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+    // Persist the new trip intent immediately so a crash before GO still resumes correctly
+    idbSet(TRIP_SESSION_KEY, {
+      tripId: trip.id,
+      tripName: trip.name,
+      narratedPoiNames: [],
+      lastVisitedPoiIndex: -1,
+      lastUpdatedAt: Date.now(),
+    } satisfies TripSession).catch(() => {})
     toast({ title: "Trip Selected", description: `Following ${trip.name}` })
+  }
+
+  /** Writes current progress to IndexedDB. Called after every POI is narrated. */
+  const saveTripSession = (poiNames: string[], lastIndex: number) => {
+    if (!activeTripId) return
+    idbSet(TRIP_SESSION_KEY, {
+      tripId: activeTripId,
+      tripName: activeTripName,
+      narratedPoiNames: poiNames,
+      lastVisitedPoiIndex: lastIndex,
+      lastUpdatedAt: Date.now(),
+    } satisfies TripSession).catch(() => {})
+  }
+
+  /** Applies a saved session: pre-populates narrated set and selects the trip. */
+  const applySession = (session: TripSession) => {
+    narratedPois.current.clear()
+    session.narratedPoiNames.forEach(name => narratedPois.current.add(name))
+    setActiveTripId(session.tripId)
+    setActiveTripName(session.tripName)
+    const resumedFrom = session.lastVisitedPoiIndex + 1
+    toast({
+      title: '↪ Resuming Trip',
+      description: `Continuing "${session.tripName}" from stop ${resumedFrom}`,
+    })
+  }
+
+  /** Removes the active session (called after normal trip completion). */
+  const clearTripSession = () => {
+    idbDel(TRIP_SESSION_KEY).catch(() => {})
   }
 
   const startDriving = async () => {
@@ -423,57 +538,17 @@ export default function DrivingDashboard() {
       const snapshotTrip     = activeTrip;
       const snapshotVoice    = voicePreference;
 
-      // Inner helper that uses snapshot values — safe to call from any async context
+      // Reset filler state for fresh trip start
+      fillerOffsetRef.current = 0;
+      fillerUrlRef.current = null;
+      fillerFadedPoisRef.current = new Set();
+      if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+
+      // triggerFiller uses snapshotted values (safe from stale closures after re-render)
+      // and calls playFillerAudio with those snapshot opts.
       const triggerFiller = async () => {
         if (!snapshotTripId) return;
-
-        const fillerUrl = snapshotVoice === 'male'
-          ? snapshotTrip?.fillerAudioMaleUrl
-          : snapshotTrip?.fillerAudioFemaleUrl;
-
-        if (fillerUrl) {
-          try {
-            if (Tone.getContext().state !== 'running') await Tone.start();
-            if (fillerPlayerRef.current) {
-              try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
-              fillerPlayerRef.current = null;
-            }
-            const player = new Tone.Player({
-              url: fillerUrl,
-              onload: () => { player.start(); setIsFillerPlaying(true); },
-              onstop: () => { setIsFillerPlaying(false); },
-              onerror: (err: any) => {
-                console.warn('Filler stream failed (intro trigger):', err);
-                setIsFillerPlaying(false);
-                // Text TTS fallback
-                const fillerText = snapshotTrip?.fillerGeneratedText || snapshotTrip?.fillerBaseText;
-                if (fillerText) {
-                  try {
-                    window.speechSynthesis.cancel();
-                    const synth = new SpeechSynthesisUtterance(fillerText);
-                    synth.rate = 0.95;
-                    window.speechSynthesis.speak(synth);
-                  } catch(e) {}
-                }
-              }
-            }).toDestination();
-            fillerPlayerRef.current = player;
-            return;
-          } catch(e) {
-            console.warn('Filler Tone.Player error (intro trigger):', e);
-          }
-        }
-
-        // Text fallback when no audio URL is published yet
-        const fillerText = snapshotTrip?.fillerGeneratedText || snapshotTrip?.fillerBaseText;
-        if (fillerText) {
-          try {
-            window.speechSynthesis.cancel();
-            const synth = new SpeechSynthesisUtterance(fillerText);
-            synth.rate = 0.95;
-            window.speechSynthesis.speak(synth);
-          } catch(e) { console.warn('Filler TTS fallback failed', e); }
-        }
+        await playFillerAudio({ tripId: snapshotTripId, trip: snapshotTrip, voice: snapshotVoice, offset: 0 });
       };
 
       try {
@@ -523,12 +598,26 @@ export default function DrivingDashboard() {
 
   const stopDriving = () => {
     setIsDriving(false)
-    // Stop filler audio
+    // Session persists on crash — clear ONLY on intentional stop so resume works after crashes
+    clearTripSession()
+    // Cancel all audio timers
+    if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+    if (segmentStopTimerRef.current) { clearTimeout(segmentStopTimerRef.current); segmentStopTimerRef.current = null; }
+    if (segmentBreakTimerRef.current) { clearTimeout(segmentBreakTimerRef.current); segmentBreakTimerRef.current = null; }
+    // Stop filler audio and clean up gain node
     if (fillerPlayerRef.current) {
       try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
       fillerPlayerRef.current = null;
       setIsFillerPlaying(false);
     }
+    if (fillerGainRef.current) {
+      try { fillerGainRef.current.dispose(); } catch(e){}
+      fillerGainRef.current = null;
+    }
+    fillerOffsetRef.current = 0;
+    fillerUrlRef.current = null;
+    fillerFadedPoisRef.current = new Set();
+    fillerExhaustedRef.current = false;
     window.speechSynthesis.cancel();
     stopAmbientMusic(); // Fade out music gracefully
     try {
@@ -639,37 +728,84 @@ export default function DrivingDashboard() {
 
   // ──────────────────────────────────────────────────────────────────────────
 
-  // Plays filler narration between POI stops.
-  // Streams directly from Firebase Storage URL — no IndexedDB download needed.
-  // This keeps filler fully functional for arbitrarily long audio without hitting
-  // Safari's ~50MB IndexedDB per-origin limit.
-  const playFillerAudio = async () => {
-    if (!activeTripId || !autoNarrate) return;
+  /**
+   * Core filler player — routes through a shared Gain node so volume can be
+   * ramped smoothly (fade-out at 100m, restore after POI narration).
+   *
+   * opts.offset  — seconds into the audio to start from (0 = fresh play)
+   * opts.tripId/trip/voice — snapshot values to avoid stale closure bugs
+   */
+  const playFillerAudio = async (opts?: {
+    offset?: number;
+    tripId?: string | null;
+    trip?: any;
+    voice?: string;
+  }) => {
+    const tripId = opts?.tripId   ?? activeTripId;
+    const trip   = opts?.trip     ?? activeTrip;
+    const voice  = opts?.voice    ?? voicePreference;
+    const offset = opts?.offset   ?? 0;
 
-    // Get the Firebase Storage URL directly from the active trip document
-    const fillerUrl = voicePreference === 'male'
-      ? activeTrip?.fillerAudioMaleUrl
-      : activeTrip?.fillerAudioFemaleUrl;
+    if (!tripId || !autoNarrate) return;
+
+    const fillerUrl = voice === 'male' ? trip?.fillerAudioMaleUrl : trip?.fillerAudioFemaleUrl;
 
     if (fillerUrl) {
-      // Stream: Tone.js fetches via HTTP range requests — starts playing in ~1s
+      fillerUrlRef.current = fillerUrl;
       try {
         if (Tone.getContext().state !== 'running') await Tone.start();
+
+        // Tear down previous player
         if (fillerPlayerRef.current) {
           try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
           fillerPlayerRef.current = null;
         }
+
+        // Create/reuse shared Gain node — restore gain to full before playback
+        if (!fillerGainRef.current) {
+          fillerGainRef.current = new Tone.Gain(1).toDestination();
+        }
+        fillerGainRef.current.gain.cancelScheduledValues(Tone.now());
+        fillerGainRef.current.gain.setValueAtTime(1, Tone.now());
+
         const player = new Tone.Player({
           url: fillerUrl,
-          onload: () => { player.start(); setIsFillerPlaying(true); },
-          onstop: () => { setIsFillerPlaying(false); },
-          onerror: (err) => {
-            // URL failed — fall through to speechSynthesis text fallback
+          onload: () => {
+            player.start(Tone.now(), offset);      // seek to saved position
+            fillerStartTimeRef.current = Tone.now();
+            setIsFillerPlaying(true);
+
+            // ── Segment scheduler: auto-stop after FILLER_SEGMENT_MS ───────────────
+            // This ensures narration is spread in chunks rather than front-loaded.
+            if (segmentStopTimerRef.current) clearTimeout(segmentStopTimerRef.current);
+            segmentStopTimerRef.current = setTimeout(() => {
+              segmentStopTimerRef.current = null;
+              // Intentional scheduled stop — save position and enter music break
+              stopFillerAndSave();
+              scheduleFillerBreak();
+            }, FILLER_SEGMENT_MS);
+          },
+          onstop: () => {
+            // Detect natural exhaustion: if the segment timer is still pending
+            // when the audio ends, the filler played to completion before the 10-min cutoff.
+            if (segmentStopTimerRef.current !== null) {
+              clearTimeout(segmentStopTimerRef.current);
+              segmentStopTimerRef.current = null;
+              fillerExhaustedRef.current = true;
+              console.log('[NomadGuide] Filler narration complete — ambient music only for rest of trip.');
+            }
+            setIsFillerPlaying(false);
+          },
+          onerror: (err: any) => {
             console.warn('Filler stream failed, falling back to TTS:', err);
             setIsFillerPlaying(false);
-            speakFillerFallback();
+            // TTS fallback
+            const fillerText = trip?.fillerGeneratedText || trip?.fillerBaseText;
+            if (fillerText) {
+              try { window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(fillerText); s.rate = 0.95; window.speechSynthesis.speak(s); } catch(e) {}
+            }
           }
-        }).toDestination();
+        }).connect(fillerGainRef.current);
         fillerPlayerRef.current = player;
         return;
       } catch(e) {
@@ -677,8 +813,92 @@ export default function DrivingDashboard() {
       }
     }
 
-    // Fallback: no audio URL published yet — read the text and speak it natively
+    // No audio URL — speak the filler text natively
     speakFillerFallback();
+  }
+
+  /** Resume filler from the exact position it was paused/faded at. */
+  const resumeFillerAudio = async () => {
+    if (fillerExhaustedRef.current) return; // filler is done — music only
+    await playFillerAudio({ offset: fillerOffsetRef.current });
+  }
+
+  /**
+   * Waits MUSIC_BREAK_MS (7 min) then starts the next filler narration segment.
+   * Called by the segment stop timer at the end of each 10-min narration window.
+   * NOT called after POI narrations — those use resumeFillerAudio directly
+   * (the POI narration itself serves as the break).
+   */
+  const scheduleFillerBreak = () => {
+    if (segmentBreakTimerRef.current) clearTimeout(segmentBreakTimerRef.current);
+    segmentBreakTimerRef.current = setTimeout(async () => {
+      segmentBreakTimerRef.current = null;
+      if (fillerExhaustedRef.current) return;  // exhausted during the break window
+      // Resume from saved offset — starts a fresh 10-min segment via onload timer
+      await playFillerAudio({ offset: fillerOffsetRef.current });
+    }, MUSIC_BREAK_MS);
+  }
+
+  /**
+   * Smoothly fades filler volume to 0 over `durationSecs` seconds.
+   * Saves the playback position so resumeFillerAudio can continue from here.
+   * Called at the 100m POI approach zone.
+   */
+  const fadeOutFiller = (durationSecs: number = 3) => {
+    if (!fillerGainRef.current || !fillerPlayerRef.current) return;
+
+    // Cancel any previous fade timer
+    if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+
+    // Snapshot position at the moment fade starts
+    const positionAtFadeStart = fillerOffsetRef.current + (Tone.now() - fillerStartTimeRef.current);
+
+    fillerGainRef.current.gain.rampTo(0, durationSecs);
+
+    fillerFadeTimerRef.current = setTimeout(() => {
+      // Save final position (position at fade start + fade duration = where audio has reached)
+      fillerOffsetRef.current = positionAtFadeStart + durationSecs;
+      if (fillerPlayerRef.current) {
+        try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+        fillerPlayerRef.current = null;
+      }
+      fillerFadeTimerRef.current = null;
+      setIsFillerPlaying(false);
+    }, durationSecs * 1000 + 200);
+  }
+
+  /**
+   * Hard-stops filler immediately (used at the 20m POI zone).
+   * Saves the current playback position accurately even if a fade was in progress.
+   * Cancels any pending fade timer to prevent double-stop.
+   */
+  const stopFillerAndSave = () => {
+    // Cancel any in-flight fade
+    if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+
+    // Cancel the segment stop timer (external stop mid-segment, e.g. 100m POI approach)
+    // The break will be provided by the POI narration itself.
+    if (segmentStopTimerRef.current) {
+      clearTimeout(segmentStopTimerRef.current);
+      segmentStopTimerRef.current = null;
+    }
+    // Save position before stopping
+    if (fillerPlayerRef.current && isFillerPlaying) {
+      fillerOffsetRef.current += Tone.now() - fillerStartTimeRef.current;
+    }
+
+    if (fillerPlayerRef.current) {
+      try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+      fillerPlayerRef.current = null;
+    }
+
+    // Restore gain to full so the next resume plays at normal volume
+    if (fillerGainRef.current) {
+      fillerGainRef.current.gain.cancelScheduledValues(Tone.now());
+      fillerGainRef.current.gain.setValueAtTime(1, Tone.now());
+    }
+
+    setIsFillerPlaying(false);
   }
 
   // Free native TTS fallback for when Filler audio hasn't been published yet
@@ -756,10 +976,52 @@ export default function DrivingDashboard() {
       }
     };
 
-    // Re-acquire when page becomes visible again (browser auto-releases on hide)
-    const handleVisibilityChange = () => {
+    // Re-acquire when page becomes visible again (browser auto-releases on hide).
+    // Also recover all audio systems — phone calls leave AudioContext "suspended"
+    // and speechSynthesis queue stale, causing permanent silence after the call.
+    const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && isDriving) {
         acquireWakeLock();
+
+        // ── 1. Resume Web Audio API context (Tone.js / ambient music / filler) ──
+        // iOS/Android suspend the AudioContext during phone calls and never
+        // auto-resume it. We must call resume() explicitly.
+        try {
+          const ctx = Tone.getContext();
+          if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
+            await ctx.resume();
+            console.log('[NomadGuide] AudioContext resumed after interruption.');
+          }
+        } catch (e) {
+          console.warn('[NomadGuide] AudioContext resume failed:', e);
+        }
+
+        // ── 2. Clear stale speechSynthesis queue ──
+        // After a call, iOS leaves old utterances queued but never speaks them.
+        // Cancelling resets the queue so new TTS calls work immediately.
+        try {
+          window.speechSynthesis.cancel();
+        } catch (e) {}
+
+        // ── 3. Restart filler audio if it was playing when the call came in ──
+        // The Tone.Player silently stops when the AudioContext is suspended.
+        // If filler was marked as playing but the player is now stopped/dead,
+        // restart it so the user hears audio again as soon as possible.
+        if (isFillerPlaying && autoNarrate) {
+          try {
+            if (fillerPlayerRef.current) {
+              fillerPlayerRef.current.stop();
+              fillerPlayerRef.current.dispose();
+              fillerPlayerRef.current = null;
+            }
+            setIsFillerPlaying(false);
+            // Small delay so the AudioContext is fully running before we stream.
+            // Resume from saved position (not from the start of the filler).
+            setTimeout(() => { resumeFillerAudio(); }, 600);
+          } catch (e) {
+            console.warn('[NomadGuide] Filler audio restart after call failed:', e);
+          }
+        }
       }
     };
 
@@ -960,6 +1222,44 @@ export default function DrivingDashboard() {
           </>
         )}
 
+        {/* Resume Trip Prompt — shown for sessions 4–12 hours old */}
+        {resumeSession && !isDriving && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm z-[300] bg-card/60 backdrop-blur-2xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-4 text-primary">
+              <Route className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold mb-1">Resume Trip?</h3>
+            <p className="text-sm text-muted-foreground mb-1">
+              You left <strong>{resumeSession.tripName}</strong> in progress.
+            </p>
+            <p className="text-xs text-white/40 mb-8">
+              Last checkpoint: Stop {resumeSession.lastVisitedPoiIndex + 1} &middot;&nbsp;
+              {Math.round((Date.now() - resumeSession.lastUpdatedAt) / 60000)} min ago
+            </p>
+            <div className="flex gap-4 w-full">
+              <Button
+                onClick={async () => {
+                  await idbDel(TRIP_SESSION_KEY).catch(() => {})
+                  setResumeSession(null)
+                }}
+                variant="secondary"
+                className="flex-1 rounded-full h-14 bg-white/10 hover:bg-white/20 font-bold text-base shadow-lg"
+              >
+                Start Fresh
+              </Button>
+              <Button
+                onClick={() => {
+                  applySession(resumeSession)
+                  setResumeSession(null)
+                }}
+                className="flex-1 rounded-full h-14 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-base shadow-lg shadow-primary/20"
+              >
+                Resume
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Skipped Route Prompt */}
         {isDriving && suggestedSkipPoi && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm z-[200] bg-card/40 backdrop-blur-2xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
@@ -1005,8 +1305,8 @@ export default function DrivingDashboard() {
           hidden={true}
           onFinish={() => {
             setIsCaptionVisible(false);
-            restoreMusic();     // Fade music back up after narration
-            playFillerAudio();  // Start between-stop filler narration
+            restoreMusic();        // Fade music back up after narration
+            resumeFillerAudio();   // Resume filler from where it was paused (not from start)
           }}
         />
 
