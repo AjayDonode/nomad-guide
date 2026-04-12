@@ -171,6 +171,8 @@ export default function DrivingDashboard() {
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
   const fillerPlayerRef = useRef<any | null>(null)
   const fillerGainRef = useRef<any | null>(null)           // Gain node for filler fade control
+  const fillerMeterRef = useRef<any | null>(null)          // Meter for silence detection
+  const pauseCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fillerOffsetRef = useRef<number>(0)                // Saved playback position (seconds)
   const fillerStartTimeRef = useRef<number>(0)             // Tone time when current segment started
   const fillerUrlRef = useRef<string | null>(null)         // URL of active filler audio
@@ -345,18 +347,18 @@ export default function DrivingDashboard() {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
 
-        // ── ZONE 1: 100m — Begin fading filler narration ──────────────────────
-        // Smoothly duck filler over 3 seconds so the transition to POI audio
-        // feels natural rather than an abrupt cut.
-        if (dist < 0.1 && !fillerFadedPoisRef.current.has(poi.name)) {
+        // ── ZONE 1: 150m — Begin waiting for perfect stop ──────────────────────
+        // Wait for a natural pause in the narration to gracefully pause it,
+        // rather than fading out during active speech.
+        if (dist < 0.15 && !fillerFadedPoisRef.current.has(poi.name)) {
           fillerFadedPoisRef.current.add(poi.name)
           if (isFillerPlaying) {
-            fadeOutFiller(3)
+            armFillerPauseAtFullStop()
           }
         }
 
-        // ── ZONE 2: 20m — Hard-stop filler, trigger POI narration ─────────────
-        if (dist < 0.02) {
+        // ── ZONE 2: 200ft (~60m) — Hard-stop filler, trigger POI narration ─────────────
+        if (dist < 0.061) {
           narratedPois.current.add(poi.name)
 
           // ── Persist checkpoint immediately — survives crash/close ──
@@ -602,6 +604,7 @@ export default function DrivingDashboard() {
     clearTripSession()
     // Cancel all audio timers
     if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+    if (pauseCheckIntervalRef.current) { clearInterval(pauseCheckIntervalRef.current); pauseCheckIntervalRef.current = null; }
     if (segmentStopTimerRef.current) { clearTimeout(segmentStopTimerRef.current); segmentStopTimerRef.current = null; }
     if (segmentBreakTimerRef.current) { clearTimeout(segmentBreakTimerRef.current); segmentBreakTimerRef.current = null; }
     // Stop filler audio and clean up gain node
@@ -765,6 +768,9 @@ export default function DrivingDashboard() {
         if (!fillerGainRef.current) {
           fillerGainRef.current = new Tone.Gain(1).toDestination();
         }
+        if (!fillerMeterRef.current) {
+          fillerMeterRef.current = new Tone.Meter();
+        }
         fillerGainRef.current.gain.cancelScheduledValues(Tone.now());
         fillerGainRef.current.gain.setValueAtTime(1, Tone.now());
 
@@ -805,7 +811,9 @@ export default function DrivingDashboard() {
               try { window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(fillerText); s.rate = 0.95; window.speechSynthesis.speak(s); } catch(e) {}
             }
           }
-        }).connect(fillerGainRef.current);
+        });
+        player.connect(fillerGainRef.current);
+        player.connect(fillerMeterRef.current);
         fillerPlayerRef.current = player;
         return;
       } catch(e) {
@@ -837,6 +845,52 @@ export default function DrivingDashboard() {
       // Resume from saved offset — starts a fresh 10-min segment via onload timer
       await playFillerAudio({ offset: fillerOffsetRef.current });
     }, MUSIC_BREAK_MS);
+  }
+
+  /**
+   * Waits for a natural silence (like a full stop) in the filler audio,
+   * then hard-stops the audio gracefully, preserving its position.
+   */
+  const armFillerPauseAtFullStop = () => {
+    if (!fillerMeterRef.current || !fillerPlayerRef.current || !isFillerPlaying) return;
+
+    if (pauseCheckIntervalRef.current) {
+      clearInterval(pauseCheckIntervalRef.current);
+    }
+    if (fillerFadeTimerRef.current) {
+      clearTimeout(fillerFadeTimerRef.current);
+      fillerFadeTimerRef.current = null;
+    }
+
+    let silenceStartTime: number | null = null;
+    const SILENCE_THRESHOLD_DB = -35; 
+    const REQUIRED_SILENCE_MS = 250; 
+
+    pauseCheckIntervalRef.current = setInterval(() => {
+      if (!isFillerPlaying || !fillerPlayerRef.current || !fillerMeterRef.current) {
+        if (pauseCheckIntervalRef.current) clearInterval(pauseCheckIntervalRef.current);
+        pauseCheckIntervalRef.current = null;
+        return;
+      }
+
+      // Read audio volume level
+      const levelResult = fillerMeterRef.current.getValue();
+      const level = typeof levelResult === 'number' ? levelResult : levelResult[0];
+
+      if (level < SILENCE_THRESHOLD_DB) {
+        if (silenceStartTime === null) {
+          silenceStartTime = Date.now();
+        } else if (Date.now() - silenceStartTime >= REQUIRED_SILENCE_MS) {
+          // Found a full stop! Pause right here.
+          console.log(`[NomadGuide] Perfect stop detected at level ${level}dB, pausing filler.`);
+          stopFillerAndSave(); 
+          if (pauseCheckIntervalRef.current) clearInterval(pauseCheckIntervalRef.current);
+          pauseCheckIntervalRef.current = null;
+        }
+      } else {
+        silenceStartTime = null; 
+      }
+    }, 50);
   }
 
   /**
@@ -873,8 +927,9 @@ export default function DrivingDashboard() {
    * Cancels any pending fade timer to prevent double-stop.
    */
   const stopFillerAndSave = () => {
-    // Cancel any in-flight fade
+    // Cancel any in-flight fade or pause check
     if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+    if (pauseCheckIntervalRef.current) { clearInterval(pauseCheckIntervalRef.current); pauseCheckIntervalRef.current = null; }
 
     // Cancel the segment stop timer (external stop mid-segment, e.g. 100m POI approach)
     // The break will be provided by the POI narration itself.
