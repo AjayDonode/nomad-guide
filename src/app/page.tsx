@@ -328,10 +328,12 @@ export default function DrivingDashboard() {
       distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
     })).sort((a, b) => a.distance - b.distance)
     
-    return tripsWithDistance.filter(t => 
-      t.name.toLowerCase().includes(dropdownSearch.toLowerCase()) &&
-      t.distance <= 80.5 // ~50 miles max
-    )
+    return tripsWithDistance.filter(t => {
+      const match = t.name.toLowerCase().includes(dropdownSearch.toLowerCase())
+      // If typing specifically, search everywhere. If empty/default, restrict to 50 miles.
+      if (dropdownSearch.trim().length > 0) return match
+      return match && t.distance <= 80.5 // ~50 miles max
+    })
   }, [allTrips, dropdownSearch, userLocation])
 
   useEffect(() => {
@@ -563,13 +565,18 @@ export default function DrivingDashboard() {
 
       try {
         let introText = `Let's go explore ${activeTripName}.`;
+        let isFarFromStart = false;
 
         // Add driving instructions if first point is far
         if (recommendedPois.length > 0 && userLocation) {
-          const firstPoi = recommendedPois[0];
-          const dist = getDistance(userLocation[0], userLocation[1], firstPoi.latitude, firstPoi.longitude);
-          if (dist > 0.1) { // > 100 meters
-            introText += ` Let's drive to your starting point, ${firstPoi.name}, and then proceed.`;
+          const firstUnvisitedPoi = recommendedPois.find(p => !narratedPois.current.has(p.name));
+          if (firstUnvisitedPoi) {
+            const dist = getDistance(userLocation[0], userLocation[1], firstUnvisitedPoi.latitude, firstUnvisitedPoi.longitude);
+            if (dist > 0.1) { // > 100 meters
+              isFarFromStart = true;
+              const stopDescriptor = narratedPois.current.size > 0 ? 'next stop' : 'starting point';
+              introText += ` Let's drive to your ${stopDescriptor}, ${firstUnvisitedPoi.name}, and then proceed.`;
+            }
           }
         }
 
@@ -585,13 +592,21 @@ export default function DrivingDashboard() {
         // Estimate speech duration + 1s buffer and use setTimeout as a backup trigger.
         const estimatedDurationMs = Math.max(introText.length * 65, 2000);
         let fillerTriggered = false;
-        const fillerSafetyTimer = setTimeout(() => {
-          if (!fillerTriggered) { fillerTriggered = true; triggerFiller(); }
-        }, estimatedDurationMs + 1000);
+        
+        const executeNextStep = () => {
+          if (!fillerTriggered) { 
+            fillerTriggered = true; 
+            if (!isFarFromStart) {
+              triggerFiller(); 
+            }
+          }
+        };
+
+        const fillerSafetyTimer = setTimeout(executeNextStep, estimatedDurationMs + 1000);
 
         utterance.onend = () => {
           clearTimeout(fillerSafetyTimer);
-          if (!fillerTriggered) { fillerTriggered = true; triggerFiller(); }
+          executeNextStep();
         };
         
         window.speechSynthesis.cancel(); // Cancel any existing speech
