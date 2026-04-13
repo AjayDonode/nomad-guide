@@ -32,8 +32,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useFirebase, useUser, useDoc, useMemoFirebase } from '@/firebase';
-import { signOut } from 'firebase/auth';
+import { signOut, updateProfile } from 'firebase/auth';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -44,7 +45,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export function UserMenu() {
   const router = useRouter();
-  const { auth, firestore } = useFirebase();
+  const { auth, firestore, storage } = useFirebase();
   const { user } = useUser();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -63,19 +64,63 @@ export function UserMenu() {
     signOut(auth);
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !userDocRef) return;
+    if (!file || !userDocRef || !user || !storage) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result as string;
-      updateDoc(userDocRef, {
-        photoURL: base64String,
-        updatedAt: serverTimestamp()
-      });
-    };
-    reader.readAsDataURL(file);
+    try {
+      const img = new window.Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      // Perform resizing using an offscreen canvas
+      img.onload = async () => {
+        URL.revokeObjectURL(objectUrl);
+
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 400; // Perfect small size for profile avatars
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height && width > MAX_SIZE) {
+          height = Math.round((height * MAX_SIZE) / width);
+          width = MAX_SIZE;
+        } else if (height >= width && height > MAX_SIZE) {
+          width = Math.round((width * MAX_SIZE) / height);
+          height = MAX_SIZE;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        // Compress and convert to lightweight JPEG Blob
+        canvas.toBlob(async (blob) => {
+          if (!blob) return;
+          try {
+            const path = `users/${user.uid}/avatar_${Date.now()}.jpg`;
+            const imgRef = storageRef(storage, path);
+            
+            await uploadBytes(imgRef, blob);
+            const downloadURL = await getDownloadURL(imgRef);
+
+            await updateDoc(userDocRef, {
+              photoURL: downloadURL,
+              updatedAt: serverTimestamp()
+            });
+
+            // Sync with Firebase Auth profile
+            await updateProfile(user, { photoURL: downloadURL });
+          } catch (uploadErr) {
+            console.error("Avatar upload failed:", uploadErr);
+          }
+        }, 'image/jpeg', 0.85); // 85% quality JPEG
+      };
+
+      img.src = objectUrl;
+    } catch (error) {
+      console.error("Image processing failed:", error);
+    }
   };
 
   const handleVoiceChange = async (value: string) => {
