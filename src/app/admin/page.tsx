@@ -250,7 +250,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [tripData, setTripData] = useState({
     name: "New Discovery Trip",
     description: "",
-    startLatitude: 37.7749,
+    startLatitude: 37.7749, // Fallback SF coordinates
     startLongitude: -122.4194,
     endLatitude: 37.7833,
     endLongitude: -122.4167,
@@ -258,6 +258,24 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     fillerMood: "Captivating",
     fillerGeneratedText: ""
   })
+
+  // Try to use the designer's actual location for new trips rather than the default SF coords
+  useEffect(() => {
+    if (!tripId && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setTripData(prev => ({
+            ...prev,
+            startLatitude: pos.coords.latitude,
+            startLongitude: pos.coords.longitude,
+            endLatitude: pos.coords.latitude + 0.005, // offset end point slightly so it's visible
+            endLongitude: pos.coords.longitude + 0.005,
+          }))
+        },
+        (err) => console.log("Location access denied or unavailable, defaulting to SF placeholder")
+      )
+    }
+  }, [tripId])
   const [isSaving, setIsSaving] = useState(false)
   const [isPublishingAll, setIsPublishingAll] = useState(false)
   const [isComposingFiller, setIsComposingFiller] = useState(false)

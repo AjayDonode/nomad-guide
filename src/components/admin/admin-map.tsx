@@ -1,10 +1,10 @@
 "use client"
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
-import { Map as LucideMap } from 'lucide-react'
+import { Map as LucideMap, Search, Loader2 } from 'lucide-react'
 
 interface POI {
   id: string
@@ -86,6 +86,84 @@ function MapSimulatorFocus({ pois, playingPoiId, center }: { pois: POI[], playin
   }, [activePoi, map]);
 
   return null;
+}
+
+function MapSearchControl() {
+  const map = useMap();
+  const controlRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  // Prevent clicks from bleeding through to the map and creating POIs
+  useEffect(() => {
+    if (controlRef.current) {
+      L.DomEvent.disableClickPropagation(controlRef.current);
+      L.DomEvent.disableScrollPropagation(controlRef.current);
+    }
+  }, []);
+
+  // Debounced auto-search as user types
+  useEffect(() => {
+    if (!query) {
+      setResults([]);
+      return;
+    }
+
+    const timerId = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+        const data = await res.json();
+        setResults(data);
+      } catch (err) {
+        console.error("Search failed", err);
+      } finally {
+        setSearching(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timerId);
+  }, [query]);
+
+  const handleSearch = (e?: React.FormEvent) => {
+    e?.preventDefault(); // The useEffect handles fetching, this just stops page reload
+  }
+
+  return (
+    <div ref={controlRef} className="absolute top-6 right-6 z-[1000] w-80">
+      <form onSubmit={handleSearch} className="flex items-center bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <input 
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search location to navigate..."
+          className="flex-1 bg-transparent px-4 py-3 text-sm text-black outline-none font-medium placeholder:text-slate-400"
+        />
+        <button type="submit" className="px-4 text-slate-500 hover:text-primary transition-colors">
+          {searching ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
+        </button>
+      </form>
+      
+      {results.length > 0 && query && (
+        <div className="mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-64 overflow-y-auto w-full">
+          {results.map((r, i) => (
+            <button
+              key={i}
+              type="button"
+              className="w-full text-left px-4 py-3 text-xs font-medium text-slate-700 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+              onClick={() => {
+                map.flyTo([parseFloat(r.lat), parseFloat(r.lon)], 14);
+                setResults([]);
+                setQuery(r.display_name.split(',')[0]); // Use first part of name so input doesn't get massive
+              }}
+            >
+              {r.display_name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove, onPoiDelete, playingPoiId }: AdminMapProps) {
@@ -270,6 +348,8 @@ export function AdminMap({ center, pois, onMapClick, onStartPointSet, onPoiMove,
             <Polyline positions={routePoints} color="#0055FF" weight={10} opacity={0.3} lineCap="round" lineJoin="round" />
           </>
         )}
+        
+        <MapSearchControl />
       </MapContainer>
 
       {/* Map Control Overlay */}

@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
-import type L from 'leaflet'
+import L from 'leaflet'
 
 export interface RouteStep {
   maneuver: {
@@ -409,12 +409,60 @@ export function NavigationMap({
       if (onNextStepUpdate) onNextStepUpdate(null)
     }
   }, [center, destination, pois])
+  // Patch Leaflet Draggable to fix panning direction when map is CSS-rotated (e.g. heading-up mode)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && L && !(L as any)._dragPatched) {
+      (L as any)._dragPatched = true;
+      const originalOnMove = (L.Draggable.prototype as any)._onMove;
+      (L.Draggable.prototype as any)._onMove = function(e: any) {
+        const theta = (window as any).nomadMapBearing || 0;
+        if (!theta) {
+          return originalOnMove.call(this, e);
+        }
+
+        const first = (e.touches && e.touches.length === 1 ? e.touches[0] : e);
+        if (first.clientX === undefined || first.clientY === undefined) {
+           return originalOnMove.call(this, e);
+        }
+
+        const newPoint = new L.Point(first.clientX, first.clientY);
+        const offset = newPoint.subtract(this._startPoint);
+
+        // Inverse rotation of the screen vector to match local Map DOM vector
+        const rad = -theta * (Math.PI / 180);
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        
+        const rotX = offset.x * cos - offset.y * sin;
+        const rotY = offset.x * sin + offset.y * cos;
+
+        const fakeEvent: any = {
+           touches: e.touches ? [{ clientX: this._startPoint.x + rotX, clientY: this._startPoint.y + rotY }] : undefined,
+           clientX: e.touches ? undefined : this._startPoint.x + rotX,
+           clientY: e.touches ? undefined : this._startPoint.y + rotY,
+           preventDefault: () => e.preventDefault?.(),
+           stopPropagation: () => e.stopPropagation?.()
+        };
+        Object.setPrototypeOf(fakeEvent, e);
+
+        return originalOnMove.call(this, fakeEvent);
+      };
+    }
+  }, []); // L is imported globally, no need to include in dependency array
+
+  // Syc the active CSS rotation to window so the Leaflet patch can read it
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      let theta = 0;
+      if (isCompassActive && isDriving) {
+         theta = -bearing;
+      }
+      (window as any).nomadMapBearing = theta;
+    }
+  }, [bearing, isCompassActive, isDriving]);
 
   if (!mounted || typeof window === 'undefined') return null
 
-  // Lazily import L only on client — avoids SSR crashes and Turbopack HMR issues
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const L = require('leaflet') as typeof import('leaflet')
 
   const DestIcon = L.divIcon({
     className: 'dest-marker',

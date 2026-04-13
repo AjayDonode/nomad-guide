@@ -56,7 +56,7 @@ function LoginForm() {
 
   useEffect(() => {
     if (user && !isLoading) {
-      router.push(isAdminRoute ? '/admin' : '/');
+      router.push(isAdminRoute ? '/admin' : '/modes');
     }
   }, [user, isLoading, isAdminRoute, router]);
 

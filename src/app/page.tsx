@@ -316,15 +316,23 @@ export default function DrivingDashboard() {
       ...trip,
       distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
     })).sort((a, b) => a.distance - b.distance)
-    const nearby = tripsWithDistance.filter(t => t.distance < 50)
+    const nearby = tripsWithDistance.filter(t => t.distance <= 80.5) // ~50 miles max
     const userFavs = tripsWithDistance.filter(t => favoriteIds.has(t.id))
     return { nearby, favorites: userFavs }
   }, [allTrips, favorites, userLocation])
 
   const filteredTrips = useMemo(() => {
-    if (!allTrips) return []
-    return allTrips.filter(t => t.name.toLowerCase().includes(dropdownSearch.toLowerCase()))
-  }, [allTrips, dropdownSearch])
+    if (!allTrips || !userLocation) return []
+    const tripsWithDistance = allTrips.map(trip => ({
+      ...trip,
+      distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
+    })).sort((a, b) => a.distance - b.distance)
+    
+    return tripsWithDistance.filter(t => 
+      t.name.toLowerCase().includes(dropdownSearch.toLowerCase()) &&
+      t.distance <= 80.5 // ~50 miles max
+    )
+  }, [allTrips, dropdownSearch, userLocation])
 
   useEffect(() => {
     if (activeTripId && tripPois && tripPois.length > 0) {
@@ -1397,7 +1405,10 @@ export default function DrivingDashboard() {
                     <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-4 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
                       <div className="flex flex-col gap-1">
                         <span className="font-bold text-base">{trip.name}</span>
-                        <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
+                        <div className="flex items-center gap-2">
+                           <Badge variant="secondary" className="h-5 text-[10px] bg-white/5 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
+                           <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
+                        </div>
                       </div>
                     </div>
                   ))}
