@@ -25,8 +25,8 @@ service cloud.firestore {
       }
     }
 
-    // Global traveler chat — all signed-in users can read and post
-    match /globalChat/{messageId} {
+    // Trip-specific traveler chat — all signed-in users can read and post
+    match /chats/{tripId}/messages/{messageId} {
       allow read: if isSignedIn();
 
       // Create: must own the message, max 140 chars, required fields

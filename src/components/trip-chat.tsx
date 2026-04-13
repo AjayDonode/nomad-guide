@@ -42,9 +42,11 @@ interface ChatMessage {
 interface TripChatProps {
   isOpen: boolean
   onClose: () => void
+  tripId: string | null
+  tripName: string | null
 }
 
-export function TripChat({ isOpen, onClose }: TripChatProps) {
+export function TripChat({ isOpen, onClose, tripId, tripName }: TripChatProps) {
   const { firestore } = useFirebase()
   const { user } = useUser()
 
@@ -56,13 +58,13 @@ export function TripChat({ isOpen, onClose }: TripChatProps) {
 
   // ── Real-time Firestore listener ──────────────────────────────────────────
   useEffect(() => {
-    if (!firestore || !isOpen) return
+    if (!firestore || !isOpen || !tripId) return
 
     // Only fetch messages from the last 12 hours
     const cutoff = Timestamp.fromMillis(Date.now() - TWELVE_HOURS_MS)
 
     const q = query(
-      collection(firestore, 'globalChat'),
+      collection(firestore, 'chats', tripId, 'messages'),
       where('createdAt', '>=', cutoff),
       orderBy('createdAt', 'asc'),
       limit(200)
@@ -99,13 +101,13 @@ export function TripChat({ isOpen, onClose }: TripChatProps) {
   // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = async () => {
     const text = inputText.trim()
-    if (!text || !firestore || !user || isSending) return
+    if (!text || !firestore || !user || isSending || !tripId) return
 
     setIsSending(true)
     setInputText('')
 
     try {
-      await addDoc(collection(firestore, 'globalChat'), {
+      await addDoc(collection(firestore, 'chats', tripId, 'messages'), {
         text,
         authorId:   user.uid,
         authorName: user.displayName || user.email?.split('@')[0] || 'Nomad',
@@ -158,7 +160,7 @@ export function TripChat({ isOpen, onClose }: TripChatProps) {
             <MessageCircle className="w-4 h-4 text-emerald-400" />
           </div>
           <div>
-            <p className="text-sm font-bold text-white">Traveler Chat</p>
+            <p className="text-sm font-bold text-white max-w-[200px] truncate">{tripName ? `${tripName} Chat` : 'Traveler Chat'}</p>
             <p className="text-[10px] text-slate-400 uppercase tracking-wider">
               {messages.length} {messages.length === 1 ? 'message' : 'messages'} · last 12h
             </p>

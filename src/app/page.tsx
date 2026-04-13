@@ -1364,7 +1364,12 @@ export default function DrivingDashboard() {
         )}
 
         {/* Chat panel — renders as overlay, map stays live underneath */}
-        <TripChat isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+        <TripChat 
+          isOpen={isChatOpen} 
+          onClose={() => setIsChatOpen(false)} 
+          tripId={activeTripId}
+          tripName={activeTripName}
+        />
 
         {/* Tap-outside to close FAB */}
         {isFabOpen && (
