@@ -75,9 +75,9 @@ const TurnIcon = ({ type, modifier }: { type: string, modifier?: string }) => {
   if (modifier === 'uturn' || type === 'u-turn')
     return <RotateCcw className={cn(base, "w-9 h-9 stroke-[2.5]")} />
   if (type === 'turn' || type === 'ramp' || type === 'merge' || type === 'fork') {
-    if (modifier?.includes('sharp left'))  return <CornerUpLeft  className={cn(base, "w-9 h-9 stroke-[2.5] -rotate-45")} />
+    if (modifier?.includes('sharp left')) return <CornerUpLeft className={cn(base, "w-9 h-9 stroke-[2.5] -rotate-45")} />
     if (modifier?.includes('sharp right')) return <CornerUpRight className={cn(base, "w-9 h-9 stroke-[2.5] rotate-45")} />
-    if (modifier?.includes('left'))  return <CornerUpLeft  className={cn(base, "w-9 h-9 stroke-[2.5]")} />
+    if (modifier?.includes('left')) return <CornerUpLeft className={cn(base, "w-9 h-9 stroke-[2.5]")} />
     if (modifier?.includes('right')) return <CornerUpRight className={cn(base, "w-9 h-9 stroke-[2.5]")} />
   }
   if (type === 'off ramp') return <SquareArrowOutUpRight className={cn(base, "w-9 h-9 stroke-[2]")} />
@@ -106,19 +106,19 @@ function buildInstruction(step: RouteStep, distanceM: number, unitType: string):
   if (type === 'arrive') return `You have arrived at your destination`;
   if (type === 'depart') return `Head ${modifier || 'straight'} ${road}`.trim();
   if (type === 'roundabout' || type === 'rotary') return `${dist}enter the roundabout and exit ${road}`.trim();
-  if (modifier?.includes('slight left'))  return `${dist}bear left ${road}`.trim();
+  if (modifier?.includes('slight left')) return `${dist}bear left ${road}`.trim();
   if (modifier?.includes('slight right')) return `${dist}bear right ${road}`.trim();
-  if (modifier?.includes('sharp left'))   return `${dist}turn sharp left ${road}`.trim();
-  if (modifier?.includes('sharp right'))  return `${dist}turn sharp right ${road}`.trim();
-  if (modifier?.includes('left'))   return `${dist}turn left ${road}`.trim();
-  if (modifier?.includes('right'))  return `${dist}turn right ${road}`.trim();
+  if (modifier?.includes('sharp left')) return `${dist}turn sharp left ${road}`.trim();
+  if (modifier?.includes('sharp right')) return `${dist}turn sharp right ${road}`.trim();
+  if (modifier?.includes('left')) return `${dist}turn left ${road}`.trim();
+  if (modifier?.includes('right')) return `${dist}turn right ${road}`.trim();
   return `${dist}continue straight ${road}`.trim();
 }
 
 // ── Trip Session (crash/close recovery) ───────────────────────────────────────
 const TRIP_SESSION_KEY = 'nomadguide_trip_session'
-const SESSION_AUTO_RESUME_MS  = 4  * 60 * 60 * 1000 // < 4h  → silent auto-resume
-const SESSION_PROMPT_MS       = 12 * 60 * 60 * 1000 // 4–12h → ask user; >12h → discard
+const SESSION_AUTO_RESUME_MS = 4 * 60 * 60 * 1000 // < 4h  → silent auto-resume
+const SESSION_PROMPT_MS = 12 * 60 * 60 * 1000 // 4–12h → ask user; >12h → discard
 
 interface TripSession {
   tripId: string
@@ -133,7 +133,7 @@ interface TripSession {
 // Filler is played in chunks separated by music-only breaks so the narration
 // is distributed across the full trip rather than front-loaded.
 const FILLER_SEGMENT_MS = 10 * 60 * 1000  // 10 min: narration plays
-const MUSIC_BREAK_MS    =  7 * 60 * 1000  //  7 min: ambient music only
+const MUSIC_BREAK_MS = 7 * 60 * 1000  //  7 min: ambient music only
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function DrivingDashboard() {
@@ -157,6 +157,8 @@ export default function DrivingDashboard() {
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
   const [activePoi, setActivePoi] = useState<any | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
+  const [tellMeMorePoi, setTellMeMorePoi] = useState<any | null>(null)
+  const [playDeepDiveTour, setPlayDeepDiveTour] = useState(false)
   const [destination, setDestination] = useState<[number, number] | null>(null)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
@@ -185,7 +187,7 @@ export default function DrivingDashboard() {
   const musicGainRef = useRef<any | null>(null)
   const musicTracksRef = useRef<string[]>([])
   const wakeLockRef = useRef<any | null>(null)
-  
+
   const [suggestedSkipPoi, setSuggestedSkipPoi] = useState<any | null>(null)
   const [isFillerPlaying, setIsFillerPlaying] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
@@ -204,32 +206,32 @@ export default function DrivingDashboard() {
   useEffect(() => {
     if (!allTrips || sessionChecked.current) return
     sessionChecked.current = true
-    ;(async () => {
-      const session: TripSession | undefined = await idbGet(TRIP_SESSION_KEY)
-      if (!session) return
+      ; (async () => {
+        const session: TripSession | undefined = await idbGet(TRIP_SESSION_KEY)
+        if (!session) return
 
-      const age = Date.now() - session.lastUpdatedAt
-      if (age > SESSION_PROMPT_MS) {
-        // Session is stale — discard quietly
-        await idbDel(TRIP_SESSION_KEY)
-        return
-      }
+        const age = Date.now() - session.lastUpdatedAt
+        if (age > SESSION_PROMPT_MS) {
+          // Session is stale — discard quietly
+          await idbDel(TRIP_SESSION_KEY)
+          return
+        }
 
-      // Verify the trip still exists in Firestore
-      if (!allTrips.find(t => t.id === session.tripId)) {
-        await idbDel(TRIP_SESSION_KEY)
-        return
-      }
+        // Verify the trip still exists in Firestore
+        if (!allTrips.find(t => t.id === session.tripId)) {
+          await idbDel(TRIP_SESSION_KEY)
+          return
+        }
 
-      if (age < SESSION_AUTO_RESUME_MS) {
-        // Auto-resume: silent, no prompt needed
-        applySession(session)
-      } else {
-        // 4–12 hours: ask the user
-        setResumeSession(session)
-      }
-    })()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (age < SESSION_AUTO_RESUME_MS) {
+          // Auto-resume: silent, no prompt needed
+          applySession(session)
+        } else {
+          // 4–12 hours: ask the user
+          setResumeSession(session)
+        }
+      })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allTrips])
 
   const favoritesQuery = useMemoFirebase(() => {
@@ -252,6 +254,7 @@ export default function DrivingDashboard() {
   const voicePreference = (profile?.voicePreference as 'male' | 'female') || 'female'
   const units = profile?.units || 'metric'
   const pointerPreference = profile?.pointerPreference || 'arrow'
+  const isAdmin = profile?.isAdmin === true
 
   // activePoi is set directly from in-memory recommendedPois to avoid a Firestore
   // round-trip race condition on GPS proximity trigger while driving.
@@ -268,16 +271,16 @@ export default function DrivingDashboard() {
     if (isDriving && userLocation && recommendedPois.length) {
       let activePois = recommendedPois.filter(poi => !narratedPois.current.has(poi.name));
       if (activePois.length > 1) {
-         const distToCurrent = getDistance(userLocation[0], userLocation[1], activePois[0].latitude, activePois[0].longitude);
-         const distToNext = getDistance(userLocation[0], userLocation[1], activePois[1].latitude, activePois[1].longitude);
-         
-         // If significantly closer to the next stop, display the prompt
-         if (distToNext < (distToCurrent * 0.8)) { 
-             const skippedPoi = activePois[0];
-             if (!ignoredSkipsRef.current.has(skippedPoi.name) && (!suggestedSkipPoi || suggestedSkipPoi.name !== skippedPoi.name)) {
-                 setSuggestedSkipPoi(skippedPoi);
-             }
-         }
+        const distToCurrent = getDistance(userLocation[0], userLocation[1], activePois[0].latitude, activePois[0].longitude);
+        const distToNext = getDistance(userLocation[0], userLocation[1], activePois[1].latitude, activePois[1].longitude);
+
+        // If significantly closer to the next stop, display the prompt
+        if (distToNext < (distToCurrent * 0.8)) {
+          const skippedPoi = activePois[0];
+          if (!ignoredSkipsRef.current.has(skippedPoi.name) && (!suggestedSkipPoi || suggestedSkipPoi.name !== skippedPoi.name)) {
+            setSuggestedSkipPoi(skippedPoi);
+          }
+        }
       }
     }
   }, [isDriving, userLocation, recommendedPois, suggestedSkipPoi]);
@@ -327,7 +330,7 @@ export default function DrivingDashboard() {
       ...trip,
       distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
     })).sort((a, b) => a.distance - b.distance)
-    
+
     return tripsWithDistance.filter(t => {
       const match = t.name.toLowerCase().includes(dropdownSearch.toLowerCase())
       // If typing specifically, search everywhere. If empty/default, restrict to 50 miles.
@@ -421,7 +424,7 @@ export default function DrivingDashboard() {
       narratedPoiNames: [],
       lastVisitedPoiIndex: -1,
       lastUpdatedAt: Date.now(),
-    } satisfies TripSession).catch(() => {})
+    } satisfies TripSession).catch(() => { })
     toast({ title: "Trip Selected", description: `Following ${trip.name}` })
   }
 
@@ -434,7 +437,7 @@ export default function DrivingDashboard() {
       narratedPoiNames: poiNames,
       lastVisitedPoiIndex: lastIndex,
       lastUpdatedAt: Date.now(),
-    } satisfies TripSession).catch(() => {})
+    } satisfies TripSession).catch(() => { })
   }
 
   /** Applies a saved session: pre-populates narrated set and selects the trip. */
@@ -452,7 +455,7 @@ export default function DrivingDashboard() {
 
   /** Removes the active session (called after normal trip completion). */
   const clearTripSession = () => {
-    idbDel(TRIP_SESSION_KEY).catch(() => {})
+    idbDel(TRIP_SESSION_KEY).catch(() => { })
   }
 
   const startDriving = async () => {
@@ -469,9 +472,9 @@ export default function DrivingDashboard() {
     try {
       const docEl = document.documentElement as any;
       if (docEl.requestFullscreen) {
-        await docEl.requestFullscreen().catch(() => {});
+        await docEl.requestFullscreen().catch(() => { });
       } else if (docEl.webkitRequestFullscreen) {
-        await docEl.webkitRequestFullscreen().catch(() => {});
+        await docEl.webkitRequestFullscreen().catch(() => { });
       }
     } catch (e) {
       console.warn("Fullscreen request failed", e)
@@ -536,8 +539,8 @@ export default function DrivingDashboard() {
       }
     }
 
-      // Filler audio streams directly from Firebase Storage at playback time.
-      // No prefetch needed — streaming avoids IndexedDB size limits for long files.
+    // Filler audio streams directly from Firebase Storage at playback time.
+    // No prefetch needed — streaming avoids IndexedDB size limits for long files.
 
     setIsStartingTour(false)
     setIsDriving(true)
@@ -546,9 +549,9 @@ export default function DrivingDashboard() {
       introPlayed.current = true
 
       // Snapshot trip data now — closures inside callbacks can be stale after re-render
-      const snapshotTripId   = activeTripId;
-      const snapshotTrip     = activeTrip;
-      const snapshotVoice    = voicePreference;
+      const snapshotTripId = activeTripId;
+      const snapshotTrip = activeTrip;
+      const snapshotVoice = voicePreference;
 
       // Reset filler state for fresh trip start
       fillerOffsetRef.current = 0;
@@ -583,21 +586,21 @@ export default function DrivingDashboard() {
         // Use 100% Free Native Browser Speech API for the Intro. No AI tokens.
         const utterance = new SpeechSynthesisUtterance(introText);
         if (snapshotVoice === 'male') {
-           const voices = window.speechSynthesis.getVoices();
-           const maleVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
-           if (maleVoice) utterance.voice = maleVoice;
+          const voices = window.speechSynthesis.getVoices();
+          const maleVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
+          if (maleVoice) utterance.voice = maleVoice;
         }
 
         // Safety: some desktop browsers (Chrome) fire onend unreliably.
         // Estimate speech duration + 1s buffer and use setTimeout as a backup trigger.
         const estimatedDurationMs = Math.max(introText.length * 65, 2000);
         let fillerTriggered = false;
-        
+
         const executeNextStep = () => {
-          if (!fillerTriggered) { 
-            fillerTriggered = true; 
+          if (!fillerTriggered) {
+            fillerTriggered = true;
             if (!isFarFromStart) {
-              triggerFiller(); 
+              triggerFiller();
             }
           }
         };
@@ -608,7 +611,7 @@ export default function DrivingDashboard() {
           clearTimeout(fillerSafetyTimer);
           executeNextStep();
         };
-        
+
         window.speechSynthesis.cancel(); // Cancel any existing speech
         window.speechSynthesis.speak(utterance);
       } catch (e) {
@@ -632,12 +635,12 @@ export default function DrivingDashboard() {
     if (segmentBreakTimerRef.current) { clearTimeout(segmentBreakTimerRef.current); segmentBreakTimerRef.current = null; }
     // Stop filler audio and clean up gain node
     if (fillerPlayerRef.current) {
-      try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+      try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch (e) { }
       fillerPlayerRef.current = null;
       setIsFillerPlaying(false);
     }
     if (fillerGainRef.current) {
-      try { fillerGainRef.current.dispose(); } catch(e){}
+      try { fillerGainRef.current.dispose(); } catch (e) { }
       fillerGainRef.current = null;
     }
     fillerOffsetRef.current = 0;
@@ -650,9 +653,9 @@ export default function DrivingDashboard() {
       const doc = document as any;
       if (doc.fullscreenElement || doc.webkitFullscreenElement) {
         if (doc.exitFullscreen) {
-          doc.exitFullscreen().catch(() => {})
+          doc.exitFullscreen().catch(() => { })
         } else if (doc.webkitExitFullscreen) {
-          doc.webkitExitFullscreen().catch(() => {})
+          doc.webkitExitFullscreen().catch(() => { })
         }
       }
     } catch (e) { }
@@ -699,7 +702,7 @@ export default function DrivingDashboard() {
 
       const playTrack = (url: string) => {
         if (musicPlayerRef.current) {
-          try { musicPlayerRef.current.stop(); musicPlayerRef.current.dispose(); } catch(e){}
+          try { musicPlayerRef.current.stop(); musicPlayerRef.current.dispose(); } catch (e) { }
           musicPlayerRef.current = null;
         }
         const player = new Tone.Player({
@@ -742,11 +745,11 @@ export default function DrivingDashboard() {
     musicGainRef.current.gain.rampTo(0, 2);
     setTimeout(() => {
       if (musicPlayerRef.current) {
-        try { musicPlayerRef.current.stop(); musicPlayerRef.current.dispose(); } catch(e){}
+        try { musicPlayerRef.current.stop(); musicPlayerRef.current.dispose(); } catch (e) { }
         musicPlayerRef.current = null;
       }
       if (musicGainRef.current) {
-        try { musicGainRef.current.dispose(); } catch(e){}
+        try { musicGainRef.current.dispose(); } catch (e) { }
         musicGainRef.current = null;
       }
     }, 2200);
@@ -767,10 +770,10 @@ export default function DrivingDashboard() {
     trip?: any;
     voice?: string;
   }) => {
-    const tripId = opts?.tripId   ?? activeTripId;
-    const trip   = opts?.trip     ?? activeTrip;
-    const voice  = opts?.voice    ?? voicePreference;
-    const offset = opts?.offset   ?? 0;
+    const tripId = opts?.tripId ?? activeTripId;
+    const trip = opts?.trip ?? activeTrip;
+    const voice = opts?.voice ?? voicePreference;
+    const offset = opts?.offset ?? 0;
 
     if (!tripId || !autoNarrate) return;
 
@@ -783,7 +786,7 @@ export default function DrivingDashboard() {
 
         // Tear down previous player
         if (fillerPlayerRef.current) {
-          try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+          try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch (e) { }
           fillerPlayerRef.current = null;
         }
 
@@ -831,7 +834,7 @@ export default function DrivingDashboard() {
             // TTS fallback
             const fillerText = trip?.fillerGeneratedText || trip?.fillerBaseText;
             if (fillerText) {
-              try { window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(fillerText); s.rate = 0.95; window.speechSynthesis.speak(s); } catch(e) {}
+              try { window.speechSynthesis.cancel(); const s = new SpeechSynthesisUtterance(fillerText); s.rate = 0.95; window.speechSynthesis.speak(s); } catch (e) { }
             }
           }
         });
@@ -839,7 +842,7 @@ export default function DrivingDashboard() {
         player.connect(fillerMeterRef.current);
         fillerPlayerRef.current = player;
         return;
-      } catch(e) {
+      } catch (e) {
         console.warn('Tone.Player filler stream error:', e);
       }
     }
@@ -886,8 +889,8 @@ export default function DrivingDashboard() {
     }
 
     let silenceStartTime: number | null = null;
-    const SILENCE_THRESHOLD_DB = -35; 
-    const REQUIRED_SILENCE_MS = 250; 
+    const SILENCE_THRESHOLD_DB = -35;
+    const REQUIRED_SILENCE_MS = 250;
 
     pauseCheckIntervalRef.current = setInterval(() => {
       if (!isFillerPlaying || !fillerPlayerRef.current || !fillerMeterRef.current) {
@@ -906,12 +909,12 @@ export default function DrivingDashboard() {
         } else if (Date.now() - silenceStartTime >= REQUIRED_SILENCE_MS) {
           // Found a full stop! Pause right here.
           console.log(`[NomadGuide] Perfect stop detected at level ${level}dB, pausing filler.`);
-          stopFillerAndSave(); 
+          stopFillerAndSave();
           if (pauseCheckIntervalRef.current) clearInterval(pauseCheckIntervalRef.current);
           pauseCheckIntervalRef.current = null;
         }
       } else {
-        silenceStartTime = null; 
+        silenceStartTime = null;
       }
     }, 50);
   }
@@ -936,7 +939,7 @@ export default function DrivingDashboard() {
       // Save final position (position at fade start + fade duration = where audio has reached)
       fillerOffsetRef.current = positionAtFadeStart + durationSecs;
       if (fillerPlayerRef.current) {
-        try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+        try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch (e) { }
         fillerPlayerRef.current = null;
       }
       fillerFadeTimerRef.current = null;
@@ -966,7 +969,7 @@ export default function DrivingDashboard() {
     }
 
     if (fillerPlayerRef.current) {
-      try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch(e){}
+      try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch (e) { }
       fillerPlayerRef.current = null;
     }
 
@@ -988,7 +991,7 @@ export default function DrivingDashboard() {
       const synth = new SpeechSynthesisUtterance(fillerText);
       synth.rate = 0.95;
       window.speechSynthesis.speak(synth);
-    } catch(e) { console.warn('Filler speechSynthesis fallback failed', e); }
+    } catch (e) { console.warn('Filler speechSynthesis fallback failed', e); }
   }
 
   const formatDisplayDistance = (km: number, unitType: string) => {
@@ -1012,7 +1015,7 @@ export default function DrivingDashboard() {
   useEffect(() => {
     if (isDriving && autoNarrate && nextStep) {
       const spokenInstruction = buildInstruction(nextStep, nextStep.distance, units);
-      
+
       // Only speak when the instruction actually changes
       if (prevStepNameRef.current !== spokenInstruction) {
         prevStepNameRef.current = spokenInstruction;
@@ -1048,7 +1051,7 @@ export default function DrivingDashboard() {
 
     const releaseWakeLock = async () => {
       if (wakeLockRef.current) {
-        try { await wakeLockRef.current.release(); } catch(e){}
+        try { await wakeLockRef.current.release(); } catch (e) { }
         wakeLockRef.current = null;
         console.log('[NomadGuide] Screen wake lock released.');
       }
@@ -1079,7 +1082,7 @@ export default function DrivingDashboard() {
         // Cancelling resets the queue so new TTS calls work immediately.
         try {
           window.speechSynthesis.cancel();
-        } catch (e) {}
+        } catch (e) { }
 
         // ── 3. Restart filler audio if it was playing when the call came in ──
         // The Tone.Player silently stops when the AudioContext is suspended.
@@ -1118,6 +1121,17 @@ export default function DrivingDashboard() {
   // ──────────────────────────────────────────────────────────────────────────
 
 
+  const simulateAdminNextStop = () => {
+    if (upcomingPois && upcomingPois.length > 0) {
+      const next = upcomingPois[0]
+      // Teleport to ~44 meters from the next POI to trigger the 60m proximity boundary (0.0004 diff)
+      setUserLocation([next.latitude + 0.0004, next.longitude + 0.0004])
+      toast({ title: 'Admin Simulator', description: `Jumped to ${next.name}` })
+    } else {
+      toast({ title: 'Admin Simulator', description: 'End of route' })
+    }
+  }
+
   if (!userLocation) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
@@ -1154,24 +1168,29 @@ export default function DrivingDashboard() {
             </div>
           </div>
         ) : (
-           <div className="flex-1" />
+          <div className="flex-1" />
         )}
 
         {/* Floating Action Buttons (Top Right) */}
         <div className="pointer-events-auto flex flex-col gap-3 ml-auto">
-            {!isDriving && (
-              user ? <UserMenu /> : (
-                <Button onClick={() => router.push('/login')} variant="secondary" size="icon" className="h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10">
-                  <LogIn className="w-5 h-5 text-primary" />
-                </Button>
-              )
-            )}
-            <Button variant="secondary" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", autoNarrate ? "text-accent bg-white/10" : "text-muted-foreground opacity-70")}>
-              {autoNarrate ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          {!isDriving && (
+            user ? <UserMenu /> : (
+              <Button onClick={() => router.push('/login')} variant="secondary" size="icon" className="h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10">
+                <LogIn className="w-5 h-5 text-primary" />
+              </Button>
+            )
+          )}
+          {isAdmin && isDriving && (
+            <Button variant="secondary" size="icon" onClick={simulateAdminNextStop} className="h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-yellow-500/50 bg-yellow-500/10 text-yellow-500" title="Admin: Jump to Next Stop">
+              <MapIcon className="w-5 h-5" />
             </Button>
-            <Button variant="secondary" size="icon" onClick={() => setIsCompassActive(!isCompassActive)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", isCompassActive ? "bg-primary/20 text-primary" : "bg-white/5 text-muted-foreground")}>
-              <Compass className={cn("w-5 h-5 transition-transform duration-700", isCompassActive ? "text-primary" : "opacity-50")} />
-            </Button>
+          )}
+          <Button variant="secondary" size="icon" onClick={() => setAutoNarrate(!autoNarrate)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", autoNarrate ? "text-accent bg-white/10" : "text-muted-foreground opacity-70")}>
+            {autoNarrate ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          </Button>
+          <Button variant="secondary" size="icon" onClick={() => setIsCompassActive(!isCompassActive)} className={cn("h-12 w-12 rounded-full glass-morphism hover:scale-105 transition-transform shadow-lg border border-white/10", isCompassActive ? "bg-primary/20 text-primary" : "bg-white/5 text-muted-foreground")}>
+            <Compass className={cn("w-5 h-5 transition-transform duration-700", isCompassActive ? "text-primary" : "opacity-50")} />
+          </Button>
         </div>
       </div>
 
@@ -1194,7 +1213,7 @@ export default function DrivingDashboard() {
         {!isDriving && activeTripId && recommendedPois.length > 0 && (
           <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card/40 backdrop-blur-2xl border-t border-white/20 rounded-t-3xl shadow-[0_-15px_50px_rgba(0,0,0,0.6)] flex flex-col max-h-[75vh] p-4 lg:max-w-2xl lg:mx-auto animate-in slide-in-from-bottom duration-500">
             <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6 shrink-0" />
-            
+
             <div className="flex items-start justify-between mb-2 shrink-0">
               <div className="pr-4">
                 <h2 className="text-2xl font-bold tracking-tight mb-1">{activeTripName}</h2>
@@ -1202,12 +1221,12 @@ export default function DrivingDashboard() {
                   <MapIcon className="w-3 h-3" />
                   <span>{recommendedPois.length} stops</span>
                   <span>•</span>
-                  <span>{formatDisplayDistance(recommendedPois[recommendedPois.length-1].distance || 0, units)} total</span>
+                  <span>{formatDisplayDistance(recommendedPois[recommendedPois.length - 1].distance || 0, units)} total</span>
                 </div>
               </div>
               <Button variant="ghost" size="icon" className="h-10 w-10 bg-white/5 rounded-full hover:bg-white/10 transition-colors" onClick={() => setActiveTripId(null)}><X className="w-5 h-5" /></Button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto min-h-0 mt-4 mb-4 pr-2 scroll-smooth">
               <div className="space-y-2">
                 {recommendedPois.map((poi, idx) => (
@@ -1231,7 +1250,7 @@ export default function DrivingDashboard() {
                 ))}
               </div>
             </div>
-            
+
             <div className="pt-4 pb-2 mt-auto flex gap-3 border-t border-white/10 shrink-0">
               <Button onClick={() => setActiveTripId(null)} variant="secondary" className="flex-[0.4] bg-white/10 hover:bg-white/20 text-white font-headline font-bold rounded-full h-14 shadow-lg text-base" disabled={isStartingTour}>
                 Cancel
@@ -1247,57 +1266,57 @@ export default function DrivingDashboard() {
           </div>
         )}
 
-        {isDriving && (
-          <>
-            {/* ── Speed Dial FAB — bottom right ── */}
-            <div className="absolute bottom-6 right-4 z-[500] flex flex-col-reverse items-end gap-3">
+        {/* ── Speed Dial FAB — bottom right ── */}
+        {!!activeTripId && (
+          <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-3">
 
-              {/* Sub-actions — slide in when FAB is open */}
-              <div
-                className={cn(
-                  "flex flex-col-reverse items-end gap-3 transition-all duration-300 overflow-hidden",
-                  isFabOpen ? "max-h-40 opacity-100 translate-y-0" : "max-h-0 opacity-0 translate-y-4 pointer-events-none"
-                )}
-              >
-                {/* Exit Trip */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-300 bg-slate-800/80 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 shadow">End Trip</span>
-                  <button
-                    onClick={() => { stopDriving(); setIsFabOpen(false); }}
-                    className="w-12 h-12 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-95 flex items-center justify-center shadow-xl shadow-red-900/50 transition-all"
-                  >
-                    <LogOut className="w-5 h-5 text-white" />
-                  </button>
-                </div>
-
-                {/* Open Chat */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-300 bg-slate-800/80 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 shadow">Traveler Chat</span>
-                  <button
-                    onClick={() => { setIsChatOpen(true); setIsFabOpen(false); }}
-                    className="w-12 h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 flex items-center justify-center shadow-xl shadow-emerald-900/50 transition-all relative"
-                  >
-                    <MessageCircle className="w-5 h-5 text-white" />
-                  </button>
-                </div>
+            {/* Sub-actions — slide in when FAB is open */}
+            <div
+              className={cn(
+                "flex flex-col items-end gap-3 transition-all duration-300 overflow-hidden",
+                isFabOpen ? "max-h-[500px] opacity-100 translate-y-0" : "max-h-0 opacity-0 translate-y-4 pointer-events-none"
+              )}
+            >
+              {/* Exit Trip */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-300 bg-slate-800/80 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 shadow">End Trip</span>
+                <button
+                  onClick={() => { stopDriving(); setActiveTripId(null); setIsFabOpen(false); }}
+                  className="w-12 h-12 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-95 flex items-center justify-center shadow-xl shadow-red-900/50 transition-all"
+                >
+                  <LogOut className="w-5 h-5 text-white" />
+                </button>
               </div>
 
-              {/* Main FAB button */}
-              <button
-                onClick={() => setIsFabOpen(prev => !prev)}
-                className={cn(
-                  "w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl transition-all duration-300 active:scale-95",
-                  isFabOpen
-                    ? "bg-slate-700 hover:bg-slate-600 rotate-45"
-                    : "bg-slate-800 hover:bg-slate-700 border border-white/10"
-                )}
-              >
-                <Menu className={cn("w-6 h-6 text-white transition-transform duration-300", isFabOpen && "rotate-45")} />
-              </button>
+              {/* Open Chat */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-300 bg-slate-800/80 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 shadow">Traveler Chat</span>
+                <button
+                  onClick={() => { setIsChatOpen(true); setIsFabOpen(false); }}
+                  className="w-12 h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 flex items-center justify-center shadow-xl shadow-emerald-900/50 transition-all relative"
+                >
+                  <MessageCircle className="w-5 h-5 text-white" />
+                </button>
+              </div>
             </div>
 
-            <UpcomingPoiGallery upcomingPois={upcomingPois} />
-          </>
+            {/* Main FAB button */}
+            <button
+              onClick={() => setIsFabOpen(prev => !prev)}
+              className={cn(
+                "w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl transition-all duration-300 active:scale-95",
+                isFabOpen
+                  ? "bg-slate-700 hover:bg-slate-600 rotate-45"
+                  : "bg-slate-800 hover:bg-slate-700 border border-white/10"
+              )}
+            >
+              <Menu className={cn("w-6 h-6 text-white transition-transform duration-300", isFabOpen && "rotate-45")} />
+            </button>
+          </div>
+        )}
+
+        {isDriving && (
+          <UpcomingPoiGallery upcomingPois={upcomingPois} />
         )}
 
         {/* Resume Trip Prompt — shown for sessions 4–12 hours old */}
@@ -1317,7 +1336,7 @@ export default function DrivingDashboard() {
             <div className="flex gap-4 w-full">
               <Button
                 onClick={async () => {
-                  await idbDel(TRIP_SESSION_KEY).catch(() => {})
+                  await idbDel(TRIP_SESSION_KEY).catch(() => { })
                   setResumeSession(null)
                 }}
                 variant="secondary"
@@ -1342,7 +1361,7 @@ export default function DrivingDashboard() {
         {isDriving && suggestedSkipPoi && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm z-[200] bg-card/40 backdrop-blur-2xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
             <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-4 text-primary">
-               <Navigation className="w-8 h-8" />
+              <Navigation className="w-8 h-8" />
             </div>
             <h3 className="text-xl font-bold mb-2">Off Route?</h3>
             <p className="text-sm text-muted-foreground mb-8">It looks like you're bypassing <strong>{suggestedSkipPoi.name}</strong>. Should we skip to the next point?</p>
@@ -1363,10 +1382,29 @@ export default function DrivingDashboard() {
           </div>
         )}
 
+        {/* Tell Me More Prompt */}
+        {isDriving && tellMeMorePoi && (
+          <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[200] bg-card/60 backdrop-blur-2xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in slide-in-from-bottom flex flex-col">
+            <h3 className="text-xl font-bold mb-2">Tell me more?</h3>
+            <p className="text-sm text-muted-foreground mb-6">Would you like a deeper dive into this area?</p>
+            <div className="flex gap-4 w-full">
+              <Button onClick={() => setTellMeMorePoi(null)} variant="secondary" className="flex-1 rounded-full h-12 bg-white/10 hover:bg-white/20 font-bold text-sm shadow-sm">
+                No thanks
+              </Button>
+              <Button onClick={() => {
+                setTellMeMorePoi(null);
+                setPlayDeepDiveTour(true);
+              }} className="flex-1 rounded-full h-12 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/50">
+                Yes, Tell Me More
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Chat panel — renders as overlay, map stays live underneath */}
-        <TripChat 
-          isOpen={isChatOpen} 
-          onClose={() => setIsChatOpen(false)} 
+        <TripChat
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
           tripId={activeTripId}
           tripName={activeTripName}
         />
@@ -1374,7 +1412,7 @@ export default function DrivingDashboard() {
         {/* Tap-outside to close FAB */}
         {isFabOpen && (
           <div
-            className="absolute inset-0 z-[490]"
+            className="fixed inset-0 z-[9990]"
             onClick={() => setIsFabOpen(false)}
           />
         )}
@@ -1386,10 +1424,16 @@ export default function DrivingDashboard() {
           nextPoiDistance={nextPoiInfo?.distance}
           autoStart={autoNarrate}
           hidden={true}
-          onFinish={() => {
+          playDeepDive={playDeepDiveTour}
+          onFinish={(playedDeepDive) => {
             setIsCaptionVisible(false);
-            restoreMusic();        // Fade music back up after narration
-            resumeFillerAudio();   // Resume filler from where it was paused (not from start)
+            if (!playedDeepDive && activePoi && (activePoi.deepDiveText || activePoi.deepDiveAudioFemaleDataUri || activePoi.deepDiveAudioMaleDataUri)) {
+              setTellMeMorePoi(activePoi);
+            } else {
+              setPlayDeepDiveTour(false);
+              restoreMusic();        // Fade music back up after narration
+              resumeFillerAudio();   // Resume filler from where it was paused (not from start)
+            }
           }}
         />
 
@@ -1404,10 +1448,10 @@ export default function DrivingDashboard() {
         {user && !isDriving && !activeTripId && (
           <div className="absolute bottom-0 left-0 right-0 z-[100] bg-card/40 backdrop-blur-2xl border-t border-white/20 rounded-t-3xl shadow-2xl flex flex-col max-h-[70vh] p-4 pb-8 animate-in slide-in-from-bottom duration-500">
             <div className="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6" />
-            
+
             <div className="relative mb-6 px-2 lg:max-w-2xl lg:mx-auto lg:w-full">
               <div className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50 flex items-center justify-center">
-                 <Search className="w-full h-full" />
+                <Search className="w-full h-full" />
               </div>
               <Input
                 placeholder="Where to?"
@@ -1416,7 +1460,7 @@ export default function DrivingDashboard() {
                 className="pl-12 h-14 bg-black/40 border-black/50 text-white placeholder:text-white/50 text-base font-bold rounded-2xl shadow-inner w-full"
               />
             </div>
-            
+
             <ScrollArea className="flex-1 px-2 lg:max-w-2xl lg:mx-auto lg:w-full min-h-[300px]">
               {dropdownSearch.length > 0 ? (
                 <div className="space-y-1 pb-4">
@@ -1426,8 +1470,8 @@ export default function DrivingDashboard() {
                       <div className="flex flex-col gap-1">
                         <span className="font-bold text-base">{trip.name}</span>
                         <div className="flex items-center gap-2">
-                           <Badge variant="secondary" className="h-5 text-[10px] bg-white/5 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
-                           <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
+                          <Badge variant="secondary" className="h-5 text-[10px] bg-white/5 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
+                          <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
                         </div>
                       </div>
                     </div>

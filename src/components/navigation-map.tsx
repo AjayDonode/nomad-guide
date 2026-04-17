@@ -117,7 +117,7 @@ function MapUpdater({ center, destination, isDriving, pois, forceRevertToDrive }
       }
     } else if (destination) {
       setHasStartedDriving(false)
-      const markers = [center, destination, ...pois.map(p => [p.latitude, p.longitude] as [number, number])]
+      const markers = [destination, ...pois.map(p => [p.latitude, p.longitude] as [number, number])]
       const bounds = L.latLngBounds(markers)
       map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 })
     } else {
@@ -277,10 +277,12 @@ export function NavigationMap({
       }
 
       // Calculate coordinates immediately so we have a straight line fallback if route fails
-      const fallbackPoints = [
-        center,
-        ...[...pois].sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map(p => [p.latitude, p.longitude] as [number, number]),
-      ]
+      const sortedFallbackPois = [...pois].sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+      const fallbackPoints: [number, number][] = [];
+      if (isDriving || sortedFallbackPois.length === 0) {
+        fallbackPoints.push(center);
+      }
+      fallbackPoints.push(...sortedFallbackPois.map(p => [p.latitude, p.longitude] as [number, number]));
       if (fallbackPoints.length === 1 && destination) fallbackPoints.push(destination);
 
       const fetchRoute = () => {
@@ -298,10 +300,14 @@ export function NavigationMap({
             }
 
             const sortedPois = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-            const waypointsList = [
-              `${center[1]},${center[0]}`,
-              ...sortedPois.map(p => `${p.longitude},${p.latitude}`),
-            ];
+            const waypointsList: string[] = [];
+            
+            if (isDriving || sortedPois.length === 0) {
+               waypointsList.push(`${center[1]},${center[0]}`);
+            }
+            
+            waypointsList.push(...sortedPois.map(p => `${p.longitude},${p.latitude}`));
+
             if (sortedPois.length === 0 || (sortedPois[sortedPois.length-1].latitude !== destination[0])) {
                waypointsList.push(`${destination[1]},${destination[0]}`);
             }

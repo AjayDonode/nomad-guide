@@ -24,6 +24,7 @@ const GenerateNarrativeTourInputSchema = z.object({
     ),
   nextPoiName: z.string().optional().describe('The name of the next POI in the itinerary.'),
   nextPoiDistance: z.string().optional().describe('Formatted distance to the next POI.'),
+  estimatedDriveTimeMinutes: z.number().optional().describe('Estimated minutes of driving to reach the next POI to constrain deep dive length.'),
   language: z.string().default('en-US').describe('The desired language for the narration.'),
   voicePreference: z.enum(['male', 'female']).default('female').describe('User preferred voice gender.'),
   preGeneratedText: z.string().optional().describe('Pre-generated script to bypass duplicate text generation.')
@@ -123,7 +124,8 @@ export async function generateNarrationText(input: {
   poiName: string;
   poiDescription?: string;
   tripDescription?: string;
-}): Promise<string> {
+  estimatedDriveTimeMinutes?: number;
+}): Promise<{ introText: string; deepDiveText: string }> {
   const { output } = await narrativePrompt({
     poiName: input.poiName,
     poiDescription: input.poiDescription,
@@ -131,18 +133,22 @@ export async function generateNarrationText(input: {
     locationContext: input.tripDescription || "arriving at this landmark on a scenic driving tour",
     language: "en-US",
     voicePreference: "female",
+    estimatedDriveTimeMinutes: input.estimatedDriveTimeMinutes || 5, // fallback to 5 minutes
   });
-  if (!output?.narrationText) throw new Error("Failed to generate narration text.");
-  return output.narrationText;
+  if (!output?.introText) throw new Error("Failed to generate narration text.");
+  return { introText: output.introText, deepDiveText: output.deepDiveText };
 }
 
 const narrativePrompt = ai.definePrompt({
   name: 'narrativeTourPrompt',
   model: 'googleai/gemini-2.5-flash-lite',
   input: { schema: GenerateNarrativeTourInputSchema },
-  output: { schema: z.object({ narrationText: z.string().describe("The generated narrative text.") }) },
+  output: { schema: z.object({ 
+    introText: z.string().describe("A strict 30-second punchy introductory hook (approx 65 words)."),
+    deepDiveText: z.string().describe("A detailed continuation of the story, bounded in length by the estimated drive time to the next POI.")
+  }) },
   prompt: `You are an expert tour guide named NomadGuide AI. You have a warm, professional, and captivating personality.
-Generate a concise and captivating audio narration for a Point of Interest (POI).
+Generate a two-part audio narration for a Point of Interest (POI).
 
 POI Name: {{{poiName}}}
 Provided Description: {{#if poiDescription}}{{{poiDescription}}}{{else}}None provided. Provide a fascinating insight into this location as if you were a local historian. Find interesting facts that a tourist would love to know.{{/if}}
@@ -151,11 +157,17 @@ Location Context: {{{locationContext}}}
 {{#if nextPoiName}}
 Next stop: {{{nextPoiName}}} ({{{nextPoiDistance}}} away).
 {{/if}}
+Estimated drive time to next stop: {{{estimatedDriveTimeMinutes}}} minutes.
 
-Instructions:
-- Keep the narration concise (around 20-30 seconds).
-- Start with a welcoming hook.
-- Near the end, mention the next stop: {{{nextPoiName}}}.
+Instructions for Intro (introText):
+- Must be strictly a 30-second punchy hook (approximately 60-70 words).
+- DO NOT start with generic greetings. Jump straight into a fascinating fact or evocative description.
+- End the intro with a natural segue offering more information if they stay tuned.
+
+Instructions for Deep Dive (deepDiveText):
+- This is a continuation where you dive deep into the history or geology.
+- STRICTLY CONSTRAIN the length based on the 'Estimated drive time'. At 130 words per minute, fill no more than 80% of the drive time. (e.g., if 2 minutes away, generate ~200 words max. If 10 minutes away, generate a long ~1000 word story).
+{{#if nextPoiName}}- Near the end of the Deep Dive, naturally transition to mention the next stop: {{{nextPoiName}}}.{{/if}}
 `,
 });
 
