@@ -17,8 +17,7 @@ interface AudioTourControllerProps {
   nextPoiDistance?: string
   autoStart?: boolean
   hidden?: boolean
-  playDeepDive?: boolean
-  onFinish?: (playedDeepDive?: boolean) => void
+  onFinish?: () => void
 }
 
 export function AudioTourController({
@@ -27,7 +26,6 @@ export function AudioTourController({
   nextPoiDistance,
   autoStart = false,
   hidden = false,
-  playDeepDive = false,
   onFinish
 }: AudioTourControllerProps) {
   const { firestore } = useFirebase()
@@ -77,23 +75,7 @@ export function AudioTourController({
     handleGenerateAndPlay();
   }
 
-  useEffect(() => {
-    if (playDeepDive && poi && !isPlaying) {
-      const url = voicePreference === 'male' ? poi.deepDiveAudioMaleDataUri : poi.deepDiveAudioFemaleDataUri;
-      if (url) {
-        playAudio(url, true);
-      } else if (poi.deepDiveText) {
-        try {
-          window.speechSynthesis.cancel()
-          const utterance = new SpeechSynthesisUtterance(poi.deepDiveText)
-          utterance.onend = () => { if (onFinish) onFinish(true) }
-          window.speechSynthesis.speak(utterance)
-        } catch(e) {}
-      }
-    }
-  }, [playDeepDive, poi, isPlaying, voicePreference]);
-
-  const playAudio = async (url: string, isDeepDive = false) => {
+  const playAudio = async (url: string) => {
     if (Tone.getContext().state !== 'running') {
       try { await Tone.start() } catch (e) { console.warn("Tone start failed", e) }
     }
@@ -128,7 +110,7 @@ export function AudioTourController({
       },
       onstop: () => {
         setIsPlaying(false)
-        if (onFinish) onFinish(isDeepDive)
+        if (onFinish) onFinish()
       }
     }).toDestination()
     playerRef.current = player

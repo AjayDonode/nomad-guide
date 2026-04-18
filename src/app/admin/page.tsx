@@ -256,7 +256,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     endLongitude: -122.4167,
     fillerBaseText: "",
     fillerMood: "Captivating",
-    fillerGeneratedText: ""
+    fillerGeneratedText: "",
+    fillerAudioMaleUrl: null as string | null,
+    fillerAudioFemaleUrl: null as string | null
   })
 
   // Try to use the designer's actual location for new trips rather than the default SF coords
@@ -282,7 +284,6 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [isPublishingFiller, setIsPublishingFiller] = useState(false)
   // Per-POI state: draft narration texts (editable before publishing)
   const [poiDraftTexts, setPoiDraftTexts] = useState<Record<string, string>>({})
-  const [poiDeepDiveDraftTexts, setPoiDeepDiveDraftTexts] = useState<Record<string, string>>({})
   // Which POI is having its text AI-generated right now
   const [generatingTextPoiId, setGeneratingTextPoiId] = useState<string | null>(null)
   // Which POI is having its audio published right now
@@ -318,7 +319,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         endLongitude: existingTrip.endLongitude || -122.4167,
         fillerBaseText: existingTrip.fillerBaseText || "",
         fillerMood: existingTrip.fillerMood || "Captivating",
-        fillerGeneratedText: existingTrip.fillerGeneratedText || ""
+        fillerGeneratedText: existingTrip.fillerGeneratedText || "",
+        fillerAudioMaleUrl: existingTrip.fillerAudioMaleUrl || null,
+        fillerAudioFemaleUrl: existingTrip.fillerAudioFemaleUrl || null
       })
     }
   }, [existingTrip])
@@ -387,15 +390,14 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         estimatedTime = Math.max(1, Math.round(travelSeconds / 60));
       }
 
-      const { introText, deepDiveText } = await generateNarrationText({
+      const { narrationText } = await generateNarrationText({
         poiName: poi.name,
         poiDescription: poi.description,
         tripDescription: tripData.description,
         estimatedDriveTimeMinutes: estimatedTime
       })
       // Store in local draft state — NOT saved to Firestore yet
-      setPoiDraftTexts(prev => ({ ...prev, [poi.id]: introText }))
-      setPoiDeepDiveDraftTexts(prev => ({ ...prev, [poi.id]: deepDiveText }))
+      setPoiDraftTexts(prev => ({ ...prev, [poi.id]: narrationText }))
       toast({ title: "Script ready ✓", description: "Review and edit below, then click Publish Voice." })
     } catch (e: any) {
       toast({ variant: "destructive", title: "Generation Failed", description: e.message || String(e) })
@@ -408,8 +410,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const handlePublishSinglePoiAudio = async (poi: any) => {
     if (!firestore || !tripId) return
     const narrationText = poiDraftTexts[poi.id] ?? (poi.narrationText || "")
-    const deepDiveText = poiDeepDiveDraftTexts[poi.id] ?? (poi.deepDiveText || "")
-    if (!narrationText?.trim() && !deepDiveText?.trim()) {
+    if (!narrationText?.trim()) {
       toast({ variant: "destructive", title: "No Script", description: "Generate or type a narration script first." })
       return
     }
@@ -419,36 +420,23 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     try {
       let maleUrl = poi.audioMaleDataUri || null;
       let femaleUrl = poi.audioFemaleDataUri || null;
-      let deepUrlMale = poi.deepDiveAudioMaleDataUri || null;
-      let deepUrlFemale = poi.deepDiveAudioFemaleDataUri || null;
 
       if (narrationText?.trim()) {
         maleUrl = await callPublishVoice(tripId, `${poi.id}-intro`, narrationText, 'male')
         await new Promise(r => setTimeout(r, 2000))
         femaleUrl = await callPublishVoice(tripId, `${poi.id}-intro`, narrationText, 'female')
       }
-      
-      if (deepDiveText?.trim()) {
-        await new Promise(r => setTimeout(r, 2000))
-        deepUrlMale = await callPublishVoice(tripId, `${poi.id}-deep`, deepDiveText, 'male')
-        await new Promise(r => setTimeout(r, 2000))
-        deepUrlFemale = await callPublishVoice(tripId, `${poi.id}-deep`, deepDiveText, 'female')
-      }
 
       // Save the narration scripts + audio URLs to Firestore
       updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
         narrationText,
-        deepDiveText,
         audioMaleDataUri: maleUrl,
         audioFemaleDataUri: femaleUrl,
-        deepDiveAudioMaleDataUri: deepUrlMale,
-        deepDiveAudioFemaleDataUri: deepUrlFemale,
         updatedAt: serverTimestamp()
       })
 
       // Clear local draft (saved to Firestore now)
       setPoiDraftTexts(prev => { const n = { ...prev }; delete n[poi.id]; return n })
-      setPoiDeepDiveDraftTexts(prev => { const n = { ...prev }; delete n[poi.id]; return n })
       toast({ title: `${poi.name} — Published ✓`, description: "Audio is now live for both voices." })
     } catch (e: any) {
       toast({ variant: "destructive", title: `Failed: ${poi.name}`, description: e.message || String(e) })
@@ -468,36 +456,24 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       for (let i = 0; i < pois.length; i++) {
         const poi = pois[i]
         const narrationText = poiDraftTexts[poi.id] ?? (poi.narrationText || "")
-        const deepDiveText = poiDeepDiveDraftTexts[poi.id] ?? (poi.deepDiveText || "")
         
-        if (!narrationText?.trim() && !deepDiveText?.trim()) continue
+        if (!narrationText?.trim()) continue
 
         try {
           if (i > 0) await new Promise(r => setTimeout(r, 2500))
           let maleUrl = poi.audioMaleDataUri || null;
           let femaleUrl = poi.audioFemaleDataUri || null;
-          let deepUrlMale = poi.deepDiveAudioMaleDataUri || null;
-          let deepUrlFemale = poi.deepDiveAudioFemaleDataUri || null;
 
           if (narrationText?.trim()) {
             maleUrl = await callPublishVoice(tripId, `${poi.id}-intro`, narrationText, 'male')
             await new Promise(r => setTimeout(r, 2000))
             femaleUrl = await callPublishVoice(tripId, `${poi.id}-intro`, narrationText, 'female')
           }
-          if (deepDiveText?.trim()) {
-            await new Promise(r => setTimeout(r, 2000))
-            deepUrlMale = await callPublishVoice(tripId, `${poi.id}-deep`, deepDiveText, 'male')
-            await new Promise(r => setTimeout(r, 2000))
-            deepUrlFemale = await callPublishVoice(tripId, `${poi.id}-deep`, deepDiveText, 'female')
-          }
 
           updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
             narrationText,
-            deepDiveText,
             audioMaleDataUri: maleUrl,
             audioFemaleDataUri: femaleUrl,
-            deepDiveAudioMaleDataUri: deepUrlMale,
-            deepDiveAudioFemaleDataUri: deepUrlFemale,
             updatedAt: serverTimestamp()
           })
           successCount++
@@ -512,7 +488,6 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         }
       }
       setPoiDraftTexts({})
-      setPoiDeepDiveDraftTexts({})
       toast({ title: "All Audio Published ✓", description: `${successCount} stops live.` })
     } catch (error: any) {
       toast({ variant: "destructive", title: "Publish Failed", description: error.message })
@@ -564,6 +539,11 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           fillerAudioFemaleUrl: femaleUrl,
           updatedAt: serverTimestamp()
         });
+        setTripData(prev => ({
+          ...prev,
+          fillerAudioMaleUrl: maleUrl,
+          fillerAudioFemaleUrl: femaleUrl
+        }));
       }
 
       toast({ title: "Filler Audio Published ✓", description: "Between-stop narration is now live for drivers." });
@@ -663,43 +643,72 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
   const [playingSpecificAudioUrl, setPlayingSpecificAudioUrl] = useState<string | null>(null);
 
-  const handlePlaySpecificAudio = async (url: string | null) => {
-    if (!url) return;
-    
-    if (Tone.getContext().state !== 'running') {
-      await Tone.start();
-    }
+  const handlePlaySpecificAudio = async (url: string | null | undefined, fallbackText?: string) => {
+    if (!url && !fallbackText) return;
 
     if (playerRef.current) {
       playerRef.current.stop();
       playerRef.current.dispose();
       playerRef.current = null;
     }
+    window.speechSynthesis.cancel();
 
-    if (playingSpecificAudioUrl === url) {
+    const compareTarget = url || fallbackText;
+    if (playingSpecificAudioUrl === compareTarget) {
       setPlayingSpecificAudioUrl(null);
       setIsPreviewing(false);
       return;
     }
 
     try {
-      const player = new Tone.Player({
-        url: url,
-        onload: () => {
-          player.start();
-          setPlayingSpecificAudioUrl(url);
-          setIsPreviewing(true);
-        },
-        onstop: () => {
+      if (url) {
+        if (Tone.getContext().state !== 'running') {
+          await Tone.start();
+        }
+        
+        const player = new Tone.Player({
+          url: url,
+          onload: () => {
+            player.start();
+            setPlayingSpecificAudioUrl(url);
+            setIsPreviewing(true);
+          },
+          onstop: () => {
+            setPlayingSpecificAudioUrl(null);
+            setIsPreviewing(false);
+            player.dispose();
+            playerRef.current = null;
+          }
+        }).toDestination();
+        playerRef.current = player;
+      } else if (fallbackText) {
+        setPlayingSpecificAudioUrl(fallbackText);
+        setIsPreviewing(true);
+        const utterance = new SpeechSynthesisUtterance(fallbackText);
+        let activeVoice = null;
+        if (voicePreference === 'male') {
+          const voices = window.speechSynthesis.getVoices();
+          activeVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
+          if (activeVoice) utterance.voice = activeVoice;
+        } else {
+           const voices = window.speechSynthesis.getVoices();
+           activeVoice = voices.find(v => v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('karen') || v.name.toLowerCase().includes('samantha'));
+           if (activeVoice) utterance.voice = activeVoice;
+        }
+        utterance.onend = () => {
           setPlayingSpecificAudioUrl(null);
           setIsPreviewing(false);
-          player.dispose();
-          playerRef.current = null;
-        }
-      }).toDestination();
-      playerRef.current = player;
+        };
+        utterance.onerror = (e) => {
+          console.warn("speechSynthesis error:", e);
+          setPlayingSpecificAudioUrl(null);
+          setIsPreviewing(false);
+        };
+        // MUST fire synchronously in click handler for Safari/iOS
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (e) {
-      console.error(e);
+      console.error("Playback error:", e);
       setPlayingSpecificAudioUrl(null);
       setIsPreviewing(false);
     }
@@ -920,34 +929,40 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                   {tripData.fillerGeneratedText && (
                     <div className="space-y-2 pt-4 border-t border-white/10 mt-4">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs text-green-400">GenAI Processed Dialog</Label>
-                        {(tripData.fillerAudioMaleUrl || tripData.fillerAudioFemaleUrl) && (
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/20"
-                            onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl)}
-                          >
-                            {playingSpecificAudioUrl === (voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl) ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                          </Button>
-                        )}
+                        <Label className="text-xs text-green-400">
+                          GenAI Processed Dialog
+                          {(tripData.fillerAudioMaleUrl || tripData.fillerAudioFemaleUrl) && (
+                            <span className="ml-3 text-emerald-400 font-bold uppercase tracking-widest text-[10px]">● Live Audio</span>
+                          )}
+                        </Label>
                       </div>
                       <Textarea 
                         value={tripData.fillerGeneratedText}
                         onChange={(e) => setTripData({...tripData, fillerGeneratedText: e.target.value})}
                         className="bg-green-500/10 border-green-500/20 rounded-xl text-xs min-h-[120px] focus:border-green-500/50"
                       />
-                      <Button
-                        onClick={handlePublishFillerAudio}
-                        disabled={isPublishingFiller || !tripId}
-                        className="w-full h-10 bg-green-600 hover:bg-green-700 text-white rounded-xl shadow-lg border-none mt-2"
-                      >
-                        {isPublishingFiller ? (
-                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing Audio...</>
-                        ) : (
-                          <><Volume2 className="w-4 h-4 mr-2" /> Publish Filler Audio (Both Voices)</>
+                      <div className="flex gap-2">
+                        {(tripData.fillerAudioMaleUrl || tripData.fillerAudioFemaleUrl) && (
+                          <Button 
+                            onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl)}
+                            disabled={playingSpecificAudioUrl !== null && playingSpecificAudioUrl !== (voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl)}
+                            className="h-10 w-12 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg border-none mt-2 shrink-0 flex items-center justify-center p-0"
+                          >
+                            {playingSpecificAudioUrl === (voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl) ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                          </Button>
                         )}
-                      </Button>
+                        <Button
+                          onClick={handlePublishFillerAudio}
+                          disabled={isPublishingFiller || !tripId}
+                          className="flex-1 h-10 bg-green-600 hover:bg-green-700 text-white rounded-xl shadow-lg border-none mt-2"
+                        >
+                          {isPublishingFiller ? (
+                            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing Audio...</>
+                          ) : (
+                            <><Volume2 className="w-4 h-4 mr-2" /> Publish Filler Audio</>
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1046,16 +1061,6 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                             <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
                               Automatic Intro
                             </Label>
-                            {(poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-6 w-6 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/20"
-                                onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri)}
-                              >
-                                {playingSpecificAudioUrl === (voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri) ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                              </Button>
-                            )}
                           </div>
                           {/* Editable intro text */}
                           <Textarea
@@ -1065,36 +1070,13 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                             className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[60px] focus:border-emerald-500/40 text-slate-200 placeholder:text-white/20"
                           />
 
-                          <div className="flex items-center justify-between mt-2">
-                            <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
-                              Deep Dive Context
-                            </Label>
-                            {(poi.deepDiveAudioMaleDataUri || poi.deepDiveAudioFemaleDataUri) && (
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-6 w-6 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/20"
-                                onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? poi.deepDiveAudioMaleDataUri : poi.deepDiveAudioFemaleDataUri)}
-                              >
-                                {playingSpecificAudioUrl === (voicePreference === 'male' ? poi.deepDiveAudioMaleDataUri : poi.deepDiveAudioFemaleDataUri) ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                              </Button>
-                            )}
-                          </div>
-                          {/* Editable deep dive text */}
-                          <Textarea
-                            value={poiDeepDiveDraftTexts[poi.id] ?? (poi.deepDiveText || "")}
-                            onChange={(e) => setPoiDeepDiveDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
-                            placeholder="A longer extension of the story..."
-                            className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[60px] focus:border-emerald-500/40 text-slate-200 placeholder:text-white/20"
-                          />
-
                           {/* 🔊 Step 2: Publish audio from the script */}
                           <Button
                             onClick={() => handlePublishSinglePoiAudio(poi)}
-                            disabled={publishingAudioPoiId === poi.id || !(poiDraftTexts[poi.id] || poi.narrationText || poiDeepDiveDraftTexts[poi.id] || poi.deepDiveText)}
+                            disabled={publishingAudioPoiId === poi.id || !(poiDraftTexts[poi.id] || poi.narrationText)}
                             className={cn(
                               "w-full h-9 rounded-xl text-xs font-bold border-none transition-all mt-4",
-                              (poiDraftTexts[poi.id] || poi.narrationText || poiDeepDiveDraftTexts[poi.id] || poi.deepDiveText)
+                              (poiDraftTexts[poi.id] || poi.narrationText)
                                 ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-900/30"
                                 : "bg-white/5 text-muted-foreground cursor-not-allowed"
                             )}
@@ -1102,7 +1084,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                             {publishingAudioPoiId === poi.id ? (
                               <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing Audio...</>
                             ) : (
-                              <><Volume2 className="w-3.5 h-3.5 mr-2" />Publish Voice (All Tracks)</>
+                              <><Volume2 className="w-3.5 h-3.5 mr-2" />Publish Voice (Both Tracks)</>
                             )}
                           </Button>
                         </div>
@@ -1175,6 +1157,13 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
             onStartPointSet={(lat, lng) => setTripData({...tripData, startLatitude: lat, startLongitude: lng})}
             onPoiMove={handlePoiMove}
             onPoiDelete={(poiId) => deleteDocumentNonBlocking(doc(firestore!, 'trips', tripId!, 'trip_pois', poiId))}
+            onPoiPlay={(poiId, idx) => {
+              if (playingPoiId === poiId) {
+                stopPreview()
+              } else {
+                handlePreviewAudio(idx)
+              }
+            }}
           />
         </section>
       </div>

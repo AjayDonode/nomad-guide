@@ -23,10 +23,12 @@ import {
   Map as MapIcon,
   MessageCircle,
   Menu,
-  LogOut
+  LogOut,
+  Star
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
@@ -157,8 +159,6 @@ export default function DrivingDashboard() {
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
   const [activePoi, setActivePoi] = useState<any | null>(null)
   const [nextPoiInfo, setNextPoiInfo] = useState<{ poi: any, distance: string } | null>(null)
-  const [tellMeMorePoi, setTellMeMorePoi] = useState<any | null>(null)
-  const [playDeepDiveTour, setPlayDeepDiveTour] = useState(false)
   const [destination, setDestination] = useState<[number, number] | null>(null)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
@@ -166,6 +166,19 @@ export default function DrivingDashboard() {
   const [activeTripName, setActiveTripName] = useState("")
   const [isCaptionVisible, setIsCaptionVisible] = useState(false)
   const [isStartingTour, setIsStartingTour] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState(0) // 0-100 during prefetch
+
+  // Feedback Flow
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [tripToRate, setTripToRate] = useState<any>(null)
+  const [feedbackRating, setFeedbackRating] = useState(0)
+  const [feedbackComment, setFeedbackComment] = useState("")
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
+
+  // Far-from-start banner
+  const [showFarFromStart, setShowFarFromStart] = useState(false)
+  const [distanceToStart, setDistanceToStart] = useState<string | null>(null)
+  const [startPointCoords, setStartPointCoords] = useState<[number, number] | null>(null)
 
   const narratedPois = useRef<Set<string>>(new Set())
   const ignoredSkipsRef = useRef<Set<string>>(new Set())
@@ -458,12 +471,53 @@ export default function DrivingDashboard() {
     idbDel(TRIP_SESSION_KEY).catch(() => { })
   }
 
-  const startDriving = async () => {
+  const startDriving = async (skipDistanceCheck = false) => {
     if (!user) {
       toast({ title: "Auth Required", description: "Please sign in to start navigation." })
       router.push('/login')
       return
     }
+
+    // ── 1-mile start-point distance check ─────────────────────────────────
+    if (!skipDistanceCheck && userLocation && recommendedPois.length > 0) {
+      const firstPoi = recommendedPois.find(p => !narratedPois.current.has(p.name)) || recommendedPois[0]
+      const distKm = getDistance(userLocation[0], userLocation[1], firstPoi.latitude, firstPoi.longitude)
+      const ONE_MILE_KM = 1.60934
+      if (distKm > ONE_MILE_KM) {
+        const distStr = units === 'imperial'
+          ? `${(distKm * 0.621371).toFixed(1)} mi`
+          : `${distKm.toFixed(1)} km`
+        setDistanceToStart(distStr)
+        setStartPointCoords([firstPoi.latitude, firstPoi.longitude])
+        setShowFarFromStart(true)
+
+        // Speak the welcome TTS announcement
+        if ('speechSynthesis' in window) {
+          try {
+            window.speechSynthesis.cancel()
+            const ttsText = `Welcome! You are away from your trip's starting point. Drive to ${firstPoi.name} to enjoy the tour.`
+            const utterance = new SpeechSynthesisUtterance(ttsText)
+            utterance.rate = 0.95
+            utterance.pitch = 1.05
+            if (voicePreference === 'male') {
+              const voices = window.speechSynthesis.getVoices()
+              const maleVoice = voices.find(v =>
+                v.name.toLowerCase().includes('male') ||
+                v.name.toLowerCase().includes('david') ||
+                v.name.toLowerCase().includes('daniel')
+              )
+              if (maleVoice) utterance.voice = maleVoice
+            }
+            window.speechSynthesis.speak(utterance)
+          } catch (e) {
+            console.warn('Far-from-start TTS failed', e)
+          }
+        }
+
+        return
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────
 
     if (Tone.getContext().state !== 'running') {
       await Tone.start()
@@ -481,6 +535,7 @@ export default function DrivingDashboard() {
     }
 
     setIsStartingTour(true)
+    setDownloadProgress(0)
 
     // Prefetch all POI audio for OFFLINE access first
     if (recommendedPois.length > 0) {
@@ -530,6 +585,9 @@ export default function DrivingDashboard() {
         } catch (err) {
           console.error("Failed to prefetch audio for POI: ", poi.name, err);
         }
+
+        // Update ring after every stop (whether cached, downloaded, or skipped)
+        setDownloadProgress(Math.round(((i + 1) / recommendedPois.length) * 100));
       }
 
       if (cachedCount === recommendedPois.length && recommendedPois.length > 0) {
@@ -1257,7 +1315,26 @@ export default function DrivingDashboard() {
               </Button>
               <Button onClick={startDriving} disabled={isStartingTour} className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-headline tracking-wide font-bold rounded-full h-14 shadow-lg shadow-primary/20 text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
                 {isStartingTour ? (
-                  <span className="flex items-center"><Navigation className="w-5 h-5 mr-2 animate-spin" /> DOWNLOADING...</span>
+                  <span className="flex items-center gap-2.5">
+                    {/* Circular progress ring */}
+                    <span className="relative inline-flex items-center justify-center w-8 h-8 shrink-0">
+                      <svg className="absolute inset-0 w-8 h-8 -rotate-90" viewBox="0 0 32 32">
+                        {/* Track */}
+                        <circle cx="16" cy="16" r="13" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
+                        {/* Progress arc */}
+                        <circle
+                          cx="16" cy="16" r="13" fill="none"
+                          stroke="white" strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeDasharray={`${2 * Math.PI * 13}`}
+                          strokeDashoffset={`${2 * Math.PI * 13 * (1 - downloadProgress / 100)}`}
+                          style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+                        />
+                      </svg>
+                      <span className="text-[9px] font-black text-white tabular-nums relative z-10">{downloadProgress}%</span>
+                    </span>
+                    <span className="tracking-wider text-sm">DOWNLOADING...</span>
+                  </span>
                 ) : (
                   <><Play className="w-5 h-5 mr-2 fill-current" /> GO</>
                 )}
@@ -1382,25 +1459,6 @@ export default function DrivingDashboard() {
           </div>
         )}
 
-        {/* Tell Me More Prompt */}
-        {isDriving && tellMeMorePoi && (
-          <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[200] bg-card/60 backdrop-blur-2xl border border-white/20 p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center animate-in slide-in-from-bottom flex flex-col">
-            <h3 className="text-xl font-bold mb-2">Tell me more?</h3>
-            <p className="text-sm text-muted-foreground mb-6">Would you like a deeper dive into this area?</p>
-            <div className="flex gap-4 w-full">
-              <Button onClick={() => setTellMeMorePoi(null)} variant="secondary" className="flex-1 rounded-full h-12 bg-white/10 hover:bg-white/20 font-bold text-sm shadow-sm">
-                No thanks
-              </Button>
-              <Button onClick={() => {
-                setTellMeMorePoi(null);
-                setPlayDeepDiveTour(true);
-              }} className="flex-1 rounded-full h-12 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/50">
-                Yes, Tell Me More
-              </Button>
-            </div>
-          </div>
-        )}
-
         {/* Chat panel — renders as overlay, map stays live underneath */}
         <TripChat
           isOpen={isChatOpen}
@@ -1424,15 +1482,26 @@ export default function DrivingDashboard() {
           nextPoiDistance={nextPoiInfo?.distance}
           autoStart={autoNarrate}
           hidden={true}
-          playDeepDive={playDeepDiveTour}
-          onFinish={(playedDeepDive) => {
+          onFinish={() => {
             setIsCaptionVisible(false);
-            if (!playedDeepDive && activePoi && (activePoi.deepDiveText || activePoi.deepDiveAudioFemaleDataUri || activePoi.deepDiveAudioMaleDataUri)) {
-              setTellMeMorePoi(activePoi);
-            } else {
-              setPlayDeepDiveTour(false);
-              restoreMusic();        // Fade music back up after narration
-              resumeFillerAudio();   // Resume filler from where it was paused (not from start)
+            restoreMusic();        // Fade music back up after narration
+            resumeFillerAudio();   // Resume filler from where it was paused (not from start)
+
+            // Detect Trip Completion
+            if (!nextPoiInfo?.poi && isDriving) {
+              const completedTripId = activeTripId;
+              const completedTripObj = allTrips.find(t => t.id === completedTripId);
+              
+              // End the trip automatically
+              stopDriving();
+              setActiveTripId(null);
+              setIsFabOpen(false);
+
+              // Schedule feedback popup (1 minute later for real flow, shorter for demo)
+              setTripToRate(completedTripObj || { id: completedTripId, name: activeTripName });
+              setTimeout(() => {
+                setShowFeedback(true);
+              }, 60000); // 1 minute
             }
           }}
         />
@@ -1443,6 +1512,136 @@ export default function DrivingDashboard() {
           isVisible={isCaptionVisible && !!activePoi}
           onClose={() => setIsCaptionVisible(false)}
         />
+
+        {/* ── Far-From-Start Modal ── */}
+        {showFarFromStart && startPointCoords && (
+          <div className="fixed inset-0 z-[99999] bg-black/70 backdrop-blur-sm flex items-end justify-center p-4 pb-8 animate-in fade-in duration-300">
+            <div className="bg-card border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center text-center animate-in slide-in-from-bottom duration-400">
+              {/* Icon */}
+              <div className="w-20 h-20 rounded-2xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center mb-4">
+                <Navigation className="w-10 h-10 text-amber-400" />
+              </div>
+
+              <h2 className="text-xl font-headline font-bold mb-1 tracking-tight">You're Away From the Start</h2>
+              <p className="text-sm text-muted-foreground mb-1">
+                Your trip's starting point is
+              </p>
+              <p className="text-3xl font-black text-amber-400 mb-2 tracking-tight">{distanceToStart} away</p>
+              <p className="text-xs text-white/40 mb-6 leading-relaxed">
+                Please drive to the starting point first to enjoy the full tour experience.
+              </p>
+
+              <div className="flex flex-col gap-3 w-full">
+                {/* Navigate to start — opens Google Maps */}
+                <button
+                  onClick={() => {
+                    const [lat, lng] = startPointCoords
+                    window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`, '_blank')
+                  }}
+                  className="w-full h-14 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-headline font-bold text-base shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95"
+                >
+                  <Navigation className="w-5 h-5" />
+                  Navigate to Starting Point
+                </button>
+
+                {/* Start anyway */}
+                <button
+                  onClick={() => {
+                    setShowFarFromStart(false)
+                    startDriving(true)
+                  }}
+                  className="w-full h-12 rounded-2xl bg-white/8 hover:bg-white/15 text-white/70 font-bold text-sm border border-white/10 flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  Start Tour Anyway
+                </button>
+
+                {/* Cancel */}
+                <button
+                  onClick={() => setShowFarFromStart(false)}
+                  className="w-full h-10 text-white/40 font-medium text-sm hover:text-white/60 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback Modal */}
+        {showFeedback && (
+          <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-300">
+            <div className="bg-card border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+              <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mb-4">
+                <Heart className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h2 className="text-xl font-headline font-bold mb-2">How was your trip?</h2>
+              <p className="text-sm text-muted-foreground mb-6">
+                You recently completed <strong>{tripToRate?.name}</strong>. We'd love to hear your thoughts!
+              </p>
+              
+              <div className="flex gap-2 mb-6">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button 
+                    key={star}
+                    onClick={() => setFeedbackRating(star)}
+                    className="p-1 transition-transform hover:scale-110 active:scale-95"
+                  >
+                    <Star className={cn("w-8 h-8 transition-colors", feedbackRating >= star ? "fill-amber-400 text-amber-400" : "text-white/20")} />
+                  </button>
+                ))}
+              </div>
+
+              {feedbackRating > 0 && (
+                <Textarea 
+                  placeholder="Tell us what you enjoyed most..."
+                  value={feedbackComment}
+                  onChange={(e) => setFeedbackComment(e.target.value)}
+                  className="bg-black/20 border-white/10 rounded-xl min-h-[100px] mb-6 focus:border-emerald-500/50"
+                />
+              )}
+
+              <div className="flex gap-3 w-full">
+                <Button 
+                  onClick={() => {
+                    setShowFeedback(false);
+                    setFeedbackRating(0);
+                    setFeedbackComment("");
+                  }} 
+                  variant="secondary" 
+                  className="flex-1 rounded-xl h-12 bg-white/5 hover:bg-white/10 text-white font-bold"
+                >
+                  Skip
+                </Button>
+                <Button 
+                  disabled={feedbackRating === 0 || isSubmittingFeedback}
+                  onClick={async () => {
+                    setIsSubmittingFeedback(true);
+                    try {
+                      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
+                      await addDoc(collection(firestore!, 'trip_feedback'), {
+                        tripId: tripToRate?.id,
+                        userId: user?.uid,
+                        rating: feedbackRating,
+                        comment: feedbackComment,
+                        createdAt: serverTimestamp()
+                      });
+                      toast({ title: "Thank you!", description: "Your feedback has been submitted." });
+                      setShowFeedback(false);
+                    } catch (e: any) {
+                      toast({ variant: "destructive", title: "Error", description: e.message || String(e) });
+                    } finally {
+                      setIsSubmittingFeedback(false);
+                    }
+                  }}
+                  className="flex-1 rounded-xl h-12 bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                >
+                  {isSubmittingFeedback ? <Loader2 className="w-5 h-5 animate-spin" /> : "Submit"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Waze-style Bottom Sheet for trip selection */}
         {user && !isDriving && !activeTripId && (
