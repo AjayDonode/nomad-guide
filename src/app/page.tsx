@@ -336,10 +336,19 @@ export default function DrivingDashboard() {
   const categorizedTrips = useMemo(() => {
     if (!allTrips || !userLocation) return { nearby: [], favorites: [] }
     const favoriteIds = new Set(favorites?.map(f => f.tripId) || [])
-    const tripsWithDistance = allTrips.map(trip => ({
-      ...trip,
-      distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
-    })).sort((a, b) => a.distance - b.distance)
+
+    // Only compute distance for trips that have real GPS coordinates
+    // (excludes trips where admin never set the start pin — startLatitude/Longitude = 0 or null)
+    const hasValidCoords = (trip: any) =>
+      trip.startLatitude && trip.startLongitude &&
+      Math.abs(trip.startLatitude) > 0.001 && Math.abs(trip.startLongitude) > 0.001
+
+    const tripsWithDistance = allTrips
+      .filter(hasValidCoords)
+      .map(trip => ({
+        ...trip,
+        distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
+      })).sort((a, b) => a.distance - b.distance)
     const nearby = tripsWithDistance.filter(t => t.distance <= 80.5) // ~50 miles max
     const userFavs = tripsWithDistance.filter(t => favoriteIds.has(t.id))
     return { nearby, favorites: userFavs }
@@ -347,10 +356,17 @@ export default function DrivingDashboard() {
 
   const filteredTrips = useMemo(() => {
     if (!allTrips || !userLocation) return []
-    const tripsWithDistance = allTrips.map(trip => ({
-      ...trip,
-      distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
-    })).sort((a, b) => a.distance - b.distance)
+
+    const hasValidCoords = (trip: any) =>
+      trip.startLatitude && trip.startLongitude &&
+      Math.abs(trip.startLatitude) > 0.001 && Math.abs(trip.startLongitude) > 0.001
+
+    const tripsWithDistance = allTrips
+      .filter(hasValidCoords)
+      .map(trip => ({
+        ...trip,
+        distance: getDistance(userLocation[0], userLocation[1], trip.startLatitude, trip.startLongitude)
+      })).sort((a, b) => a.distance - b.distance)
 
     return tripsWithDistance.filter(t => {
       const match = t.name.toLowerCase().includes(dropdownSearch.toLowerCase())
@@ -1820,6 +1836,9 @@ export default function DrivingDashboard() {
                     <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-accent px-2 flex items-center gap-2 mb-2">
                       <Navigation2 className="w-3 h-3" /> Nearby Trips
                     </div>
+                    {categorizedTrips.nearby.length === 0 && (
+                      <p className="text-xs text-white/30 px-2 mb-2">No trips found within 50 miles. Try searching by name above.</p>
+                    )}
                     {categorizedTrips.nearby.map((trip) => (
                       <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
                         {/* Cover thumbnail */}
@@ -1841,6 +1860,42 @@ export default function DrivingDashboard() {
                       </div>
                     ))}
                   </div>
+
+                  {/* All Trips — shown when trips lack GPS start coords */}
+                  {(() => {
+                    const nearbyIds = new Set(categorizedTrips.nearby.map(t => t.id));
+                    const favIds = new Set(categorizedTrips.favorites.map(t => t.id));
+                    const noLocationTrips = (allTrips || []).filter(t =>
+                      !nearbyIds.has(t.id) && !favIds.has(t.id) &&
+                      (!t.startLatitude || !t.startLongitude ||
+                       Math.abs(t.startLatitude) <= 0.001 || Math.abs(t.startLongitude) <= 0.001)
+                    );
+                    if (noLocationTrips.length === 0) return null;
+                    return (
+                      <div className="mb-2">
+                        <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-white/30 px-2 flex items-center gap-2 mb-2">
+                          <MapIcon className="w-3 h-3" /> All Trips
+                        </div>
+                        {noLocationTrips.map((trip: any) => (
+                          <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/10 opacity-80">
+                            <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
+                              {trip.coverImage ? (
+                                <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5">
+                                  <span className="text-lg font-black text-white/40">{trip.name?.[0]?.toUpperCase()}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                              <span className="font-bold text-base truncate text-white/80">{trip.name}</span>
+                              <Badge variant="secondary" className="h-5 text-[10px] bg-white/5 text-white/40 w-fit">Location not set</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </ScrollArea>
