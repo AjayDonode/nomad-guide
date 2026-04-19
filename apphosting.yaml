@@ -6,11 +6,8 @@ runConfig:
   # more instances in response to increased traffic.
   maxInstances: 1
 
-environmentVariables:
+env:
   - variable: GOOGLE_GENAI_API_KEY
     secret: GOOGLE_GENAI_API_KEY
   - variable: GEMINI_API_KEY
-    secret: GOOGLE_GENAI_API_KEY
-env:
-  - variable: GOOGLE_GENAI_API_KEY
     secret: GOOGLE_GENAI_API_KEY

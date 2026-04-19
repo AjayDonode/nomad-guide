@@ -405,27 +405,42 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }, 2500);
   };
 
-  /** Uploads the trip cover image as base64 and saves it to the trip document */
-  const handleCoverImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /** Uploads the trip cover image to Firebase Storage and stores the download URL in Firestore */
+  const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     if (!file.type.startsWith('image/')) return;
+    e.target.value = ''; // reset input immediately
     setIsUploadingCoverImage(true);
+
+    // Show local preview immediately while upload runs
     const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      setTripData(prev => ({ ...prev, coverImage: base64 }));
-      // If trip already saved: persist immediately so users see the new image
-      if (firestore && tripId) {
-        updateDocumentNonBlocking(doc(firestore, 'trips', tripId), {
-          coverImage: base64,
-          updatedAt: serverTimestamp()
-        });
+    reader.onloadend = async () => {
+      const base64Preview = reader.result as string;
+      setTripData(prev => ({ ...prev, coverImage: base64Preview }));
+
+      try {
+        if (storage && tripId) {
+          // Upload to Firebase Storage — much smaller Firestore docs, CDN-cached
+          const storageRef = ref(storage, `trips/${tripId}/cover.jpg`);
+          await uploadString(storageRef, base64Preview, 'data_url');
+          const downloadUrl = await getDownloadURL(storageRef);
+          setTripData(prev => ({ ...prev, coverImage: downloadUrl }));
+          // Persist URL (not base64) to Firestore
+          updateDocumentNonBlocking(doc(firestore!, 'trips', tripId), {
+            coverImage: downloadUrl,
+            updatedAt: serverTimestamp()
+          });
+        }
+        // If no tripId yet: base64 stays in state and gets saved via handleSaveTrip
+      } catch (err) {
+        console.warn('[NomadGuide Admin] Cover image upload failed, keeping local preview:', err);
+        toast({ title: 'Upload Note', description: "Image saved locally — will upload when you Save Trip.", variant: 'default' });
+      } finally {
+        setIsUploadingCoverImage(false);
       }
-      setIsUploadingCoverImage(false);
     };
     reader.readAsDataURL(file);
-    e.target.value = ''; // reset so same file can be re-uploaded if needed
   };
 
   const handleSaveTrip = () => {
