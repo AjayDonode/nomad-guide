@@ -258,7 +258,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     fillerMood: "Captivating",
     fillerGeneratedText: "",
     fillerAudioMaleUrl: null as string | null,
-    fillerAudioFemaleUrl: null as string | null
+    fillerAudioFemaleUrl: null as string | null,
+    coverImage: null as string | null, // base64 data URL for trip thumbnail
   })
 
   // Try to use the designer's actual location for new trips rather than the default SF coords
@@ -279,6 +280,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }, [tripId])
   const [isSaving, setIsSaving] = useState(false)
+  const [isUploadingCoverImage, setIsUploadingCoverImage] = useState(false)
   const [isPublishingAll, setIsPublishingAll] = useState(false)
   const [isComposingFiller, setIsComposingFiller] = useState(false)
   const [isPublishingFiller, setIsPublishingFiller] = useState(false)
@@ -324,7 +326,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         fillerMood: existingTrip.fillerMood || "Captivating",
         fillerGeneratedText: existingTrip.fillerGeneratedText || "",
         fillerAudioMaleUrl: existingTrip.fillerAudioMaleUrl || null,
-        fillerAudioFemaleUrl: existingTrip.fillerAudioFemaleUrl || null
+        fillerAudioFemaleUrl: existingTrip.fillerAudioFemaleUrl || null,
+        coverImage: existingTrip.coverImage || null,
       })
     }
   }, [existingTrip])
@@ -400,6 +403,29 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       if (!tid) return;
       computeAndStoreRoute(poisRef.current, tripData.startLatitude, tripData.startLongitude, tid);
     }, 2500);
+  };
+
+  /** Uploads the trip cover image as base64 and saves it to the trip document */
+  const handleCoverImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    if (!file.type.startsWith('image/')) return;
+    setIsUploadingCoverImage(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setTripData(prev => ({ ...prev, coverImage: base64 }));
+      // If trip already saved: persist immediately so users see the new image
+      if (firestore && tripId) {
+        updateDocumentNonBlocking(doc(firestore, 'trips', tripId), {
+          coverImage: base64,
+          updatedAt: serverTimestamp()
+        });
+      }
+      setIsUploadingCoverImage(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // reset so same file can be re-uploaded if needed
   };
 
   const handleSaveTrip = () => {
@@ -963,6 +989,64 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                   placeholder="Describe the mood and purpose of this trip..."
                   className="bg-white/5 border-white/10 rounded-2xl min-h-[120px] focus:border-primary/50 transition-colors"
                 />
+
+                {/* Trip Cover Image */}
+                <div className="space-y-2">
+                  <Label className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold">Cover Image</Label>
+                  {tripData.coverImage ? (
+                    <div className="relative group rounded-2xl overflow-hidden border border-white/10 bg-black/20">
+                      <img
+                        src={tripData.coverImage}
+                        alt="Trip cover"
+                        className="w-full h-40 object-cover"
+                      />
+                      {/* Overlay on hover */}
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                        <label
+                          htmlFor="trip-cover-upload"
+                          className="cursor-pointer flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur text-white text-xs font-bold px-4 py-2 rounded-xl border border-white/20 transition-colors"
+                        >
+                          <ImagePlus className="w-4 h-4" />
+                          Change Image
+                        </label>
+                        <button
+                          onClick={() => {
+                            setTripData(prev => ({ ...prev, coverImage: null }));
+                            if (firestore && tripId) {
+                              updateDocumentNonBlocking(doc(firestore, 'trips', tripId), { coverImage: null, updatedAt: serverTimestamp() });
+                            }
+                          }}
+                          className="flex items-center gap-2 bg-red-500/20 hover:bg-red-500/40 backdrop-blur text-red-300 text-xs font-bold px-4 py-2 rounded-xl border border-red-500/30 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor="trip-cover-upload"
+                      className="cursor-pointer flex flex-col items-center justify-center w-full h-32 rounded-2xl border-2 border-dashed border-white/15 bg-white/3 hover:bg-white/8 hover:border-primary/40 transition-all group"
+                    >
+                      {isUploadingCoverImage ? (
+                        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                      ) : (
+                        <>
+                          <ImagePlus className="w-8 h-8 text-white/30 group-hover:text-primary/60 transition-colors mb-2" />
+                          <span className="text-xs text-white/40 group-hover:text-white/60 font-medium transition-colors">Upload trip cover image</span>
+                          <span className="text-[10px] text-white/25 mt-1">Shown in trip selection dropdown</span>
+                        </>
+                      )}
+                    </label>
+                  )}
+                  <input
+                    id="trip-cover-upload"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleCoverImageUpload}
+                  />
+                </div>
               </section>
 
               <section className="space-y-4">

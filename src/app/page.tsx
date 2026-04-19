@@ -546,16 +546,47 @@ export default function DrivingDashboard() {
             const utterance = new SpeechSynthesisUtterance(ttsText)
             utterance.rate = 0.95
             utterance.pitch = 1.05
-            if (voicePreference === 'male') {
+
+            /** Picks the best matching voice for the user's preference and speaks */
+            const speakWithVoice = () => {
               const voices = window.speechSynthesis.getVoices()
-              const maleVoice = voices.find(v =>
-                v.name.toLowerCase().includes('male') ||
-                v.name.toLowerCase().includes('david') ||
-                v.name.toLowerCase().includes('daniel')
-              )
-              if (maleVoice) utterance.voice = maleVoice
+              if (voicePreference === 'male') {
+                const maleVoice = voices.find(v =>
+                  v.name.toLowerCase().includes('male') ||
+                  v.name.toLowerCase().includes('david') ||
+                  v.name.toLowerCase().includes('daniel')
+                )
+                if (maleVoice) utterance.voice = maleVoice
+              } else {
+                // Female preference: try known female voice names
+                const femaleVoice = voices.find(v =>
+                  v.name.toLowerCase().includes('female') ||
+                  v.name.toLowerCase().includes('samantha') ||
+                  v.name.toLowerCase().includes('karen') ||
+                  v.name.toLowerCase().includes('victoria') ||
+                  v.name.toLowerCase().includes('moira')
+                )
+                if (femaleVoice) utterance.voice = femaleVoice
+              }
+              window.speechSynthesis.speak(utterance)
             }
-            window.speechSynthesis.speak(utterance)
+
+            // Browsers load voices asynchronously — wait for voiceschanged if list is empty
+            const voices = window.speechSynthesis.getVoices()
+            if (voices.length > 0) {
+              speakWithVoice()
+            } else {
+              // One-time listener for when voices load, with 150ms fallback
+              let fired = false
+              const onVoicesChanged = () => {
+                if (fired) return
+                fired = true
+                window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged)
+                speakWithVoice()
+              }
+              window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged)
+              setTimeout(() => { if (!fired) { fired = true; speakWithVoice() } }, 150)
+            }
           } catch (e) {
             console.warn('Far-from-start TTS failed', e)
           }
@@ -1737,9 +1768,19 @@ export default function DrivingDashboard() {
                 <div className="space-y-1 pb-4">
                   <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2 mb-2">Search Results</div>
                   {filteredTrips.map((trip) => (
-                    <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-4 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
-                      <div className="flex flex-col gap-1">
-                        <span className="font-bold text-base">{trip.name}</span>
+                    <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
+                      {/* Cover thumbnail */}
+                      <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
+                        {trip.coverImage ? (
+                          <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20">
+                            <span className="text-lg font-black text-white/60">{trip.name?.[0]?.toUpperCase()}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1 min-w-0 flex-1">
+                        <span className="font-bold text-base truncate">{trip.name}</span>
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary" className="h-5 text-[10px] bg-white/5 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
                           <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
@@ -1756,9 +1797,19 @@ export default function DrivingDashboard() {
                         <Heart className="w-3 h-3 fill-current" /> Saved Trips
                       </div>
                       {categorizedTrips.favorites.map((trip) => (
-                        <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-4 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
-                          <div className="flex flex-col gap-1">
-                            <span className="font-bold text-base">{trip.name}</span>
+                        <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
+                          {/* Cover thumbnail */}
+                          <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
+                            {trip.coverImage ? (
+                              <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20">
+                                <span className="text-lg font-black text-white/60">{trip.name?.[0]?.toUpperCase()}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1 min-w-0 flex-1">
+                            <span className="font-bold text-base truncate">{trip.name}</span>
                             <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
                           </div>
                         </div>
@@ -1770,9 +1821,19 @@ export default function DrivingDashboard() {
                       <Navigation2 className="w-3 h-3" /> Nearby Trips
                     </div>
                     {categorizedTrips.nearby.map((trip) => (
-                      <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-4 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
-                        <div className="flex flex-col gap-1">
-                          <span className="font-bold text-base">{trip.name}</span>
+                      <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
+                        {/* Cover thumbnail */}
+                        <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
+                          {trip.coverImage ? (
+                            <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20">
+                              <span className="text-lg font-black text-white/60">{trip.name?.[0]?.toUpperCase()}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1 min-w-0 flex-1">
+                          <span className="font-bold text-base truncate">{trip.name}</span>
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary" className="h-5 text-[10px] bg-white/5">{formatDisplayDistance(trip.distance, units)} away</Badge>
                           </div>
