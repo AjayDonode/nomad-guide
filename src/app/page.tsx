@@ -512,6 +512,57 @@ export default function DrivingDashboard() {
   }, [isDriving]); // eslint-disable-line react-hooks/exhaustive-deps
   // ─────────────────────────────────────────────────────────────────────────
 
+  /** Fetches a single-leg Valhalla route from user → next POI and renders it as an in-app orange dashed line */
+  const fetchRecoveryRoute = async () => {
+    const loc = userLocationRef.current;
+    const nextPoi = recommendedPois.find(p => !narratedPois.current.has(p.name));
+    if (!loc || !nextPoi) return;
+    setIsFetchingRecovery(true);
+    try {
+      const payload = {
+        locations: [
+          { lat: loc[0], lon: loc[1] },
+          { lat: nextPoi.latitude, lon: nextPoi.longitude }
+        ],
+        costing: 'auto',
+        units: 'miles'
+      };
+      const res = await fetch('https://valhalla1.openstreetmap.de/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(`Valhalla ${res.status}`);
+      const data = await res.json();
+      if (data.trip?.legs) {
+        // Decode precision-6 polyline inline (same algorithm as NavigationMap)
+        const decodeP6 = (str: string): [number, number][] => {
+          const coords: [number, number][] = []; let lat = 0, lng = 0, index = 0; const factor = 1e6;
+          while (index < str.length) {
+            let result = 0, shift = 0, byte = 0;
+            do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+            lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+            result = 0; shift = 0;
+            do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+            lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+            coords.push([lat / factor, lng / factor]);
+          }
+          return coords;
+        };
+        const pts = data.trip.legs.flatMap((leg: any) => decodeP6(leg.shape));
+        setRecoveryRoute(pts);
+      }
+    } catch (err) {
+      console.warn('[NomadGuide] Recovery route fetch failed:', err);
+      // Fallback: draw straight line to next POI
+      if (loc && nextPoi) {
+        setRecoveryRoute([loc, [nextPoi.latitude, nextPoi.longitude]]);
+      }
+    } finally {
+      setIsFetchingRecovery(false);
+    }
+  };
+
   const saveTripSession = (poiNames: string[], lastIndex: number) => {
     if (!activeTripId) return
     idbSet(TRIP_SESSION_KEY, {
@@ -1338,14 +1389,27 @@ export default function DrivingDashboard() {
               <div className="bg-amber-500/95 backdrop-blur-xl rounded-2xl px-4 py-2.5 flex items-center gap-3 shadow-xl">
                 <Navigation className="w-4 h-4 text-white shrink-0" />
                 <span className="text-white text-xs font-bold flex-1 leading-tight">
-                  Off route — head to <strong>{nextPoi?.name || 'next stop'}</strong> to continue tour
+                  Off route — head to <strong>{nextPoi?.name || 'next stop'}</strong>
                 </span>
-                {nextPoi && (
+                {recoveryRoute ? (
                   <button
-                    onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${nextPoi.latitude},${nextPoi.longitude}&travelmode=driving`, '_blank')}
+                    onClick={() => setRecoveryRoute(null)}
                     className="text-white/80 hover:text-white text-xs font-bold underline shrink-0"
                   >
-                    Navigate
+                    Clear
+                  </button>
+                ) : (
+                  <button
+                    onClick={fetchRecoveryRoute}
+                    disabled={isFetchingRecovery}
+                    className="text-white text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1 rounded-xl shrink-0 flex items-center gap-1.5 transition-colors disabled:opacity-60"
+                  >
+                    {isFetchingRecovery ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Navigation className="w-3.5 h-3.5" />
+                    )}
+                    {isFetchingRecovery ? 'Routing…' : 'Get Back'}
                   </button>
                 )}
               </div>
@@ -1391,6 +1455,7 @@ export default function DrivingDashboard() {
           pointerType={pointerPreference}
           storedRouteLegs={activeTrip?.routeLegsShapes ?? null}
           onRouteReady={(pts) => { storedRoutePointsRef.current = pts; }}
+          recoveryRoute={recoveryRoute}
         />
 
         {/* Route Details Overview Bottom Sheet */}
