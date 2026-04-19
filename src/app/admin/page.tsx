@@ -291,6 +291,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
   const playerRef = useRef<Tone.Player | null>(null)
+  // Route pre-computation refs
+  const poisRef = useRef<any[]>([])
+  const routeComputeTimerRef = useRef<any>(null)
 
   // Fetch user preference for preview
   const userDocRef = useMemoFirebase(() => {
@@ -336,6 +339,69 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
   const { data: pois } = useCollection(poiQuery)
 
+  // Keep poisRef current for debounced route compute (avoids stale closures)
+  useEffect(() => { poisRef.current = pois || []; }, [pois])
+
+  /**
+   * Calls Valhalla once to compute the full trip route and stores the raw encoded
+   * leg shapes + turn steps in Firestore. Users then decode locally (instant).
+   * Non-blocking — returns void immediately, Firestore updates in background.
+   */
+  const computeAndStoreRoute = async (poisList: any[], startLat: number, startLng: number, currentTripId: string) => {
+    if (!firestore) return;
+    const sorted = [...(poisList || [])].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    if (sorted.length === 0) return;
+
+    const locations = [
+      { lon: startLng, lat: startLat },
+      ...sorted.map((p: any) => ({ lon: p.longitude, lat: p.latitude }))
+    ];
+
+    try {
+      const response = await fetch('https://valhalla1.openstreetmap.de/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locations, costing: 'auto', units: 'miles' })
+      });
+      if (!response.ok) return; // silent fail — doesn't block admin
+
+      const data = await response.json();
+      if (!data.trip?.legs) return;
+
+      const routeLegsShapes: string[] = data.trip.legs.map((leg: any) => leg.shape);
+      const modMap: Record<number, string> = { 9: 'right', 10: 'left', 11: 'sharp right', 12: 'sharp left', 13: 'slight right', 14: 'slight left', 15: 'uturn' };
+      const routeSteps = data.trip.legs.flatMap((leg: any) =>
+        (leg.maneuvers || [])
+          .filter((m: any) => m.type >= 9)
+          .map((m: any) => ({
+            type: 'turn',
+            modifier: modMap[m.type] || 'straight',
+            distance: m.length ? Math.round(m.length * 1609.34) : 0,
+            name: Array.isArray(m.street_names) ? m.street_names[0] : (m.instruction || '')
+          }))
+      );
+
+      updateDocumentNonBlocking(doc(firestore, 'trips', currentTripId), {
+        routeLegsShapes,
+        routeSteps,
+        routeComputedAt: serverTimestamp()
+      });
+      console.log(`[NomadGuide Admin] Route stored: ${routeLegsShapes.length} legs, ${routeSteps.length} steps`);
+    } catch(e) {
+      console.warn('[NomadGuide Admin] Route pre-compute failed (non-critical):', e);
+    }
+  };
+
+  /** Debounced route compute — prevents hammering Valhalla during rapid POI drags */
+  const scheduleRouteCompute = (overrideTripId?: string) => {
+    if (routeComputeTimerRef.current) clearTimeout(routeComputeTimerRef.current);
+    routeComputeTimerRef.current = setTimeout(() => {
+      const tid = overrideTripId || tripId;
+      if (!tid) return;
+      computeAndStoreRoute(poisRef.current, tripData.startLatitude, tripData.startLongitude, tid);
+    }, 2500);
+  };
+
   const handleSaveTrip = () => {
     if (!firestore || !user) return
     setIsSaving(true)
@@ -359,6 +425,11 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       payload,
       { merge: true }
     )
+
+    // Pre-compute route for instant user loading (non-blocking background task)
+    if (pois && pois.length > 0) {
+      computeAndStoreRoute(pois, tripData.startLatitude, tripData.startLongitude, id);
+    }
 
     setTimeout(() => {
       setIsSaving(false)
@@ -752,6 +823,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
     // Update the trip's end coordinates automatically to match the newest last stop
     setTripData(prev => ({ ...prev, endLatitude: lat, endLongitude: lng }))
+    // Schedule route recompute now that POI list changed
+    scheduleRouteCompute();
   }
 
   const handlePoiMove = (poiId: string, lat: number, lng: number) => {
@@ -761,6 +834,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       longitude: lng,
       updatedAt: serverTimestamp()
     })
+    // Recompute stored route after drag settles (debounced 2.5s)
+    scheduleRouteCompute();
   }
 
   const handleImageUpload = (poiId: string, currentImages: string[] = [], e: React.ChangeEvent<HTMLInputElement>) => {

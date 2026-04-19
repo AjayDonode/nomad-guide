@@ -39,6 +39,10 @@ interface NavigationMapProps {
   onNextStepUpdate?: (step: RouteStep | null) => void
   pointerType?: string
   isTripMode?: boolean
+  /** Pre-computed Valhalla leg shapes stored by admin on publish — skips live API call in preview mode */
+  storedRouteLegs?: string[] | null
+  /** Called once with decoded route points (for off-route detection in parent) */
+  onRouteReady?: (points: [number, number][]) => void
 }
 
 // Custom Icons
@@ -96,6 +100,23 @@ function calculateDistance(start: [number, number], end: [number, number]) {
             Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
+}
+
+/** Decodes a Valhalla precision-6 encoded polyline to [lat, lng][] coordinates. Module-level so it can be shared between stored-route and live-fetch paths. */
+function decodePolyline6(str: string): [number, number][] {
+  let index = 0, lat = 0, lng = 0;
+  const coordinates: [number, number][] = [];
+  const factor = 1e6;
+  while (index < str.length) {
+    let shift = 0, result = 0, byte: number;
+    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    coordinates.push([lat / factor, lng / factor]);
+  }
+  return coordinates;
 }
 
 function MapUpdater({ center, destination, isDriving, pois, forceRevertToDrive }: { center: [number, number], destination?: [number, number] | null, isDriving?: boolean, pois: POI[], forceRevertToDrive?: number }) {
@@ -177,7 +198,9 @@ export function NavigationMap({
   isCompassActive = false,
   onNextStepUpdate,
   pointerType = 'arrow',
-  isTripMode = false
+  isTripMode = false,
+  storedRouteLegs,
+  onRouteReady,
 }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
@@ -268,15 +291,8 @@ export function NavigationMap({
 
     if (destination) {
       const currentSignature = `${destination[0]},${destination[1]}-${pois.map(p => p.id).join('-')}`;
-      if (lastRouteSignatureRef.current !== currentSignature) {
-         cachedRoutePointsRef.current = null;
-         lastFetchedCenterRef.current = null;
-         // Visually clear out the old path immediately!
-         setRoutePoints([]); 
-         lastRouteSignatureRef.current = currentSignature;
-      }
 
-      // Calculate coordinates immediately so we have a straight line fallback if route fails
+      // Compute straight-line fallback FIRST so we can show it immediately
       const sortedFallbackPois = [...pois].sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
       const fallbackPoints: [number, number][] = [];
       if (isDriving || sortedFallbackPois.length === 0) {
@@ -284,6 +300,47 @@ export function NavigationMap({
       }
       fallbackPoints.push(...sortedFallbackPois.map(p => [p.latitude, p.longitude] as [number, number]));
       if (fallbackPoints.length === 1 && destination) fallbackPoints.push(destination);
+
+      if (lastRouteSignatureRef.current !== currentSignature) {
+         cachedRoutePointsRef.current = null;
+         lastFetchedCenterRef.current = null;
+         // Show straight-line placeholder immediately — replaced once real route arrives
+         if (fallbackPoints.length >= 2) setRoutePoints(fallbackPoints);
+         lastRouteSignatureRef.current = currentSignature;
+      }
+
+      // ── Pre-computed stored route: decode instantly in preview mode ────────
+      const sessionKey = `nomad-route-${currentSignature}`;
+      const sessionHit = (() => { try { return sessionStorage.getItem(sessionKey); } catch(e) { return null; } })();
+      if (sessionHit) {
+        try {
+          const pts = JSON.parse(sessionHit) as [number, number][];
+          setRoutePoints(pts);
+          cachedRoutePointsRef.current = pts;
+          if (!isDriving) {
+            setFullTripRoutePoints(pts);
+            onRouteReady?.(pts);
+            return; // skip Valhalla entirely in preview mode
+          }
+          onRouteReady?.(pts);
+        } catch(e) { /* corrupt cache — fall through to fetch */ }
+      } else if (storedRouteLegs && storedRouteLegs.length > 0) {
+        const coords = storedRouteLegs.flatMap(shape => decodePolyline6(shape));
+        if (coords.length > 0) {
+          setFullTripRoutePoints(coords); // always set as gray driving background
+          if (!isDriving) {
+            // Preview mode: stored route is all we need — instant, no Valhalla
+            setRoutePoints(coords);
+            cachedRoutePointsRef.current = coords;
+            try { sessionStorage.setItem(sessionKey, JSON.stringify(coords)); } catch(e) {}
+            onRouteReady?.(coords);
+            return;
+          }
+          // Driving mode: gray background set above; fall through to Valhalla for dynamic current-segment blue line
+          onRouteReady?.(coords);
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
 
       const fetchRoute = () => {
         const abortController = new AbortController();
@@ -339,27 +396,17 @@ export function NavigationMap({
             
             const data = await response.json()
             if (data.trip && data.trip.legs) {
-              const decodePolyline = (str: string, precision = 6) => {
-                  let index = 0, lat = 0, lng = 0, coordinates: [number, number][] = [], shift = 0, result = 0, byte = null, latitude_change, longitude_change, factor = Math.pow(10, precision);
-                  while (index < str.length) {
-                      byte = null; shift = 0; result = 0;
-                      do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-                      latitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lat += latitude_change;
-                      shift = 0; result = 0;
-                      do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-                      longitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lng += longitude_change;
-                      coordinates.push([lat / factor, lng / factor]);
-                  }
-                  return coordinates;
-              };
-
-              const coords = data.trip.legs.flatMap((leg: any) => decodePolyline(leg.shape, 6));
+              // Use shared module-level decoder (precision 6 = Valhalla default)
+              const coords = data.trip.legs.flatMap((leg: any) => decodePolyline6(leg.shape));
               setRoutePoints(coords);
               cachedRoutePointsRef.current = coords;
               lastFetchedCenterRef.current = center;
+              onRouteReady?.(coords);
               
               if (!isDriving) {
                 setFullTripRoutePoints(coords);
+                // Cache for instant replay within this browser session
+                try { sessionStorage.setItem(sessionKey, JSON.stringify(coords)); } catch(e) {}
               }
               
               if (data.trip.legs[0] && data.trip.legs[0].maneuvers) {
@@ -414,7 +461,7 @@ export function NavigationMap({
       setRoutePoints([])
       if (onNextStepUpdate) onNextStepUpdate(null)
     }
-  }, [center, destination, pois])
+  }, [center, destination, pois, storedRouteLegs])
   // Patch Leaflet Draggable to fix panning direction when map is CSS-rotated (e.g. heading-up mode)
   useEffect(() => {
     if (typeof window !== 'undefined' && L && !(L as any)._dragPatched) {

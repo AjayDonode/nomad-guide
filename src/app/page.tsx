@@ -162,6 +162,8 @@ export default function DrivingDashboard() {
   const [destination, setDestination] = useState<[number, number] | null>(null)
   const [autoNarrate, setAutoNarrate] = useState(true)
   const [nextStep, setNextStep] = useState<RouteStep | null>(null)
+  // Keep userLocationRef in sync so the off-route interval uses the freshest GPS fix
+  useEffect(() => { userLocationRef.current = userLocation; }, [userLocation])
   const [activeTripId, setActiveTripId] = useState<string | null>(null)
   const [activeTripName, setActiveTripName] = useState("")
   const [isCaptionVisible, setIsCaptionVisible] = useState(false)
@@ -182,6 +184,12 @@ export default function DrivingDashboard() {
 
   const narratedPois = useRef<Set<string>>(new Set())
   const ignoredSkipsRef = useRef<Set<string>>(new Set())
+  // Off-route detection
+  const storedRoutePointsRef = useRef<[number, number][]>([])
+  const userLocationRef = useRef<[number, number] | null>(null)
+  const offRouteCounterRef = useRef(0)
+  const isOffRouteRef = useRef(false)
+  const [isOffRoute, setIsOffRoute] = useState(false)
   const introPlayed = useRef<boolean>(false)
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
   const fillerPlayerRef = useRef<any | null>(null)
@@ -442,6 +450,45 @@ export default function DrivingDashboard() {
   }
 
   /** Writes current progress to IndexedDB. Called after every POI is narrated. */
+  // ── Off-route detection (checks every 6s while driving) ──────────────────
+  useEffect(() => {
+    if (!isDriving) {
+      // Reset when trip ends or hasn't started
+      offRouteCounterRef.current = 0;
+      if (isOffRouteRef.current) { isOffRouteRef.current = false; setIsOffRoute(false); }
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const loc = userLocationRef.current;
+      const routePts = storedRoutePointsRef.current;
+      if (!loc || routePts.length < 2) return;
+
+      // Sample every 4th point — fast enough for 150m detection even on long routes
+      let minDistKm = Infinity;
+      for (let i = 0; i < routePts.length; i += 4) {
+        const d = getDistance(loc[0], loc[1], routePts[i][0], routePts[i][1]);
+        if (d < minDistKm) minDistKm = d;
+      }
+
+      if (minDistKm > 0.15) { // > 150m from route
+        offRouteCounterRef.current++;
+        if (offRouteCounterRef.current >= 2 && !isOffRouteRef.current) {
+          isOffRouteRef.current = true;
+          setIsOffRoute(true);
+        }
+      } else {
+        if (offRouteCounterRef.current > 0) {
+          offRouteCounterRef.current = 0;
+          if (isOffRouteRef.current) { isOffRouteRef.current = false; setIsOffRoute(false); }
+        }
+      }
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [isDriving]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ─────────────────────────────────────────────────────────────────────────
+
   const saveTripSession = (poiNames: string[], lastIndex: number) => {
     if (!activeTripId) return
     idbSet(TRIP_SESSION_KEY, {
@@ -1229,6 +1276,29 @@ export default function DrivingDashboard() {
           <div className="flex-1" />
         )}
 
+        {/* Off-route amber banner — shown when user drifts > 150m from planned route */}
+        {isDriving && isOffRoute && (() => {
+          const nextPoi = recommendedPois.find(p => !narratedPois.current.has(p.name));
+          return (
+            <div className="pointer-events-auto mx-auto max-w-md w-full mt-2 px-4 animate-in slide-in-from-top duration-300">
+              <div className="bg-amber-500/95 backdrop-blur-xl rounded-2xl px-4 py-2.5 flex items-center gap-3 shadow-xl">
+                <Navigation className="w-4 h-4 text-white shrink-0" />
+                <span className="text-white text-xs font-bold flex-1 leading-tight">
+                  Off route — head to <strong>{nextPoi?.name || 'next stop'}</strong> to continue tour
+                </span>
+                {nextPoi && (
+                  <button
+                    onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${nextPoi.latitude},${nextPoi.longitude}&travelmode=driving`, '_blank')}
+                    className="text-white/80 hover:text-white text-xs font-bold underline shrink-0"
+                  >
+                    Navigate
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Floating Action Buttons (Top Right) */}
         <div className="pointer-events-auto flex flex-col gap-3 ml-auto">
           {!isDriving && (
@@ -1265,6 +1335,8 @@ export default function DrivingDashboard() {
           onPoiSelect={(poi) => { setSelectedPoiId(poi.id); setIsCaptionVisible(true); }}
           isTripMode={!!activeTripId}
           pointerType={pointerPreference}
+          storedRouteLegs={activeTrip?.routeLegsShapes ?? null}
+          onRouteReady={(pts) => { storedRoutePointsRef.current = pts; }}
         />
 
         {/* Route Details Overview Bottom Sheet */}
