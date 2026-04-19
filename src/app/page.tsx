@@ -190,6 +190,8 @@ export default function DrivingDashboard() {
   const offRouteCounterRef = useRef(0)
   const isOffRouteRef = useRef(false)
   const [isOffRoute, setIsOffRoute] = useState(false)
+  const [recoveryRoute, setRecoveryRoute] = useState<[number, number][] | null>(null)
+  const [isFetchingRecovery, setIsFetchingRecovery] = useState(false)
   const introPlayed = useRef<boolean>(false)
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
   const fillerPlayerRef = useRef<any | null>(null)
@@ -472,6 +474,7 @@ export default function DrivingDashboard() {
       // Reset when trip ends or hasn't started
       offRouteCounterRef.current = 0;
       if (isOffRouteRef.current) { isOffRouteRef.current = false; setIsOffRoute(false); }
+      setRecoveryRoute(null); // clear orange line when trip ends
       return;
     }
 
@@ -496,7 +499,11 @@ export default function DrivingDashboard() {
       } else {
         if (offRouteCounterRef.current > 0) {
           offRouteCounterRef.current = 0;
-          if (isOffRouteRef.current) { isOffRouteRef.current = false; setIsOffRoute(false); }
+          if (isOffRouteRef.current) {
+            isOffRouteRef.current = false;
+            setIsOffRoute(false);
+            setRecoveryRoute(null); // auto-clear orange line when back on track
+          }
         }
       }
     }, 6000);

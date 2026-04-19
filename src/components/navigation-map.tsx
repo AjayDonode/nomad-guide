@@ -43,6 +43,8 @@ interface NavigationMapProps {
   storedRouteLegs?: string[] | null
   /** Called once with decoded route points (for off-route detection in parent) */
   onRouteReady?: (points: [number, number][]) => void
+  /** When user is off-route: decoded Valhalla recovery path from user → next POI, drawn as dashed orange line */
+  recoveryRoute?: [number, number][] | null
 }
 
 // Custom Icons
@@ -201,6 +203,7 @@ export function NavigationMap({
   isTripMode = false,
   storedRouteLegs,
   onRouteReady,
+  recoveryRoute,
 }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
@@ -579,6 +582,29 @@ export function NavigationMap({
             <>
               <Polyline positions={routePoints} color="#0088FF" weight={6} opacity={0.9} lineCap="round" lineJoin="round" />
               <Polyline positions={routePoints} color="#0055FF" weight={10} opacity={0.3} lineCap="round" lineJoin="round" />
+            </>
+          )}
+
+          {/* Recovery route: dashed orange line from user back to next POI when off-route */}
+          {recoveryRoute && recoveryRoute.length > 1 && (
+            <>
+              <Polyline
+                positions={recoveryRoute}
+                color="#FF8C00"
+                weight={6}
+                opacity={0.95}
+                lineCap="round"
+                lineJoin="round"
+                dashArray="12, 8"
+              />
+              <Polyline
+                positions={recoveryRoute}
+                color="#FFA500"
+                weight={12}
+                opacity={0.25}
+                lineCap="round"
+                lineJoin="round"
+              />
             </>
           )}
 
