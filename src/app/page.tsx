@@ -220,7 +220,12 @@ export default function DrivingDashboard() {
   const pendingLegIndexRef = useRef<number>(-1)            // POI index of the queued leg
   const currentLegIndexRef = useRef<number>(-1)            // POI index of the active leg
   const legPausedForPoiRef = useRef<boolean>(false)        // true when paused at 400m zone
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── POI narration priority gate ─────────────────────────────────────────────
+  // When a POI narration is playing, ALL background audio (filler + leg) is blocked.
+  // After it finishes, a 60-second cooldown enforces silence before the next audio.
+  const poiNarrationActiveRef = useRef<boolean>(false)      // true while POI audio plays
+  const poiNarrationCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null) // 60s gap timer
+  const pendingPostPoiLegIndexRef = useRef<number>(-1)      // leg index to play after cooldown────────────────
   const musicPlayerRef = useRef<any | null>(null)
   const musicGainRef = useRef<any | null>(null)
   const musicTracksRef = useRef<string[]>([])
@@ -446,21 +451,26 @@ export default function DrivingDashboard() {
           setActivePoi(poi)
           setIsCaptionVisible(true)
 
-          // Stop all between-stop audio cleanly
+          // ── Stop all between-stop audio cleanly ──────────────────────────────
           stopFillerAndSave();
           stopLegNarration();
           pendingLegUrlRef.current = null;
           pendingLegIndexRef.current = -1;
+          // Cancel any pending cooldown from a previous POI
+          if (poiNarrationCooldownTimerRef.current) {
+            clearTimeout(poiNarrationCooldownTimerRef.current);
+            poiNarrationCooldownTimerRef.current = null;
+          }
           window.speechSynthesis.cancel();
           duckMusic();
 
+          // Mark POI narration as active — blocks filler and leg from starting
+          poiNarrationActiveRef.current = true;
+          // Store which leg to play once the cooldown after this POI expires
+          pendingPostPoiLegIndexRef.current = index;
+
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
           captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
-
-          // Queue leg narration for the stretch departing from this POI
-          setTimeout(() => {
-            playLegNarration(index, sortedPois, voicePreference);
-          }, 500);
         }
       })
     }
@@ -484,6 +494,10 @@ export default function DrivingDashboard() {
     stopLegNarration();
     pendingLegUrlRef.current = null;
     pendingLegIndexRef.current = -1;
+    // Reset POI narration priority gate
+    poiNarrationActiveRef.current = false;
+    if (poiNarrationCooldownTimerRef.current) { clearTimeout(poiNarrationCooldownTimerRef.current); poiNarrationCooldownTimerRef.current = null; }
+    pendingPostPoiLegIndexRef.current = -1;
     idbSet(TRIP_SESSION_KEY, {
       tripId: trip.id,
       tripName: trip.name,
@@ -718,68 +732,95 @@ export default function DrivingDashboard() {
     setIsStartingTour(true)
     setDownloadProgress(0)
 
-    // Prefetch all POI audio for OFFLINE access first
+    // ── Pre-trip asset download ───────────────────────────────────────────────
+    // Downloads the user's selected voice only into IndexedDB so the entire
+    // trip plays offline without hitting Firebase Storage during navigation.
     if (recommendedPois.length > 0) {
-      toast({ title: "Downloading Trip", description: "Caching audio for offline access..." })
+      toast({ title: 'Downloading Trip', description: 'Caching all narration for offline use...' })
 
-      let cachedCount = 0;
+      // Helper: fetch a URL and store as a data URI in IDB. Returns true on success.
+      const cacheUrl = async (key: string, url: string): Promise<boolean> => {
+        try {
+          const existing = await idbGet(key);
+          if (existing) return true; // already cached
+          const res = await fetch(url);
+          if (!res.ok) return false;
+          const blob = await res.blob();
+          const dataUri = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          await idbSet(key, dataUri);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      // ── Count assets to track progress ──
+      // 1 intro + N POI narrations + N leg narrations + 1 filler
+      const totalAssets = 1 + recommendedPois.length + recommendedPois.length + 1;
+      let doneCount = 0;
+      const tick = () => {
+        doneCount++;
+        setDownloadProgress(Math.round((doneCount / totalAssets) * 100));
+      };
+
+      // ── 1. Intro narration ──
+      const introUrl = voicePreference === 'male'
+        ? activeTrip?.introNarrationMaleUrl
+        : activeTrip?.introNarrationFemaleUrl;
+      if (introUrl) { await cacheUrl(`intro_${activeTripId}`, introUrl); }
+      tick();
+
+      // ── 2. Filler audio ──
+      const fillerSrcUrl = voicePreference === 'male'
+        ? activeTrip?.fillerAudioMaleUrl
+        : activeTrip?.fillerAudioFemaleUrl;
+      if (fillerSrcUrl) { await cacheUrl(`filler_${activeTripId}`, fillerSrcUrl); }
+      tick();
+
+      // ── 3. POI narrations + leg narrations ──
+      let poiCachedCount = 0;
       for (let i = 0; i < recommendedPois.length; i++) {
         const poi = recommendedPois[i];
 
+        // — POI narration audio —
         try {
-          // Check if already cached as a data URI
-          const cachedDataUri = await idbGet(`audio_${poi.id}_${voicePreference}`);
-          if (cachedDataUri) {
-            cachedCount++;
-            continue;
-          }
-
-          // Admin pre-generated audio URL from Firebase Storage
-          const adminAudioUrl = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
-          if (adminAudioUrl) {
-            try {
-              // FIX: Download audio bytes NOW and cache as data URI so Tone.js plays from
-              // local memory — no CORS or network needed while actually driving.
-              const response = await fetch(adminAudioUrl);
-              if (response.ok) {
-                const blob = await response.blob();
-                const dataUri = await new Promise<string>((resolve, reject) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result as string);
-                  reader.onerror = reject;
-                  reader.readAsDataURL(blob);
-                });
-                await idbSet(`audio_${poi.id}_${voicePreference}`, dataUri);
-                cachedCount++;
-                continue;
-              }
-            } catch (fetchErr) {
-              console.warn(`Could not download audio for ${poi.name}, saving URL as fallback.`, fetchErr);
-              // Fallback: store raw URL — plays if CORS is configured on storage bucket
-              await idbSet(`audio_${poi.id}_${voicePreference}`, adminAudioUrl);
-              cachedCount++;
-              continue;
+          const poiKey = `audio_${poi.id}_${voicePreference}`;
+          const existing = await idbGet(poiKey);
+          if (existing) {
+            poiCachedCount++;
+          } else {
+            const poiUrl = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
+            if (poiUrl) {
+              const ok = await cacheUrl(poiKey, poiUrl);
+              if (ok) poiCachedCount++;
             }
           }
-
-          // No Admin audio — AudioTourController will use window.speechSynthesis (0 AI tokens).
         } catch (err) {
-          console.error("Failed to prefetch audio for POI: ", poi.name, err);
+          console.warn(`POI narration cache failed for ${poi.name}:`, err);
         }
+        tick();
 
-        // Update ring after every stop (whether cached, downloaded, or skipped)
-        setDownloadProgress(Math.round(((i + 1) / recommendedPois.length) * 100));
+        // — Leg narration audio (departs from this POI toward next) —
+        try {
+          const legUrl = voicePreference === 'male' ? poi.legNarrationMaleUrl : poi.legNarrationFemaleUrl;
+          if (legUrl) { await cacheUrl(`leg_${poi.id}_${voicePreference}`, legUrl); }
+        } catch (err) {
+          console.warn(`Leg narration cache failed for leg from ${poi.name}:`, err);
+        }
+        tick();
       }
 
-      if (cachedCount === recommendedPois.length && recommendedPois.length > 0) {
-        toast({ title: "Trip Downloaded ✓", description: "All stops ready for offline navigation!" });
-      } else if (cachedCount > 0) {
-        toast({ title: `${cachedCount}/${recommendedPois.length} stops cached`, description: "Some audio will stream while driving." });
+      if (poiCachedCount === recommendedPois.length && recommendedPois.length > 0) {
+        toast({ title: 'Trip Downloaded ✓', description: 'All narration ready for offline use!' });
+      } else if (poiCachedCount > 0) {
+        toast({ title: `${poiCachedCount}/${recommendedPois.length} stops cached`, description: 'Some audio will stream while driving.' });
       }
     }
-
-    // Filler audio streams directly from Firebase Storage at playback time.
-    // No prefetch needed — streaming avoids IndexedDB size limits for long files.
 
     setIsStartingTour(false)
     setIsDriving(true)
@@ -812,17 +853,19 @@ export default function DrivingDashboard() {
       const introUrl = snapshotVoice === 'male' ? introMaleUrl : introFemaleUrl;
 
       if (introUrl) {
-        // Play pre-published AI intro audio
+        // Play pre-published AI intro audio — check IDB cache first
         try {
           if (Tone.getContext().state !== 'running') await Tone.start();
+          const cachedIntro = await idbGet(`intro_${snapshotTripId}`);
+          const introSrc = cachedIntro ?? introUrl; // IDB data URI beats streaming URL
           const introPlayer = new Tone.Player({
-            url: introUrl,
+            url: introSrc,
             onload: () => { introPlayer.start(); },
             onstop: () => { introPlayer.dispose(); triggerFiller(); },
             onerror: () => { introPlayer.dispose(); triggerFiller(); }
           }).toDestination();
         } catch (e) {
-          console.warn('Intro audio stream failed:', e);
+          console.warn('Intro audio failed:', e);
           triggerFiller();
         }
       } else {
@@ -876,6 +919,10 @@ export default function DrivingDashboard() {
     if (pauseCheckIntervalRef.current) { clearInterval(pauseCheckIntervalRef.current); pauseCheckIntervalRef.current = null; }
     if (segmentStopTimerRef.current) { clearTimeout(segmentStopTimerRef.current); segmentStopTimerRef.current = null; }
     if (segmentBreakTimerRef.current) { clearTimeout(segmentBreakTimerRef.current); segmentBreakTimerRef.current = null; }
+    // Clear POI narration priority gate
+    poiNarrationActiveRef.current = false;
+    if (poiNarrationCooldownTimerRef.current) { clearTimeout(poiNarrationCooldownTimerRef.current); poiNarrationCooldownTimerRef.current = null; }
+    pendingPostPoiLegIndexRef.current = -1;
     stopLegNarration();
     pendingLegUrlRef.current = null;
     pendingLegIndexRef.current = -1;
@@ -1025,6 +1072,13 @@ export default function DrivingDashboard() {
 
   const playLegNarration = async (poiIndex: number, sortedPois: any[], voice: string) => {
     if (!autoNarrate) return;
+    // ── Priority gate: never start leg while POI narration is active ──
+    // onFinish will start the leg once the 60s cooldown expires.
+    if (poiNarrationActiveRef.current) {
+      console.log('[NomadGuide] Leg queued — POI narration still active/in cooldown');
+      pendingPostPoiLegIndexRef.current = poiIndex;
+      return;
+    }
     const fromPoi = sortedPois[poiIndex];
     const nextPoi = sortedPois[poiIndex + 1];
     if (!fromPoi || !nextPoi) return;
@@ -1052,25 +1106,36 @@ export default function DrivingDashboard() {
     }
 
     const legUrl = voice === 'male' ? fromPoi.legNarrationMaleUrl : fromPoi.legNarrationFemaleUrl;
-    if (!legUrl) { if (!fillerExhaustedRef.current) resumeFillerAudio(); return; }
+    const legCacheKey = `leg_${fromPoi.id}_${voice}`;
+    const cachedLegUri: string | undefined = await idbGet(legCacheKey);
+    const legSrc = cachedLegUri ?? legUrl; // IDB data URI beats streaming URL
+    if (!legSrc) {
+      // No leg audio for this segment — fall through to filler only if gate is clear
+      if (!fillerExhaustedRef.current && !poiNarrationActiveRef.current) resumeFillerAudio();
+      return;
+    }
 
     try {
       if (Tone.getContext().state !== 'running') await Tone.start();
-      legPlayerUrlRef.current = legUrl;
+      legPlayerUrlRef.current = legSrc;
       currentLegIndexRef.current = poiIndex;
       legPausedForPoiRef.current = false;
       const player = new Tone.Player({
-        url: legUrl,
+        url: legSrc,
         onload: () => { player.start(); },
         onstop: () => {
           legPlayerRef.current = null;
           legPlayerUrlRef.current = null;
           currentLegIndexRef.current = -1;
+          // If another leg is queued (from proximity zones), play it next
           if (pendingLegIndexRef.current >= 0) {
             const qi = pendingLegIndexRef.current;
             pendingLegUrlRef.current = null;
             pendingLegIndexRef.current = -1;
             playLegNarration(qi, sortedPois, voice);
+          } else if (!fillerExhaustedRef.current && !poiNarrationActiveRef.current) {
+            // Leg finished and no queued leg — resume filler if gate is clear
+            resumeFillerAudio();
           }
         },
         onerror: (err: any) => { console.warn('[NomadGuide] Leg narration error:', err); legPlayerRef.current = null; }
@@ -1095,9 +1160,12 @@ export default function DrivingDashboard() {
     if (!tripId || !autoNarrate) return;
 
     const fillerUrl = voice === 'male' ? trip?.fillerAudioMaleUrl : trip?.fillerAudioFemaleUrl;
+    // Check IDB cache first (downloaded at trip start)
+    const cachedFillerUri: string | undefined = tripId ? await idbGet(`filler_${tripId}`) : undefined;
+    const fillerSrc = cachedFillerUri ?? fillerUrl; // IDB data URI beats streaming URL
 
-    if (fillerUrl) {
-      fillerUrlRef.current = fillerUrl;
+    if (fillerSrc) {
+      fillerUrlRef.current = fillerSrc;
       try {
         if (Tone.getContext().state !== 'running') await Tone.start();
 
@@ -1118,7 +1186,7 @@ export default function DrivingDashboard() {
         fillerGainRef.current.gain.setValueAtTime(1, Tone.now());
 
         const player = new Tone.Player({
-          url: fillerUrl,
+          url: fillerSrc,
           onload: () => {
             player.start(Tone.now(), offset);      // seek to saved position
             fillerStartTimeRef.current = Tone.now();
@@ -1171,6 +1239,11 @@ export default function DrivingDashboard() {
   /** Resume filler from the exact position it was paused/faded at. */
   const resumeFillerAudio = async () => {
     if (fillerExhaustedRef.current) return; // filler is done — music only
+    // ── Priority gate: never resume filler while POI narration is active ──
+    if (poiNarrationActiveRef.current) {
+      console.log('[NomadGuide] Filler resume deferred — POI narration still active/in cooldown');
+      return;
+    }
     await playFillerAudio({ offset: fillerOffsetRef.current });
   }
 
@@ -1660,33 +1733,44 @@ export default function DrivingDashboard() {
               <Button onClick={() => setActiveTripId(null)} variant="secondary" className="flex-[0.4] bg-white/10 hover:bg-white/20 text-white font-headline font-bold rounded-full h-14 shadow-lg text-base" disabled={isStartingTour}>
                 Cancel
               </Button>
-              <Button onClick={startDriving} disabled={isStartingTour} className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-headline tracking-wide font-bold rounded-full h-14 shadow-lg shadow-primary/20 text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
-                {isStartingTour ? (
-                  <span className="flex items-center gap-2.5">
-                    {/* Circular progress ring */}
-                    <span className="relative inline-flex items-center justify-center w-8 h-8 shrink-0">
-                      <svg className="absolute inset-0 w-8 h-8 -rotate-90" viewBox="0 0 32 32">
-                        {/* Track */}
-                        <circle cx="16" cy="16" r="13" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
-                        {/* Progress arc */}
-                        <circle
-                          cx="16" cy="16" r="13" fill="none"
-                          stroke="white" strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeDasharray={`${2 * Math.PI * 13}`}
-                          strokeDashoffset={`${2 * Math.PI * 13 * (1 - downloadProgress / 100)}`}
-                          style={{ transition: 'stroke-dashoffset 0.4s ease' }}
-                        />
-                      </svg>
-                      <span className="text-[9px] font-black text-white tabular-nums relative z-10">{downloadProgress}%</span>
-                    </span>
-                    <span className="tracking-wider text-sm">DOWNLOADING...</span>
-                  </span>
-                ) : (
+
+              {isStartingTour ? (
+                /* ── Downloading state: plain button so ring isn't clipped ── */
+                <div className="flex-1 h-14 rounded-full bg-primary shadow-lg shadow-primary/20 flex items-center justify-center overflow-hidden">
+                  {/* Ring fills button: use CSS grid to stack SVG + text */}
+                  <div className="relative w-14 h-14">
+                    <svg
+                      className="absolute inset-0 w-full h-full -rotate-90"
+                      viewBox="0 0 56 56"
+                      style={{ overflow: 'visible' }}
+                    >
+                      {/* Track */}
+                      <circle cx="28" cy="28" r="22" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="4.5" />
+                      {/* Progress arc */}
+                      <circle
+                        cx="28" cy="28" r="22" fill="none"
+                        stroke="white" strokeWidth="4.5"
+                        strokeLinecap="round"
+                        strokeDasharray={`${2 * Math.PI * 22}`}
+                        strokeDashoffset={`${2 * Math.PI * 22 * (1 - downloadProgress / 100)}`}
+                        style={{ transition: 'stroke-dashoffset 0.35s ease' }}
+                      />
+                    </svg>
+                    {/* Percentage — centered via absolute full-cover flex */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-[14px] font-black text-white tabular-nums leading-none select-none">
+                        {downloadProgress}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <Button onClick={startDriving} disabled={isStartingTour} className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-headline tracking-wide font-bold rounded-full h-14 shadow-lg shadow-primary/20 text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
                   <><Play className="w-5 h-5 mr-2 fill-current" /> GO</>
-                )}
-              </Button>
+                </Button>
+              )}
             </div>
+
           </div>
         )}
 
@@ -1705,7 +1789,13 @@ export default function DrivingDashboard() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-300 bg-slate-800/80 backdrop-blur px-2.5 py-1 rounded-full border border-white/10 shadow">End Trip</span>
                 <button
-                  onClick={() => { stopDriving(); setActiveTripId(null); setIsFabOpen(false); }}
+                  onClick={() => {
+                    stopDriving();
+                    setActivePoi(null);        // unmounts AudioTourController → stops POI audio
+                    setIsCaptionVisible(false);
+                    setActiveTripId(null);
+                    setIsFabOpen(false);
+                  }}
                   className="w-12 h-12 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-95 flex items-center justify-center shadow-xl shadow-red-900/50 transition-all"
                 >
                   <LogOut className="w-5 h-5 text-white" />
@@ -1831,25 +1921,46 @@ export default function DrivingDashboard() {
           hidden={true}
           onFinish={() => {
             setIsCaptionVisible(false);
-            restoreMusic();        // Fade music back up after narration
-            resumeFillerAudio();   // Resume filler from where it was paused (not from start)
+            restoreMusic();   // Fade ambient music back up immediately after POI voice
 
-            // Detect Trip Completion
-            if (!nextPoiInfo?.poi && isDriving) {
-              const completedTripId = activeTripId;
-              const completedTripObj = allTrips.find(t => t.id === completedTripId);
-              
-              // End the trip automatically
-              stopDriving();
-              setActiveTripId(null);
-              setIsFabOpen(false);
-
-              // Schedule feedback popup (1 minute later for real flow, shorter for demo)
-              setTripToRate(completedTripObj || { id: completedTripId, name: activeTripName });
-              setTimeout(() => {
-                setShowFeedback(true);
-              }, 60000); // 1 minute
+            // \u2500\u2500 POI narration cooldown \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            // Wait 60 seconds after POI narration ends so the traveller can
+            // absorb what they just heard before leg or filler audio resumes.
+            if (poiNarrationCooldownTimerRef.current) {
+              clearTimeout(poiNarrationCooldownTimerRef.current);
             }
+            poiNarrationCooldownTimerRef.current = setTimeout(() => {
+              poiNarrationCooldownTimerRef.current = null;
+              // \u2500\u2500 Release the gate \u2500\u2500
+              poiNarrationActiveRef.current = false;
+              console.log('[NomadGuide] POI cooldown elapsed \u2014 resuming background audio');
+
+              // \u2500\u2500 Detect Trip Completion \u2500\u2500
+              if (!nextPoiInfo?.poi && isDriving) {
+                const completedTripId = activeTripId;
+                const completedTripObj = allTrips.find(t => t.id === completedTripId);
+                stopDriving();
+                setActiveTripId(null);
+                setIsFabOpen(false);
+                setTripToRate(completedTripObj || { id: completedTripId, name: activeTripName });
+                setTimeout(() => { setShowFeedback(true); }, 60000);
+                return; // Trip over — no leg or filler to start
+              }
+
+              // \u2500\u2500 Sequential resume: leg first, filler only if no leg \u2500\u2500
+              // Use the sortedPois snapshot captured at proximity trigger time.
+              const pendingLegIdx = pendingPostPoiLegIndexRef.current;
+              pendingPostPoiLegIndexRef.current = -1;
+
+              const sortedSnapshot = [...recommendedPois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+              if (pendingLegIdx >= 0) {
+                // Start leg narration \u2014 filler will resume only after leg finishes (handled in leg's onstop)
+                playLegNarration(pendingLegIdx, sortedSnapshot, voicePreference);
+              } else if (!fillerExhaustedRef.current) {
+                // No leg available \u2014 resume filler from saved position
+                resumeFillerAudio();
+              }
+            }, 60_000); // 60-second silence gap after each POI narration
           }}
         />
 
