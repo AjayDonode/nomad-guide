@@ -80,10 +80,7 @@ const UserIcon = (isDriving: boolean, isReady: boolean, bearing: number, pointer
     };
     const glow = isDriving ? (glowMap[activeType] || 'drop-shadow(0 0 8px rgba(255,255,255,0.5))') : 'none';
 
-    // The red generated image faces south (180° off) — flip it back
-    const extraRotate = activeType === 'car-red' ? 'rotate(180deg) ' : '';
-
-    innerHtml = `<img src="${src}" alt="car" width="64" height="64" style="width:64px;height:64px;object-fit:contain;filter:${glow};transform:${extraRotate}scale(1);transform-origin:center;" />`
+    innerHtml = `<img src="${src}" alt="car" width="64" height="64" style="width:64px;height:64px;object-fit:contain;filter:${glow};transform-origin:center;" />`
   } else {
     // Arrow — unchanged
     innerHtml = `<svg viewBox="0 0 24 24" class="w-10 h-10 ${defaultColor} ${defaultGlow}" fill="currentColor"><path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z" /></svg>`
