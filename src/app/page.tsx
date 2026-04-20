@@ -213,6 +213,14 @@ export default function DrivingDashboard() {
   const segmentStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)  // fires after FILLER_SEGMENT_MS
   const segmentBreakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null) // fires after MUSIC_BREAK_MS
   const fillerExhaustedRef = useRef<boolean>(false)        // true when filler audio has fully played through
+  // ── Leg narration player refs ──────────────────────────────────────────────
+  const legPlayerRef = useRef<any | null>(null)            // Tone.Player for current leg narration
+  const legPlayerUrlRef = useRef<string | null>(null)      // URL of currently playing leg
+  const pendingLegUrlRef = useRef<string | null>(null)     // Queued leg: plays after current finishes
+  const pendingLegIndexRef = useRef<number>(-1)            // POI index of the queued leg
+  const currentLegIndexRef = useRef<number>(-1)            // POI index of the active leg
+  const legPausedForPoiRef = useRef<boolean>(false)        // true when paused at 400m zone
+  // ─────────────────────────────────────────────────────────────────────────
   const musicPlayerRef = useRef<any | null>(null)
   const musicGainRef = useRef<any | null>(null)
   const musicTracksRef = useRef<string[]>([])
@@ -401,14 +409,21 @@ export default function DrivingDashboard() {
   useEffect(() => {
     if (!isDriving || !recommendedPois.length || !autoNarrate || !userLocation || isTripPaused) return
 
+    const sortedPois = [...recommendedPois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
     const checkProximity = () => {
-      recommendedPois.forEach((poi, index) => {
+      sortedPois.forEach((poi, index) => {
         if (narratedPois.current.has(poi.name)) return
         const dist = getDistance(userLocation[0], userLocation[1], poi.latitude, poi.longitude)
 
-        // ── ZONE 1: 150m — Begin waiting for perfect stop ──────────────────────
-        // Wait for a natural pause in the narration to gracefully pause it,
-        // rather than fading out during active speech.
+        // ── ZONE 0: 400m — Pause leg narration before arriving at next POI ────────
+        if (dist < 0.4 && legPlayerRef.current && !legPausedForPoiRef.current) {
+          legPausedForPoiRef.current = true;
+          stopLegNarration();
+          console.log(`[NomadGuide] Leg paused at 400m before ${poi.name}`);
+        }
+
+        // ── ZONE 1: 150m — Begin waiting for natural filler pause ───────────────
         if (dist < 0.15 && !fillerFadedPoisRef.current.has(poi.name)) {
           fillerFadedPoisRef.current.add(poi.name)
           if (isFillerPlaying) {
@@ -416,19 +431,14 @@ export default function DrivingDashboard() {
           }
         }
 
-        // ── ZONE 2: 200ft (~60m) — Hard-stop filler, trigger POI narration ─────────────
+        // ── ZONE 2: ~60m — Hard-stop audio, trigger POI narration, queue leg ──
         if (dist < 0.061) {
           narratedPois.current.add(poi.name)
-
-          // ── Persist checkpoint immediately — survives crash/close ──
           saveTripSession([...narratedPois.current], index)
-          const nextPoi = recommendedPois[index + 1] || null
+          const nextPoi = sortedPois[index + 1] || null
           if (nextPoi) {
             const nextDist = getDistance(poi.latitude, poi.longitude, nextPoi.latitude, nextPoi.longitude)
-            setNextPoiInfo({
-              poi: nextPoi,
-              distance: formatDisplayDistance(nextDist, units)
-            })
+            setNextPoiInfo({ poi: nextPoi, distance: formatDisplayDistance(nextDist, units) })
           } else {
             setNextPoiInfo(null)
           }
@@ -436,13 +446,21 @@ export default function DrivingDashboard() {
           setActivePoi(poi)
           setIsCaptionVisible(true)
 
-          // Hard-stop filler (saves position so we can resume after POI narration)
+          // Stop all between-stop audio cleanly
           stopFillerAndSave();
+          stopLegNarration();
+          pendingLegUrlRef.current = null;
+          pendingLegIndexRef.current = -1;
           window.speechSynthesis.cancel();
           duckMusic();
 
           if (captionTimeout.current) clearTimeout(captionTimeout.current)
           captionTimeout.current = setTimeout(() => setIsCaptionVisible(false), 15000)
+
+          // Queue leg narration for the stretch departing from this POI
+          setTimeout(() => {
+            playLegNarration(index, sortedPois, voicePreference);
+          }, 500);
         }
       })
     }
@@ -458,12 +476,14 @@ export default function DrivingDashboard() {
     narratedPois.current.clear()
     introPlayed.current = false
     setIsCaptionVisible(false)
-    // Reset filler position tracking for the new trip
+    // Reset filler + leg state for new trip
     fillerOffsetRef.current = 0
     fillerUrlRef.current = null
     fillerFadedPoisRef.current = new Set()
     if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
-    // Persist the new trip intent immediately so a crash before GO still resumes correctly
+    stopLegNarration();
+    pendingLegUrlRef.current = null;
+    pendingLegIndexRef.current = -1;
     idbSet(TRIP_SESSION_KEY, {
       tripId: trip.id,
       tripName: trip.name,
@@ -772,87 +792,93 @@ export default function DrivingDashboard() {
       const snapshotTrip = activeTrip;
       const snapshotVoice = voicePreference;
 
-      // Reset filler state for fresh trip start
+      // Reset filler + leg state for fresh trip start
       fillerOffsetRef.current = 0;
       fillerUrlRef.current = null;
       fillerFadedPoisRef.current = new Set();
       if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
+      stopLegNarration();
+      pendingLegUrlRef.current = null;
+      pendingLegIndexRef.current = -1;
 
-      // triggerFiller uses snapshotted values (safe from stale closures after re-render)
-      // and calls playFillerAudio with those snapshot opts.
       const triggerFiller = async () => {
         if (!snapshotTripId) return;
         await playFillerAudio({ tripId: snapshotTripId, trip: snapshotTrip, voice: snapshotVoice, offset: 0 });
       };
 
-      try {
-        let introText = `Let's go explore ${activeTripName}.`;
-        let isFarFromStart = false;
+      // ── Intro: try published audio → TTS first paragraph → generic fallback ──
+      const introMaleUrl = snapshotTrip?.introNarrationMaleUrl;
+      const introFemaleUrl = snapshotTrip?.introNarrationFemaleUrl;
+      const introUrl = snapshotVoice === 'male' ? introMaleUrl : introFemaleUrl;
 
-        // Add driving instructions if first point is far
+      if (introUrl) {
+        // Play pre-published AI intro audio
+        try {
+          if (Tone.getContext().state !== 'running') await Tone.start();
+          const introPlayer = new Tone.Player({
+            url: introUrl,
+            onload: () => { introPlayer.start(); },
+            onstop: () => { introPlayer.dispose(); triggerFiller(); },
+            onerror: () => { introPlayer.dispose(); triggerFiller(); }
+          }).toDestination();
+        } catch (e) {
+          console.warn('Intro audio stream failed:', e);
+          triggerFiller();
+        }
+      } else {
+        // Fallback: use first paragraph of description via browser TTS
+        const rawDesc = snapshotTrip?.description || '';
+        const firstParagraph = rawDesc.split(/\n\n+/)[0].trim();
+        let introText = firstParagraph || `Let's go explore ${activeTripName}.`;
+
+        // Append driving instruction if first stop is far
+        let isFarFromStart = false;
         if (recommendedPois.length > 0 && userLocation) {
           const firstUnvisitedPoi = recommendedPois.find(p => !narratedPois.current.has(p.name));
           if (firstUnvisitedPoi) {
             const dist = getDistance(userLocation[0], userLocation[1], firstUnvisitedPoi.latitude, firstUnvisitedPoi.longitude);
-            if (dist > 0.1) { // > 100 meters
+            if (dist > 0.1) {
               isFarFromStart = true;
               const stopDescriptor = narratedPois.current.size > 0 ? 'next stop' : 'starting point';
-              introText += ` Let's drive to your ${stopDescriptor}, ${firstUnvisitedPoi.name}, and then proceed.`;
+              introText += ` Our first stop is ${firstUnvisitedPoi.name}.`;
             }
           }
         }
 
-        // Use 100% Free Native Browser Speech API for the Intro. No AI tokens.
-        const utterance = new SpeechSynthesisUtterance(introText);
-        if (snapshotVoice === 'male') {
-          const voices = window.speechSynthesis.getVoices();
-          const maleVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
-          if (maleVoice) utterance.voice = maleVoice;
-        }
-
-        // Safety: some desktop browsers (Chrome) fire onend unreliably.
-        // Estimate speech duration + 1s buffer and use setTimeout as a backup trigger.
-        const estimatedDurationMs = Math.max(introText.length * 65, 2000);
-        let fillerTriggered = false;
-
-        const executeNextStep = () => {
-          if (!fillerTriggered) {
-            fillerTriggered = true;
-            if (!isFarFromStart) {
-              triggerFiller();
-            }
+        try {
+          const utterance = new SpeechSynthesisUtterance(introText);
+          if (snapshotVoice === 'male') {
+            const voices = window.speechSynthesis.getVoices();
+            const mv = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
+            if (mv) utterance.voice = mv;
           }
-        };
-
-        const fillerSafetyTimer = setTimeout(executeNextStep, estimatedDurationMs + 1000);
-
-        utterance.onend = () => {
-          clearTimeout(fillerSafetyTimer);
-          executeNextStep();
-        };
-
-        window.speechSynthesis.cancel(); // Cancel any existing speech
-        window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        console.warn("Intro audio failed to play", e)
-        // Fallback: If intro throws, trigger filler immediately
-        triggerFiller();
+          const estMs = Math.max(introText.length * 65, 2000);
+          let fillerTriggered = false;
+          const exec = () => { if (!fillerTriggered) { fillerTriggered = true; if (!isFarFromStart) triggerFiller(); } };
+          const safety = setTimeout(exec, estMs + 1000);
+          utterance.onend = () => { clearTimeout(safety); exec(); };
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+        } catch (e) {
+          console.warn('Intro TTS failed:', e);
+          triggerFiller();
+        }
       }
-      // Start ambient music right after intro — it plays beneath everything
+      // Start ambient music immediately (plays quietly beneath intro)
       startAmbientMusic();
     }
   }
 
   const stopDriving = () => {
     setIsDriving(false)
-    // Session persists on crash — clear ONLY on intentional stop so resume works after crashes
     clearTripSession()
-    // Cancel all audio timers
     if (fillerFadeTimerRef.current) { clearTimeout(fillerFadeTimerRef.current); fillerFadeTimerRef.current = null; }
     if (pauseCheckIntervalRef.current) { clearInterval(pauseCheckIntervalRef.current); pauseCheckIntervalRef.current = null; }
     if (segmentStopTimerRef.current) { clearTimeout(segmentStopTimerRef.current); segmentStopTimerRef.current = null; }
     if (segmentBreakTimerRef.current) { clearTimeout(segmentBreakTimerRef.current); segmentBreakTimerRef.current = null; }
-    // Stop filler audio and clean up gain node
+    stopLegNarration();
+    pendingLegUrlRef.current = null;
+    pendingLegIndexRef.current = -1;
     if (fillerPlayerRef.current) {
       try { fillerPlayerRef.current.stop(); fillerPlayerRef.current.dispose(); } catch (e) { }
       fillerPlayerRef.current = null;
@@ -867,7 +893,7 @@ export default function DrivingDashboard() {
     fillerFadedPoisRef.current = new Set();
     fillerExhaustedRef.current = false;
     window.speechSynthesis.cancel();
-    stopAmbientMusic(); // Fade out music gracefully
+    stopAmbientMusic();
     try {
       const doc = document as any;
       if (doc.fullscreenElement || doc.webkitFullscreenElement) {
@@ -983,6 +1009,78 @@ export default function DrivingDashboard() {
    * opts.offset  — seconds into the audio to start from (0 = fresh play)
    * opts.tripId/trip/voice — snapshot values to avoid stale closure bugs
    */
+  // ── Leg Narration Constants ──────────────────────────────────────────────
+  const LEG_PAUSE_DISTANCE_M = 400   // pause when within 400m of next POI (~1 min at 25 km/h)
+  const MIN_LEG_NARRATION_DISTANCE_M = 500 // skip leg if POIs < 500m apart
+
+  const stopLegNarration = () => {
+    if (legPlayerRef.current) {
+      try { legPlayerRef.current.stop(); legPlayerRef.current.dispose(); } catch (e) {}
+      legPlayerRef.current = null;
+    }
+    legPlayerUrlRef.current = null;
+    currentLegIndexRef.current = -1;
+    legPausedForPoiRef.current = false;
+  };
+
+  const playLegNarration = async (poiIndex: number, sortedPois: any[], voice: string) => {
+    if (!autoNarrate) return;
+    const fromPoi = sortedPois[poiIndex];
+    const nextPoi = sortedPois[poiIndex + 1];
+    if (!fromPoi || !nextPoi) return;
+
+    // Guard 1: too-close
+    const legDistM = getDistance(fromPoi.latitude, fromPoi.longitude, nextPoi.latitude, nextPoi.longitude) * 1000;
+    if (legDistM < MIN_LEG_NARRATION_DISTANCE_M) {
+      console.log(`[NomadGuide] Leg ${poiIndex}→${poiIndex + 1} skipped — only ${Math.round(legDistM)}m apart`);
+      return;
+    }
+    // Guard 2: already near next POI
+    if (userLocationRef.current) {
+      const distToNextM = getDistance(userLocationRef.current[0], userLocationRef.current[1], nextPoi.latitude, nextPoi.longitude) * 1000;
+      if (distToNextM < LEG_PAUSE_DISTANCE_M) {
+        console.log(`[NomadGuide] Leg ${poiIndex}→${poiIndex + 1} skipped — already ${Math.round(distToNextM)}m from next POI`);
+        return;
+      }
+    }
+    // Guard 3: previous leg still playing — queue
+    if (legPlayerRef.current) {
+      const legUrl = voice === 'male' ? fromPoi.legNarrationMaleUrl : fromPoi.legNarrationFemaleUrl;
+      if (legUrl) { pendingLegUrlRef.current = legUrl; pendingLegIndexRef.current = poiIndex; }
+      console.log(`[NomadGuide] Leg ${poiIndex} queued — previous still playing`);
+      return;
+    }
+
+    const legUrl = voice === 'male' ? fromPoi.legNarrationMaleUrl : fromPoi.legNarrationFemaleUrl;
+    if (!legUrl) { if (!fillerExhaustedRef.current) resumeFillerAudio(); return; }
+
+    try {
+      if (Tone.getContext().state !== 'running') await Tone.start();
+      legPlayerUrlRef.current = legUrl;
+      currentLegIndexRef.current = poiIndex;
+      legPausedForPoiRef.current = false;
+      const player = new Tone.Player({
+        url: legUrl,
+        onload: () => { player.start(); },
+        onstop: () => {
+          legPlayerRef.current = null;
+          legPlayerUrlRef.current = null;
+          currentLegIndexRef.current = -1;
+          if (pendingLegIndexRef.current >= 0) {
+            const qi = pendingLegIndexRef.current;
+            pendingLegUrlRef.current = null;
+            pendingLegIndexRef.current = -1;
+            playLegNarration(qi, sortedPois, voice);
+          }
+        },
+        onerror: (err: any) => { console.warn('[NomadGuide] Leg narration error:', err); legPlayerRef.current = null; }
+      }).toDestination();
+      legPlayerRef.current = player;
+      console.log(`[NomadGuide] ▶ Leg narration ${poiIndex}→${poiIndex + 1}`);
+    } catch (e) { console.warn('[NomadGuide] playLegNarration failed:', e); }
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
   const playFillerAudio = async (opts?: {
     offset?: number;
     tripId?: string | null;

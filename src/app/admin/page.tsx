@@ -16,7 +16,8 @@ import {
   Sparkles,
   Volume2,
   Play,
-  Pause
+  Pause,
+  Route
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -259,7 +260,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     fillerGeneratedText: "",
     fillerAudioMaleUrl: null as string | null,
     fillerAudioFemaleUrl: null as string | null,
-    coverImage: null as string | null, // base64 data URL for trip thumbnail
+    introNarrationMaleUrl: null as string | null,
+    introNarrationFemaleUrl: null as string | null,
+    coverImage: null as string | null,
   })
 
   // Try to use the designer's actual location for new trips rather than the default SF coords
@@ -284,12 +287,17 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [isPublishingAll, setIsPublishingAll] = useState(false)
   const [isComposingFiller, setIsComposingFiller] = useState(false)
   const [isPublishingFiller, setIsPublishingFiller] = useState(false)
+  const [isPublishingIntro, setIsPublishingIntro] = useState(false)
   // Per-POI state: draft narration texts (editable before publishing)
   const [poiDraftTexts, setPoiDraftTexts] = useState<Record<string, string>>({})
   // Which POI is having its text AI-generated right now
   const [generatingTextPoiId, setGeneratingTextPoiId] = useState<string | null>(null)
   // Which POI is having its audio published right now
   const [publishingAudioPoiId, setPublishingAudioPoiId] = useState<string | null>(null)
+  // Per-POI leg narration draft texts
+  const [legDraftTexts, setLegDraftTexts] = useState<Record<string, string>>({})
+  // Which POI leg is having audio published
+  const [publishingLegPoiId, setPublishingLegPoiId] = useState<string | null>(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
   const playerRef = useRef<Tone.Player | null>(null)
@@ -327,6 +335,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         fillerGeneratedText: existingTrip.fillerGeneratedText || "",
         fillerAudioMaleUrl: existingTrip.fillerAudioMaleUrl || null,
         fillerAudioFemaleUrl: existingTrip.fillerAudioFemaleUrl || null,
+        introNarrationMaleUrl: existingTrip.introNarrationMaleUrl || null,
+        introNarrationFemaleUrl: existingTrip.introNarrationFemaleUrl || null,
         coverImage: existingTrip.coverImage || null,
       })
     }
@@ -666,6 +676,60 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   }
 
+
+  /** Publishes AI audio for the trip intro (first paragraph of trip description) */
+  const handlePublishIntroAudio = async () => {
+    if (!tripId || !tripData.description?.trim()) return;
+    const firstParagraph = tripData.description.split(/\n\n+/)[0].trim();
+    if (!firstParagraph) return;
+    setIsPublishingIntro(true);
+    toast({ title: '🎙️ Publishing Tour Welcome Audio', description: 'Generating both voices — takes ~30s...' });
+    try {
+      const maleUrl = await callPublishVoice(tripId, 'intro', firstParagraph, 'male');
+      await new Promise(r => setTimeout(r, 2000));
+      const femaleUrl = await callPublishVoice(tripId, 'intro', firstParagraph, 'female');
+      if (firestore) {
+        updateDocumentNonBlocking(doc(firestore, 'trips', tripId), {
+          introNarrationMaleUrl: maleUrl,
+          introNarrationFemaleUrl: femaleUrl,
+          updatedAt: serverTimestamp()
+        });
+        setTripData(prev => ({ ...prev, introNarrationMaleUrl: maleUrl, introNarrationFemaleUrl: femaleUrl }));
+      }
+      toast({ title: 'Tour Welcome Published ✓', description: 'Plays when driver taps GO.' });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Intro Publish Failed', description: err.message || String(err) });
+    } finally {
+      setIsPublishingIntro(false);
+    }
+  };
+
+  /** Publishes driving narration audio for the leg that departs from a given POI */
+  const handlePublishLegAudio = async (poi: any) => {
+    if (!tripId || !firestore) return;
+    const text = legDraftTexts[poi.id] ?? poi.legNarrationText ?? '';
+    if (!text.trim()) return;
+    const poiIndex = pois?.findIndex((p: any) => p.id === poi.id) ?? -1;
+    const nextPoiName = poiIndex >= 0 ? (pois?.[poiIndex + 1]?.name || 'next stop') : 'next stop';
+    setPublishingLegPoiId(poi.id);
+    toast({ title: `🚗 Publishing Leg — toward ${nextPoiName}`, description: 'Generating both voices...' });
+    try {
+      const maleUrl = await callPublishVoice(tripId, `leg-${poi.id}`, text, 'male');
+      await new Promise(r => setTimeout(r, 2000));
+      const femaleUrl = await callPublishVoice(tripId, `leg-${poi.id}`, text, 'female');
+      updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
+        legNarrationText: text,
+        legNarrationMaleUrl: maleUrl,
+        legNarrationFemaleUrl: femaleUrl,
+        updatedAt: serverTimestamp()
+      });
+      toast({ title: 'Leg Audio Published ✓', description: 'Will play while driving to next stop.' });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Leg Publish Failed', description: err.message || String(err) });
+    } finally {
+      setPublishingLegPoiId(null);
+    }
+  };
 
   const handlePreviewAudio = async (startIndex: number = 0) => {
     if (!pois || pois.length === 0 || startIndex >= pois.length) {
@@ -1065,80 +1129,49 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
               </section>
 
               <section className="space-y-4">
-                <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Continuous Conversation Organizer</Label>
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Raw Facts or Base Dialog</Label>
-                    <Textarea 
-                      value={tripData.fillerBaseText}
-                      onChange={(e) => setTripData({...tripData, fillerBaseText: e.target.value})}
-                      placeholder="Enter raw history, funny stories, or generic dialogue to play between stops..."
-                      className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[80px] focus:border-primary/30"
-                    />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1 space-y-2">
-                      <Label className="text-xs text-muted-foreground">AI Mood / Style</Label>
-                      <select 
-                        value={tripData.fillerMood} 
-                        onChange={(e) => setTripData({...tripData, fillerMood: e.target.value})}
-                        className="w-full h-10 bg-black/20 rounded-xl px-3 text-xs border border-white/5 outline-none focus:border-primary/30 text-white"
-                      >
-                        <option value="Captivating">Captivating</option>
-                        <option value="Historical & Educational">Historical & Educational</option>
-                        <option value="Humorous & Playful">Humorous & Playful</option>
-                        <option value="Dramatic & Mysterious">Dramatic & Mysterious</option>
-                        <option value="Relaxing & Informative">Relaxing & Informative</option>
-                      </select>
-                    </div>
-                    <Button 
-                      onClick={handleComposeFiller} 
-                      disabled={isComposingFiller || !tripData.fillerBaseText} 
-                      className="h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl shadow-lg border-none"
-                    >
-                      {isComposingFiller ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                      Rephrase
-                    </Button>
-                  </div>
-                  {tripData.fillerGeneratedText && (
-                    <div className="space-y-2 pt-4 border-t border-white/10 mt-4">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs text-green-400">
-                          GenAI Processed Dialog
-                          {(tripData.fillerAudioMaleUrl || tripData.fillerAudioFemaleUrl) && (
-                            <span className="ml-3 text-emerald-400 font-bold uppercase tracking-widest text-[10px]">● Live Audio</span>
-                          )}
-                        </Label>
-                      </div>
-                      <Textarea 
-                        value={tripData.fillerGeneratedText}
-                        onChange={(e) => setTripData({...tripData, fillerGeneratedText: e.target.value})}
-                        className="bg-green-500/10 border-green-500/20 rounded-xl text-xs min-h-[120px] focus:border-green-500/50"
-                      />
-                      <div className="flex gap-2">
-                        {(tripData.fillerAudioMaleUrl || tripData.fillerAudioFemaleUrl) && (
-                          <Button 
-                            onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl)}
-                            disabled={playingSpecificAudioUrl !== null && playingSpecificAudioUrl !== (voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl)}
-                            className="h-10 w-12 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg border-none mt-2 shrink-0 flex items-center justify-center p-0"
-                          >
-                            {playingSpecificAudioUrl === (voicePreference === 'male' ? tripData.fillerAudioMaleUrl : tripData.fillerAudioFemaleUrl) ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                          </Button>
-                        )}
-                        <Button
-                          onClick={handlePublishFillerAudio}
-                          disabled={isPublishingFiller || !tripId}
-                          className="flex-1 h-10 bg-green-600 hover:bg-green-700 text-white rounded-xl shadow-lg border-none mt-2"
-                        >
-                          {isPublishingFiller ? (
-                            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing Audio...</>
-                          ) : (
-                            <><Volume2 className="w-4 h-4 mr-2" /> Publish Filler Audio</>
-                          )}
-                        </Button>
-                      </div>
+                <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Tour Welcome Audio</Label>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    The <strong className="text-white">first paragraph</strong> of your Trip Strategy is used as the tour welcome — it plays when the driver taps GO.
+                  </p>
+                  {tripData.description && (
+                    <div className="bg-black/30 rounded-xl p-3 border border-white/5">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold mb-1">Will speak:</p>
+                      <p className="text-xs text-slate-300 italic leading-relaxed line-clamp-3">
+                        &ldquo;{tripData.description.split(/\n\n+/)[0].trim()}&rdquo;
+                      </p>
                     </div>
                   )}
+                  <div className="flex gap-2 items-center">
+                    {(tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl) && (
+                      <Button
+                        onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? tripData.introNarrationMaleUrl : tripData.introNarrationFemaleUrl)}
+                        className="h-9 w-10 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl border-none flex items-center justify-center p-0 shrink-0"
+                      >
+                        {playingSpecificAudioUrl === (voicePreference === 'male' ? tripData.introNarrationMaleUrl : tripData.introNarrationFemaleUrl)
+                          ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                      </Button>
+                    )}
+                    <Button
+                      onClick={handlePublishIntroAudio}
+                      disabled={isPublishingIntro || !tripId || !tripData.description?.trim()}
+                      className={cn(
+                        "flex-1 h-9 rounded-xl text-xs font-bold border-none",
+                        (tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl)
+                          ? "bg-emerald-700 hover:bg-emerald-600 text-white"
+                          : "bg-primary hover:bg-primary/90 text-white"
+                      )}
+                    >
+                      {isPublishingIntro
+                        ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing...</>
+                        : <><Volume2 className="w-3.5 h-3.5 mr-2" />
+                          {(tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl) ? 'Republish' : 'Publish Welcome Audio'}
+                        </>}
+                    </Button>
+                    {(tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl) && (
+                      <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest shrink-0">● Live</span>
+                    )}
+                  </div>
                 </div>
               </section>
 
@@ -1154,9 +1187,10 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                   </div>
                 )}
 
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {pois?.map((poi, idx) => (
-                    <Card key={poi.id} className="bg-white/5 border-white/5 rounded-3xl overflow-hidden group">
+                    <React.Fragment key={poi.id}>
+                    <Card className="bg-white/5 border-white/5 rounded-3xl overflow-hidden group">
                       <CardHeader className="p-4 flex flex-row items-center gap-4 space-y-0 pb-2">
                         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
                           {idx + 1}
@@ -1303,6 +1337,61 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                         </div>
                       </CardContent>
                     </Card>
+
+                    {/* ── Leg Narration connector (between every pair except after last POI) ── */}
+                    {idx < (pois?.length ?? 0) - 1 && (
+                      <div className="flex items-stretch gap-3 px-2">
+                        <div className="flex flex-col items-center">
+                          <div className="w-px flex-1 bg-white/10" />
+                          <div className="w-6 h-6 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center my-1 shrink-0">
+                            <Route className="w-3 h-3 text-blue-400" />
+                          </div>
+                          <div className="w-px flex-1 bg-white/10" />
+                        </div>
+                        <div className="flex-1 bg-blue-500/5 border border-blue-400/15 rounded-2xl p-3 space-y-2 my-1">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-[10px] uppercase tracking-widest text-blue-300/70 font-bold">
+                              Driving → {pois?.[idx + 1]?.name || 'Next Stop'}
+                            </Label>
+                            {(poi.legNarrationMaleUrl || poi.legNarrationFemaleUrl) && (
+                              <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest">● Live</span>
+                            )}
+                          </div>
+                          <Textarea
+                            value={legDraftTexts[poi.id] ?? (poi.legNarrationText || '')}
+                            onChange={(e) => setLegDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
+                            placeholder={`Narration to play while driving from ${poi.name} toward ${pois?.[idx + 1]?.name || 'next stop'}...`}
+                            className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[60px] focus:border-blue-400/30 resize-none"
+                          />
+                          <div className="flex gap-2">
+                            {(poi.legNarrationMaleUrl || poi.legNarrationFemaleUrl) && (
+                              <Button
+                                onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? poi.legNarrationMaleUrl : poi.legNarrationFemaleUrl)}
+                                className="h-8 w-9 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl border-none flex items-center justify-center p-0 shrink-0"
+                              >
+                                {playingSpecificAudioUrl === (voicePreference === 'male' ? poi.legNarrationMaleUrl : poi.legNarrationFemaleUrl)
+                                  ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                              </Button>
+                            )}
+                            <Button
+                              onClick={() => handlePublishLegAudio(poi)}
+                              disabled={publishingLegPoiId === poi.id || !(legDraftTexts[poi.id] || poi.legNarrationText)}
+                              className={cn(
+                                "flex-1 h-8 rounded-xl text-[10px] font-bold border-none",
+                                (legDraftTexts[poi.id] || poi.legNarrationText)
+                                  ? "bg-blue-600 hover:bg-blue-500 text-white"
+                                  : "bg-white/5 text-muted-foreground cursor-not-allowed"
+                              )}
+                            >
+                              {publishingLegPoiId === poi.id
+                                ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Publishing...</>
+                                : <><Volume2 className="w-3 h-3 mr-1.5" />Publish Leg Audio</>}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    </React.Fragment>
                   ))}
 
                   {tripId && (
