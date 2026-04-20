@@ -24,7 +24,11 @@ import {
   MessageCircle,
   Menu,
   LogOut,
-  Star
+  Star,
+  PauseCircle,
+  PlayCircle,
+  Loader2,
+  Coffee
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -192,6 +196,9 @@ export default function DrivingDashboard() {
   const [isOffRoute, setIsOffRoute] = useState(false)
   const [recoveryRoute, setRecoveryRoute] = useState<[number, number][] | null>(null)
   const [isFetchingRecovery, setIsFetchingRecovery] = useState(false)
+  const [isTripPaused, setIsTripPaused] = useState(false)
+  const isTripPausedRef = useRef(false)
+  useEffect(() => { isTripPausedRef.current = isTripPaused; }, [isTripPaused])
   const introPlayed = useRef<boolean>(false)
   const captionTimeout = useRef<NodeJS.Timeout | null>(null)
   const fillerPlayerRef = useRef<any | null>(null)
@@ -392,7 +399,7 @@ export default function DrivingDashboard() {
   }, [tripPois, activeTripId, allTrips])
 
   useEffect(() => {
-    if (!isDriving || !recommendedPois.length || !autoNarrate || !userLocation) return
+    if (!isDriving || !recommendedPois.length || !autoNarrate || !userLocation || isTripPaused) return
 
     const checkProximity = () => {
       recommendedPois.forEach((poi, index) => {
@@ -440,7 +447,7 @@ export default function DrivingDashboard() {
       })
     }
     checkProximity()
-  }, [userLocation, isDriving, recommendedPois, autoNarrate, units, isFillerPlaying])
+  }, [userLocation, isDriving, recommendedPois, autoNarrate, units, isFillerPlaying, isTripPaused])
 
   const handleSelectTrip = (trip: any) => {
     setIsLoading(true)
@@ -474,11 +481,13 @@ export default function DrivingDashboard() {
       // Reset when trip ends or hasn't started
       offRouteCounterRef.current = 0;
       if (isOffRouteRef.current) { isOffRouteRef.current = false; setIsOffRoute(false); }
-      setRecoveryRoute(null); // clear orange line when trip ends
+      setRecoveryRoute(null);
+      setIsTripPaused(false); // clear pause state when trip exits
       return;
     }
 
     const interval = setInterval(() => {
+      if (isTripPausedRef.current) return; // skip detection while on break
       const loc = userLocationRef.current;
       const routePts = storedRoutePointsRef.current;
       if (!loc || routePts.length < 2) return;
@@ -1381,37 +1390,86 @@ export default function DrivingDashboard() {
           <div className="flex-1" />
         )}
 
-        {/* Off-route amber banner — shown when user drifts > 150m from planned route */}
-        {isDriving && isOffRoute && (() => {
+        {/* ── Trip Paused Banner — purple, persists until user taps Resume ── */}
+        {isDriving && isTripPaused && (
+          <div className="pointer-events-auto mx-auto max-w-md w-full mt-2 px-4 animate-in slide-in-from-top duration-300">
+            <div className="bg-violet-600/95 backdrop-blur-xl rounded-2xl px-4 py-3 flex items-center gap-3 shadow-xl border border-violet-400/30">
+              <div className="relative shrink-0">
+                <Coffee className="w-5 h-5 text-white" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-300 rounded-full animate-pulse" />
+              </div>
+              <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                <span className="text-white text-xs font-bold leading-tight">Trip paused — enjoy your break!</span>
+                <span className="text-violet-200 text-[10px]">Narration & off-route alerts are silenced</span>
+              </div>
+              <button
+                onClick={() => {
+                  setIsTripPaused(false);
+                  setIsOffRoute(false);
+                  isOffRouteRef.current = false;
+                  offRouteCounterRef.current = 0;
+                  setRecoveryRoute(null);
+                }}
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-xl shrink-0 transition-colors border border-white/20"
+              >
+                <PlayCircle className="w-3.5 h-3.5" />
+                Resume
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Off-route amber banner — shown when off-route and NOT paused ── */}
+        {isDriving && isOffRoute && !isTripPaused && (() => {
           const nextPoi = recommendedPois.find(p => !narratedPois.current.has(p.name));
           return (
             <div className="pointer-events-auto mx-auto max-w-md w-full mt-2 px-4 animate-in slide-in-from-top duration-300">
-              <div className="bg-amber-500/95 backdrop-blur-xl rounded-2xl px-4 py-2.5 flex items-center gap-3 shadow-xl">
-                <Navigation className="w-4 h-4 text-white shrink-0" />
-                <span className="text-white text-xs font-bold flex-1 leading-tight">
-                  Off route — head to <strong>{nextPoi?.name || 'next stop'}</strong>
-                </span>
-                {recoveryRoute ? (
+              <div className="bg-amber-500/95 backdrop-blur-xl rounded-2xl px-4 py-2.5 shadow-xl">
+                {/* Row 1: label */}
+                <div className="flex items-center gap-2 mb-2">
+                  <Navigation className="w-4 h-4 text-white shrink-0" />
+                  <span className="text-white text-xs font-bold flex-1 leading-tight">
+                    Off route — taking a break or got lost?
+                  </span>
+                </div>
+                {/* Row 2: two action buttons */}
+                <div className="flex gap-2">
+                  {/* Pause option */}
                   <button
-                    onClick={() => setRecoveryRoute(null)}
-                    className="text-white/80 hover:text-white text-xs font-bold underline shrink-0"
+                    onClick={() => {
+                      setIsTripPaused(true);
+                      setRecoveryRoute(null);
+                      window.speechSynthesis?.cancel();
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors border border-white/20"
                   >
-                    Clear
+                    <Coffee className="w-3.5 h-3.5" />
+                    Taking a Break
                   </button>
-                ) : (
-                  <button
-                    onClick={fetchRecoveryRoute}
-                    disabled={isFetchingRecovery}
-                    className="text-white text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1 rounded-xl shrink-0 flex items-center gap-1.5 transition-colors disabled:opacity-60"
-                  >
-                    {isFetchingRecovery ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Navigation className="w-3.5 h-3.5" />
-                    )}
-                    {isFetchingRecovery ? 'Routing…' : 'Get Back'}
-                  </button>
-                )}
+                  {/* Get Back option */}
+                  {recoveryRoute ? (
+                    <button
+                      onClick={() => setRecoveryRoute(null)}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-white/20 hover:bg-white/30 text-white/90 text-xs font-bold px-3 py-1.5 rounded-xl transition-colors border border-white/20"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Clear Route
+                    </button>
+                  ) : (
+                    <button
+                      onClick={fetchRecoveryRoute}
+                      disabled={isFetchingRecovery}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-white/25 hover:bg-white/35 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors border border-white/25 disabled:opacity-60"
+                    >
+                      {isFetchingRecovery ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Navigation className="w-3.5 h-3.5" />
+                      )}
+                      {isFetchingRecovery ? 'Routing…' : 'Get Back on Route'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
