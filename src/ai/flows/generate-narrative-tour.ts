@@ -4,10 +4,23 @@
  * 
  * - generateNarrativeTour: Generates both text and audio narration.
  * - simpleNarrate: Generates audio from provided text.
+ *
+ * Sound tag support:
+ *   Narration text may contain <sound>description</sound> and <music>description</music> tags.
+ *   These are parsed server-side: TTS is generated for each text chunk and the matching audio
+ *   clips are stitched together into a single seamless WAV file.
  */
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
+import { parseNarration, hasSoundTags, stripSoundTags } from '@/lib/narration-parser';
+import { resolveSound } from '@/lib/sound-library';
+import {
+  loadPcmFromWav,
+  publicSoundToAbsPath,
+  stitchAudioSegments,
+  type AudioSegment,
+} from '@/lib/audio-stitcher';
 
 const GenerateNarrativeTourInputSchema = z.object({
   poiName: z.string().describe('The name of the Point of Interest.'),
@@ -56,6 +69,16 @@ export async function generateNarrativeTour(
 
   const voiceName = input.voicePreference === 'male' ? 'Algenib' : 'Kore';
 
+  // ── Tag-aware stitching path ──────────────────────────────────────────────
+  if (hasSoundTags(narrationText)) {
+    const finalPcm = await stitchNarrationWithSounds(narrationText, voiceName);
+    return {
+      audioDataUri: 'data:audio/wav;base64,' + encodeWav(finalPcm),
+      generatedText: stripSoundTags(narrationText),
+    };
+  }
+
+  // ── Fast path (no tags) ───────────────────────────────────────────────────
   let media;
   try {
     const response = await ai.generate({
@@ -92,6 +115,13 @@ export async function generateNarrativeTour(
 export async function simpleNarrate(text: string, voicePreference: 'male' | 'female' = 'female'): Promise<string> {
   const voiceName = voicePreference === 'male' ? 'Algenib' : 'Kore';
 
+  // ── Tag-aware stitching path ──────────────────────────────────────────────
+  if (hasSoundTags(text)) {
+    const finalPcm = await stitchNarrationWithSounds(text, voiceName);
+    return 'data:audio/wav;base64,' + encodeWav(finalPcm);
+  }
+
+  // ── Fast path (no tags) ───────────────────────────────────────────────────
   const { media } = await ai.generate({
     model: 'googleai/gemini-2.5-flash-preview-tts',
     config: {
@@ -113,6 +143,73 @@ export async function simpleNarrate(text: string, voicePreference: 'male' | 'fem
   const wavAudioBase64 = encodeWav(audioBuffer);
 
   return 'data:audio/wav;base64,' + wavAudioBase64;
+}
+
+// ── Tag-aware stitching engine ────────────────────────────────────────────────
+
+/**
+ * Generates TTS for each text segment and loads matching audio clips for
+ * <sound> / <music> tags, then stitches everything into one PCM buffer.
+ */
+async function stitchNarrationWithSounds(
+  rawText: string,
+  voiceName: string
+): Promise<Buffer> {
+  const segments = parseNarration(rawText);
+
+  // Generate TTS for all text segments in parallel to reduce latency
+  const textSegmentPromises = segments.map(async (seg): Promise<AudioSegment> => {
+    if (seg.type === 'text') {
+      const pcm = await generateTtsPcm(seg.content, voiceName);
+      return { type: 'text', pcm };
+    }
+
+    if (seg.type === 'sound' || seg.type === 'music') {
+      const resolved = resolveSound(seg.description, seg.type);
+      if (!resolved) {
+        console.warn(`[NomadGuide TTS] No match for <${seg.type}>${seg.description}</${seg.type}> — skipping.`);
+        // Return a zero-length text segment so stitcher skips it gracefully
+        return { type: 'text', pcm: Buffer.alloc(0) };
+      }
+      try {
+        const absPath = publicSoundToAbsPath(resolved.publicPath);
+        const pcm = loadPcmFromWav(absPath);
+        return { type: seg.type, pcm, volume: resolved.volume };
+      } catch (err) {
+        console.warn(`[NomadGuide TTS] Could not load sound file ${resolved.publicPath}:`, err);
+        return { type: 'text', pcm: Buffer.alloc(0) };
+      }
+    }
+
+    // Should never reach here — TypeScript exhaustiveness
+    return { type: 'text', pcm: Buffer.alloc(0) };
+  });
+
+  const audioSegments = await Promise.all(textSegmentPromises);
+  return stitchAudioSegments(audioSegments);
+}
+
+/**
+ * Calls Gemini TTS and returns the raw PCM buffer (no WAV header).
+ */
+async function generateTtsPcm(text: string, voiceName: string): Promise<Buffer> {
+  if (!text.trim()) return Buffer.alloc(0);
+
+  const { media } = await ai.generate({
+    model: 'googleai/gemini-2.5-flash-preview-tts',
+    config: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName },
+        },
+      },
+    },
+    prompt: text,
+  });
+
+  if (!media) throw new Error('No audio media returned from TTS model.');
+  return Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
 }
 
 /**

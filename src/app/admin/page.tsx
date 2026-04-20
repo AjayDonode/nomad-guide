@@ -1,8 +1,9 @@
 "use client"
 
-import React, { useState, useEffect, useRef, Suspense } from 'react'
+import React, { useRef as useTextareaRef, useState, useEffect, useRef, Suspense, useCallback } from 'react'
 import { 
   Plus, 
+  Music,
   Map as LucideMap, 
   Save, 
   Trash2, 
@@ -86,6 +87,104 @@ const AdminMap = dynamic(
   () => import('@/components/admin/admin-map').then(mod => mod.AdminMap),
   { ssr: false, loading: () => <div className="w-full h-full bg-muted animate-pulse flex items-center justify-center">Loading Trip Engine...</div> }
 )
+
+// ── Sound Tag Toolbar ─────────────────────────────────────────────────────────
+
+const SOUND_SHORTCUTS = [
+  { label: '🚂 Train', tag: '<sound>train chugging</sound>' },
+  { label: '🚂 Whistle', tag: '<sound>train whistle</sound>' },
+  { label: '💧 Waterfall', tag: '<sound>waterfall</sound>' },
+  { label: '🌊 Ocean', tag: '<sound>ocean waves</sound>' },
+  { label: '🐦 Birds', tag: '<sound>birds chirping</sound>' },
+  { label: '👥 Crowd', tag: '<sound>people talking</sound>' },
+  { label: '🔔 Bells', tag: '<sound>church bells</sound>' },
+  { label: '🌬️ Wind', tag: '<sound>wind</sound>' },
+];
+
+const MUSIC_SHORTCUTS = [
+  { label: '🎹 Piano', tag: '<music>calm piano</music>' },
+  { label: '🌿 Nature', tag: '<music>calm music with water stream flowing</music>' },
+  { label: '🎻 Epic', tag: '<music>dramatic orchestral</music>' },
+  { label: '🎷 Jazz', tag: '<music>jazz</music>' },
+  { label: '⛪ Sacred', tag: '<music>spiritual sacred choir</music>' },
+];
+
+/** Inserts a sound/music tag into a textarea at the current cursor position. */
+function insertTagAtCursor(
+  textareaEl: HTMLTextAreaElement | null,
+  tag: string,
+  currentValue: string,
+  onChange: (newValue: string) => void
+) {
+  if (!textareaEl) {
+    onChange(currentValue + '\n' + tag + ' ');
+    return;
+  }
+  const start = textareaEl.selectionStart ?? currentValue.length;
+  const end   = textareaEl.selectionEnd   ?? currentValue.length;
+  const prefix = currentValue.slice(0, start);
+  const suffix = currentValue.slice(end);
+  const separator = prefix.length > 0 && !prefix.endsWith('\n') && !prefix.endsWith(' ') ? '\n' : '';
+  const newValue = prefix + separator + tag + ' ' + suffix;
+  onChange(newValue);
+  // Restore focus + move cursor after inserted tag
+  setTimeout(() => {
+    textareaEl.focus();
+    const newPos = (prefix + separator + tag + ' ').length;
+    textareaEl.setSelectionRange(newPos, newPos);
+  }, 0);
+}
+
+interface SoundTagToolbarProps {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  onChange: (v: string) => void;
+}
+
+function SoundTagToolbar({ textareaRef, value, onChange }: SoundTagToolbarProps) {
+  const hasTags = /<(sound|music)>/i.test(value);
+  const tagCount = (value.match(/<(sound|music)>/gi) || []).length;
+
+  return (
+    <div className="space-y-1.5">
+      {/* Sound row */}
+      <div className="flex flex-wrap gap-1 items-center">
+        <span className="text-[9px] text-white/30 uppercase tracking-widest font-bold w-full">+ Sound</span>
+        {SOUND_SHORTCUTS.map(({ label, tag }) => (
+          <button
+            key={tag}
+            type="button"
+            onClick={() => insertTagAtCursor(textareaRef.current, tag, value, onChange)}
+            className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/20 transition-colors"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {/* Music row */}
+      <div className="flex flex-wrap gap-1 items-center">
+        <span className="text-[9px] text-white/30 uppercase tracking-widest font-bold w-full">+ Music</span>
+        {MUSIC_SHORTCUTS.map(({ label, tag }) => (
+          <button
+            key={tag}
+            type="button"
+            onClick={() => insertTagAtCursor(textareaRef.current, tag, value, onChange)}
+            className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-violet-500/10 hover:bg-violet-500/25 text-violet-300 border border-violet-500/20 transition-colors"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {/* Tag count indicator */}
+      {hasTags && (
+        <p className="text-[9px] text-white/30 flex items-center gap-1 pt-0.5">
+          <Music className="w-2.5 h-2.5" />
+          {tagCount} sound tag{tagCount !== 1 ? 's' : ''} detected — audio will be stitched server-side
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const router = useRouter()
@@ -301,6 +400,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
   const playerRef = useRef<Tone.Player | null>(null)
+  // Per-POI textarea refs for sound tag cursor insertion
+  const poiTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
+  const legTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
   // Route pre-computation refs
   const poisRef = useRef<any[]>([])
   const routeComputeTimerRef = useRef<any>(null)
@@ -1270,11 +1372,18 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                               Automatic Intro
                             </Label>
                           </div>
+                          {/* Sound tag toolbar */}
+                          <SoundTagToolbar
+                            textareaRef={{ current: poiTextareaRefs.current[poi.id] ?? null }}
+                            value={poiDraftTexts[poi.id] ?? (poi.narrationText || '')}
+                            onChange={(v) => setPoiDraftTexts(prev => ({ ...prev, [poi.id]: v }))}
+                          />
                           {/* Editable intro text */}
                           <Textarea
+                            ref={(el) => { poiTextareaRefs.current[poi.id] = el }}
                             value={poiDraftTexts[poi.id] ?? (poi.narrationText || "")}
                             onChange={(e) => setPoiDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
-                            placeholder="Click ✨ Suggest Script above, or type your narration here..."
+                            placeholder="Click ✨ Suggest Script above, or type your narration here... Use quick-insert buttons above to add sound tags!"
                             className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[60px] focus:border-emerald-500/40 text-slate-200 placeholder:text-white/20"
                           />
 
@@ -1357,10 +1466,17 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                               <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest">● Live</span>
                             )}
                           </div>
+                          {/* Sound tag toolbar for leg narration */}
+                          <SoundTagToolbar
+                            textareaRef={{ current: legTextareaRefs.current[poi.id] ?? null }}
+                            value={legDraftTexts[poi.id] ?? (poi.legNarrationText || '')}
+                            onChange={(v) => setLegDraftTexts(prev => ({ ...prev, [poi.id]: v }))}
+                          />
                           <Textarea
+                            ref={(el) => { legTextareaRefs.current[poi.id] = el }}
                             value={legDraftTexts[poi.id] ?? (poi.legNarrationText || '')}
                             onChange={(e) => setLegDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
-                            placeholder={`Narration to play while driving from ${poi.name} toward ${pois?.[idx + 1]?.name || 'next stop'}...`}
+                            placeholder={`Narration to play while driving from ${poi.name} toward ${pois?.[idx + 1]?.name || 'next stop'}... Add <sound> tags for ambient effects!`}
                             className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[60px] focus:border-blue-400/30 resize-none"
                           />
                           <div className="flex gap-2">
