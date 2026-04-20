@@ -349,21 +349,44 @@ export function UserMenu() {
                       onValueChange={handlePointerChange}
                       className="grid grid-cols-2 gap-3"
                     >
+                      {/* Arrow — default, no image, just text */}
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                         <RadioGroupItem value="arrow" id="arrow" />
-                        <Label htmlFor="arrow" className="text-xs font-bold cursor-pointer">Classic Arrow</Label>
+                        <Label htmlFor="arrow" className="text-xs font-bold cursor-pointer flex items-center gap-2">
+                          <span className="text-primary text-lg leading-none">↑</span>Classic Arrow
+                        </Label>
                       </div>
+                      {/* Silver Van */}
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
-                        <RadioGroupItem value="car-green" id="car-green" />
-                        <Label htmlFor="car-green" className="text-xs font-bold cursor-pointer text-green-400">Green Sedan</Label>
+                        <RadioGroupItem value="car-silver" id="car-silver" />
+                        <Label htmlFor="car-silver" className="text-xs font-bold cursor-pointer flex items-center gap-2">
+                          <img src="/cars/car-silver.png" alt="Silver Van" className="w-7 h-7 object-contain" />
+                          Silver Van
+                        </Label>
                       </div>
+                      {/* Red Sedan */}
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                         <RadioGroupItem value="car-red" id="car-red" />
-                        <Label htmlFor="car-red" className="text-xs font-bold cursor-pointer text-red-400">Red Sport</Label>
+                        <Label htmlFor="car-red" className="text-xs font-bold cursor-pointer flex items-center gap-2">
+                          <img src="/cars/car-red.png" alt="Red Sedan" className="w-7 h-7 object-contain" />
+                          Red Sedan
+                        </Label>
                       </div>
+                      {/* Blue Truck */}
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                         <RadioGroupItem value="car-blue" id="car-blue" />
-                        <Label htmlFor="car-blue" className="text-xs font-bold cursor-pointer text-blue-400">Blue SUV</Label>
+                        <Label htmlFor="car-blue" className="text-xs font-bold cursor-pointer flex items-center gap-2">
+                          <img src="/cars/car-blue.png" alt="Blue Truck" className="w-7 h-7 object-contain" />
+                          Blue Truck
+                        </Label>
+                      </div>
+                      {/* Gold Sports Car */}
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors col-span-2">
+                        <RadioGroupItem value="car-gold" id="car-gold" />
+                        <Label htmlFor="car-gold" className="text-xs font-bold cursor-pointer flex items-center gap-2">
+                          <img src="/cars/car-gold.png" alt="Gold Sports Car" className="w-7 h-7 object-contain" />
+                          Gold Sports Car
+                        </Label>
                       </div>
                     </RadioGroup>
                   </div>

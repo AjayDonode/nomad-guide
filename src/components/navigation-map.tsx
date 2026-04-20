@@ -60,24 +60,42 @@ const UserIcon = (isDriving: boolean, isReady: boolean, bearing: number, pointer
   if (activeType === 'dot') {
     innerHtml = `<div class="w-7 h-7 ${isDriving ? 'bg-green-500' : 'bg-primary'} rounded-full border-4 border-white shadow-xl flex items-center justify-center"><div class="w-2 h-2 bg-white rounded-full ${isDriving ? 'animate-pulse' : ''}"></div></div>`
   } else if (activeType.startsWith('car-')) {
-    const isRed = activeType === 'car-red';
-    const isBlue = activeType === 'car-blue';
-    const carColor = isRed ? 'text-red-500' : isBlue ? 'text-blue-500' : 'text-green-500';
-    const carGlow = isDriving ? (isRed ? 'drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]' : isBlue ? 'drop-shadow-[0_0_15px_rgba(59,130,246,0.8)]' : 'drop-shadow-[0_0_15px_rgba(34,197,94,0.8)]') : 'drop-shadow-lg';
-    
-    innerHtml = `<div class="-mt-2"><svg viewBox="0 0 24 24" class="w-12 h-12 ${carColor} ${carGlow}" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z M6.85 7h10.29l1.04 3H5.81l1.04-3z" /></svg></div>`
+    // PNG car map: pointer type → image file in /public/cars/
+    const carPngMap: Record<string, string> = {
+      'car-red':    '/cars/car-red.png',
+      'car-blue':   '/cars/car-blue.png',
+      'car-green':  '/cars/car-silver.png', // silver van replaces old green SVG car
+      'car-silver': '/cars/car-silver.png',
+      'car-gold':   '/cars/car-gold.png',
+    };
+    const src = carPngMap[activeType] || '/cars/car-silver.png';
+
+    // Glow color per car type (applied as drop-shadow on the img)
+    const glowMap: Record<string, string> = {
+      'car-red':    'drop-shadow(0 0 10px rgba(239,68,68,0.9))',
+      'car-blue':   'drop-shadow(0 0 10px rgba(59,130,246,0.9))',
+      'car-silver': 'drop-shadow(0 0 8px rgba(200,200,200,0.7))',
+      'car-green':  'drop-shadow(0 0 8px rgba(200,200,200,0.7))',
+      'car-gold':   'drop-shadow(0 0 10px rgba(234,179,8,0.9))',
+    };
+    const glow = isDriving ? (glowMap[activeType] || 'drop-shadow(0 0 8px rgba(255,255,255,0.5))') : 'none';
+
+    // The red generated image faces south (180° off) — flip it back
+    const extraRotate = activeType === 'car-red' ? 'rotate(180deg) ' : '';
+
+    innerHtml = `<img src="${src}" alt="car" width="64" height="64" style="width:64px;height:64px;object-fit:contain;filter:${glow};transform:${extraRotate}scale(1);transform-origin:center;" />`
   } else {
+    // Arrow — unchanged
     innerHtml = `<svg viewBox="0 0 24 24" class="w-10 h-10 ${defaultColor} ${defaultGlow}" fill="currentColor"><path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z" /></svg>`
   }
 
   return L.divIcon({
     className: 'user-location-marker !transition-transform !duration-1000 !ease-linear',
-    html: `<div class="relative flex items-center justify-center"><div class="relative w-12 h-12 flex items-center justify-center transition-all duration-500 ease-out" style="transform: rotate(${activeType === 'dot' ? 0 : bearing}deg)">${isDriving ? `<div class="absolute inset-0 bg-green-500/30 rounded-full animate-ping"></div>` : isReady ? `<div class="absolute inset-0 bg-primary/20 rounded-full animate-pulse"></div>` : ''}${innerHtml}</div></div>`,
-    iconSize: [48, 48],
-    iconAnchor: [24, 24],
+    html: `<div class="relative flex items-center justify-center"><div class="relative w-16 h-16 flex items-center justify-center transition-all duration-500 ease-out" style="transform: rotate(${activeType === 'dot' ? 0 : bearing}deg)">${isDriving ? `<div class="absolute inset-0 bg-green-500/30 rounded-full animate-ping"></div>` : isReady ? `<div class="absolute inset-0 bg-primary/20 rounded-full animate-pulse"></div>` : ''}${innerHtml}</div></div>`,
+    iconSize: [64, 64],
+    iconAnchor: [32, 32],
   })
 }
-
 
 
 function calculateBearing(start: [number, number], end: [number, number]) {
