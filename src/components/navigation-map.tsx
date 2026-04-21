@@ -106,6 +106,13 @@ function calculateBearing(start: [number, number], end: [number, number]) {
   return (bearing + 360) % 360;
 }
 
+function normalizeBearing(current: number, target: number) {
+  let diff = (target - current) % 360;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  return current + diff;
+}
+
 function calculateDistance(start: [number, number], end: [number, number]) {
   const R = 6371e3; // metres
   const phi1 = start[0] * Math.PI/180;
@@ -261,6 +268,8 @@ export function NavigationMap({
   }, [])
 
   const prevCenterRef = useRef<[number, number] | null>(null);
+  const lastMovingBearingRef = useRef<number | null>(null);
+  const consecutiveStationaryTicksRef = useRef<number>(0);
 
   useEffect(() => {
     if (!center) return;
@@ -268,21 +277,36 @@ export function NavigationMap({
     // 1. Dominant: Physical Movement Vector (if user is actively driving)
     if (prevCenterRef.current) {
         const dist = calculateDistance(prevCenterRef.current, center);
-        if (dist > 1) { // User physically moved > 1 meter
+        if (dist > 2.5) { // User physically moved > 2.5 meters (rejects GPS noise)
             const newBearing = calculateBearing(prevCenterRef.current, center);
-            setBearing(newBearing);
+            setBearing(prev => {
+              const normalized = normalizeBearing(prev, newBearing);
+              lastMovingBearingRef.current = normalized;
+              return normalized;
+            });
             prevCenterRef.current = center;
+            consecutiveStationaryTicksRef.current = 0;
             return;
+        } else {
+            // Stationary or minimal GPS drift
+            consecutiveStationaryTicksRef.current += 1;
+            
+            // Hold the physical moving direction for ~5 location ticks (roughly 5 seconds)
+            // before snapping to the road route geometry
+            if (consecutiveStationaryTicksRef.current < 5 && lastMovingBearingRef.current !== null) {
+                return;
+            }
         }
     } else {
         prevCenterRef.current = center;
+        consecutiveStationaryTicksRef.current = 0;
     }
     
-    // 2. Fallback: Snap to Route Geometry (if stationary or just loaded)
+    // 2. Fallback: Snap to Route Geometry (if stopped at a light for a while, or just loaded app)
     if (routePoints.length > 1) {
         let closestIdx = 0;
         let minDest = Infinity;
-        // Search the first chunk of the route for the closest point
+        // Search the first chunk of the route for the closest physical geometry point
         for (let i = 0; i < Math.min(routePoints.length, 300); i++) {
             const d = calculateDistance(center, routePoints[i]);
             if (d < minDest) {
@@ -290,11 +314,24 @@ export function NavigationMap({
                 closestIdx = i;
             }
         }
-        // Look slightly ahead of the closest point (approx 15-30 meters down the road)
-        const lookaheadIdx = Math.min(closestIdx + 4, routePoints.length - 1);
-        if (lookaheadIdx > closestIdx && lookaheadIdx < routePoints.length) {
-            setBearing(calculateBearing(center, routePoints[lookaheadIdx]));
+        
+        // 3. Lookahead Logic — Trace exactly ~20 meters down the physical geometry curve,
+        // rather than guessing with array index bounds.
+        let lookaheadPt = routePoints[Math.min(closestIdx + 1, routePoints.length - 1)];
+        let accumDist = 0;
+        const targetLookaheadDist = 20; // meters
+        
+        for (let i = closestIdx; i < routePoints.length - 1; i++) {
+             const segmentDist = calculateDistance(routePoints[i], routePoints[i+1]);
+             accumDist += segmentDist;
+             if (accumDist >= targetLookaheadDist) {
+                 lookaheadPt = routePoints[i+1];
+                 break;
+             }
         }
+        
+        const targetBearing = calculateBearing(center, lookaheadPt);
+        setBearing(prev => normalizeBearing(prev, targetBearing));
     }
   }, [center, routePoints]);
 

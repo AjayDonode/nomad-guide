@@ -50,9 +50,11 @@ import {
   serverTimestamp,
   orderBy,
   getDocs,
-  updateDoc
+  updateDoc,
+  deleteDoc,
+  writeBatch
 } from 'firebase/firestore'
-import { ref, uploadString, getDownloadURL } from 'firebase/storage'
+import { ref, uploadString, getDownloadURL, listAll, deleteObject } from 'firebase/storage'
 import { 
   setDocumentNonBlocking, 
   addDocumentNonBlocking, 
@@ -211,6 +213,7 @@ function UserManagementPanel({ currentUserUid }: { currentUserUid: string }) {
   const [isLoading, setIsLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
   const [updatingUid, setUpdatingUid] = React.useState<string | null>(null);
+  const [showAllUsers, setShowAllUsers] = React.useState(false);
 
   // Load all users once
   React.useEffect(() => {
@@ -253,11 +256,18 @@ function UserManagementPanel({ currentUserUid }: { currentUserUid: string }) {
     }
   };
 
-  const filtered = users.filter(u =>
-    !search ||
-    (u.displayName || '').toLowerCase().includes(search.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(search.toLowerCase())
-  );
+  // Filter logic
+  let filtered = users.filter((u) => {
+    // Search filter
+    if (search && !(u.displayName || '').toLowerCase().includes(search.toLowerCase()) && !(u.email || '').toLowerCase().includes(search.toLowerCase())) return false;
+    
+    // Role filter
+    if (!showAllUsers && !search) {
+      const role = u.role || 'user';
+      if (role === 'user') return false; // Hide regular users unless searched or expanded
+    }
+    return true;
+  });
 
   const counts = { admin: 0, designer: 0, user: 0 };
   users.forEach(u => { const r = (u.role || 'user') as UserRole; counts[r] = (counts[r] || 0) + 1; });
@@ -388,6 +398,18 @@ function UserManagementPanel({ currentUserUid }: { currentUserUid: string }) {
           })}
         </div>
       )}
+      
+      {!showAllUsers && !search && counts.user > 0 && (
+        <div className="mt-8 text-center bg-white/5 border border-white/10 p-6 rounded-2xl">
+          <p className="text-sm text-muted-foreground mb-4">
+             Showing {filtered.length} core team members. There are {counts.user} explorers registered.
+          </p>
+          <Button onClick={() => setShowAllUsers(true)} variant="outline" className="border-white/20 hover:bg-white/10 rounded-xl">
+             Load all users ({users.length} total)
+          </Button>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -542,12 +564,12 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      {/* Main Area */}
-      <main className="flex-1 relative bg-black/40">
+      <main className="flex-1 relative bg-black/40 flex flex-col overflow-y-auto">
         {activeView === 'users' ? (
           <UserManagementPanel currentUserUid={user?.uid || ''} />
         ) : editingTripId || isCreating ? (
           <TripDesigner 
+            key={editingTripId || 'new'}
             tripId={editingTripId} 
             onClose={() => {
               setEditingTripId(null)
@@ -555,14 +577,72 @@ export default function AdminDashboard() {
             }} 
           />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center p-12">
-            <div className="w-24 h-24 rounded-[2.5rem] bg-white/5 border border-white/10 flex items-center justify-center mb-8">
-              <LucideMap className="w-10 h-10 text-muted-foreground" />
+          <div className="flex-1 flex flex-col p-12 overflow-y-auto w-full max-w-5xl mx-auto">
+            {/* Dashboard Headers */}
+            <div className="mb-10 text-center flex flex-col items-center">
+              <div className="w-20 h-20 rounded-[2.5rem] bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-6">
+                <Navigation className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h2 className="text-3xl font-headline font-bold mb-3 tracking-tight">Trip Analytics overview</h2>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Select a trip from the sidebar to edit it, or review the most popular tours below.
+              </p>
             </div>
-            <h2 className="text-2xl font-headline font-bold mb-4">Select a Trip to Edit</h2>
-            <p className="text-muted-foreground max-w-md mx-auto">
-              Choose an existing itinerary from the sidebar or create a new one to start mapping discovery points and narrative routes.
-            </p>
+
+            {/* Popular Tours Table */}
+            <div>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-headline font-bold">Trending Tours</h3>
+                <Badge variant="outline" className="bg-white/5 border-white/10 text-xs text-muted-foreground font-bold tracking-widest uppercase">
+                  {trips?.length || 0} Total Published
+                </Badge>
+              </div>
+
+              {isTripsLoading ? (
+                 <div className="space-y-4">
+                    {[1,2,3].map(i => <div key={i} className="h-20 bg-white/5 rounded-2xl animate-pulse" />)}
+                 </div>
+              ) : trips?.length === 0 ? (
+                <div className="p-12 text-center rounded-3xl bg-white/5 border border-white/10">
+                  <p className="text-muted-foreground">No trips published yet. Create one to get started!</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {[...(trips || [])].sort((a: any, b: any) => (b.runCount || 0) - (a.runCount || 0)).map((trip: any, idx: number) => (
+                    <div 
+                      key={trip.id} 
+                      className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 px-6 rounded-2xl bg-card/20 border border-white/5 hover:bg-card/40 hover:border-white/10 transition-colors cursor-pointer"
+                      onClick={() => {
+                        setEditingTripId(trip.id);
+                        setIsCreating(false);
+                      }}
+                    >
+                      <div className="flex items-center gap-4 mb-4 sm:mb-0">
+                        <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                          <span className="text-sm font-black text-primary">#{idx + 1}</span>
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-lg leading-tight mb-1">{trip.name}</h4>
+                          <p className="text-sm text-muted-foreground line-clamp-1 max-w-xl">{trip.description || 'No description provided'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-6 sm:pl-4 shrink-0 justify-between sm:justify-end border-t border-white/5 sm:border-0 pt-4 sm:pt-0">
+                         <div className="flex flex-col items-center sm:items-end">
+                            <span className="text-2xl font-black text-emerald-400 leading-none mb-1">
+                               {trip.runCount ? trip.runCount.toLocaleString() : '0'}
+                            </span>
+                            <span className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Explorers</span>
+                         </div>
+                         <Button variant="ghost" size="icon" className="group-hover:bg-primary/20 rounded-xl h-10 w-10 text-primary hover:text-primary transition-colors">
+                            <Route className="w-4 h-4" />
+                         </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>
@@ -812,10 +892,52 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
     setTimeout(() => {
       setIsSaving(false)
+      toast({ title: "Trip Saved", description: tripId ? "Your changes were saved successfully." : "Your new trip is ready in draft mode." })
       if (!tripId) onClose()
-    }, 800)
+    }, 1500)
   }
 
+  const handleDeleteTrip = async () => {
+    if (!firestore || !tripId) return;
+    if (!confirm("Are you sure you want to permanently delete this trip and ALL its generated audio/stops? This cannot be undone.")) return;
+    
+    setIsSaving(true);
+    try {
+      await deleteDoc(doc(firestore, 'trips', tripId));
+      if (pois && pois.length > 0) {
+        const batch = writeBatch(firestore);
+        pois.forEach(poi => {
+          batch.delete(doc(firestore, 'trips', tripId, 'trip_pois', poi.id));
+        });
+        await batch.commit();
+      }
+
+      // Delete associated Cloud Storage files (cover images, generated TTS audio)
+      if (storage) {
+        try {
+          const rootRef = ref(storage, `trips/${tripId}`);
+          
+          const deleteFolderContents = async (folderRef: any) => {
+             const res = await listAll(folderRef).catch(() => ({ items: [], prefixes: [] }));
+             await Promise.all(res.items.map((item: any) => deleteObject(item)));
+             for (const sub of res.prefixes) {
+               await deleteFolderContents(sub);
+             }
+          };
+          
+          await deleteFolderContents(rootRef);
+        } catch (storageErr) {
+          console.warn("[Storage Cleanup] Encountered error or missing files:", storageErr);
+        }
+      }
+
+      toast({ title: 'Trip Fully Deleted', description: "The trip, POIs, images, and audio files have been permanently removed." });
+      onClose();
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Delete Failed', description: err.message });
+      setIsSaving(false);
+    }
+  };
   // ── Step 1: ✨ Generate suggested narration TEXT for a single POI ──────────
   // User can then edit before publishing audio
   const handleGeneratePoiText = async (poi: any, index: number) => {
@@ -1492,6 +1614,20 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
               </Button>
             </>
           )}
+
+          {profile?.role === 'admin' && tripId && (
+            <Button
+              onClick={handleDeleteTrip}
+              disabled={isSaving}
+              variant="outline"
+              className="border-red-500/30 text-red-500 hover:bg-red-500/10 h-11 px-5 font-bold mr-2 ml-auto"
+              title="Permanently delete this trip"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Delete Trip
+            </Button>
+          )}
+
           <Button 
             onClick={handleSaveTrip} 
             disabled={isSaving}

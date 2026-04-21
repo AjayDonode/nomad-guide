@@ -43,8 +43,8 @@ import type { RouteStep } from '@/components/navigation-map'
 import { useUser, useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
-import { collection, query, orderBy, doc } from 'firebase/firestore'
-import { DrivingCaptions } from '@/components/driving-captions'
+import { collection, query, orderBy, doc, updateDoc, increment } from 'firebase/firestore'
+
 import { AudioTourController } from '@/components/audio-tour-controller'
 import { UpcomingPoiGallery } from '@/components/upcoming-poi-gallery'
 import { TripChat } from '@/components/trip-chat'
@@ -824,6 +824,13 @@ export default function DrivingDashboard() {
 
     setIsStartingTour(false)
     setIsDriving(true)
+
+    // Increment runCount for the active trip
+    if (activeTripId && firestore) {
+      updateDoc(doc(firestore, 'trips', activeTripId), {
+        runCount: increment(1)
+      }).catch(e => console.warn('Failed to increment runCount', e));
+    }
 
     if (!introPlayed.current) {
       introPlayed.current = true
@@ -1964,12 +1971,7 @@ export default function DrivingDashboard() {
           }}
         />
 
-        {/* Driving Captions Overlay */}
-        <DrivingCaptions
-          text={activePoi?.narrationText || activePoi?.description || activePoi?.reason || `Approaching ${activePoi?.name}...`}
-          isVisible={isCaptionVisible && !!activePoi}
-          onClose={() => setIsCaptionVisible(false)}
-        />
+
 
         {/* ── Far-From-Start Modal ── */}
         {showFarFromStart && startPointCoords && (
@@ -2123,22 +2125,20 @@ export default function DrivingDashboard() {
                 <div className="space-y-1 pb-4">
                   <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2 mb-2">Search Results</div>
                   {filteredTrips.map((trip) => (
-                    <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
-                      {/* Cover thumbnail */}
-                      <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
-                        {trip.coverImage ? (
-                          <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20">
-                            <span className="text-lg font-black text-white/60">{trip.name?.[0]?.toUpperCase()}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 min-w-0 flex-1">
-                        <span className="font-bold text-base truncate">{trip.name}</span>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="h-5 text-[10px] bg-white/5 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
-                          <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
+                    <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group">
+                      {trip.coverImage ? (
+                        <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0" />
+                      ) : (
+                        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20 z-0">
+                          <span className="text-5xl font-black text-white/10">{trip.name?.[0]?.toUpperCase()}</span>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
+                      <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                        <span className="font-bold text-xl truncate text-white drop-shadow-md">{trip.name}</span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white border border-white/10 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
+                          <span className="text-xs text-white/70 line-clamp-1 drop-shadow-md font-medium">{trip.description}</span>
                         </div>
                       </div>
                     </div>
@@ -2152,20 +2152,20 @@ export default function DrivingDashboard() {
                         <Heart className="w-3 h-3 fill-current" /> Saved Trips
                       </div>
                       {categorizedTrips.favorites.map((trip) => (
-                        <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
-                          {/* Cover thumbnail */}
-                          <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
-                            {trip.coverImage ? (
-                              <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20">
-                                <span className="text-lg font-black text-white/60">{trip.name?.[0]?.toUpperCase()}</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-col gap-1 min-w-0 flex-1">
-                            <span className="font-bold text-base truncate">{trip.name}</span>
-                            <span className="text-xs text-muted-foreground line-clamp-1">{trip.description}</span>
+                        <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group">
+                          {trip.coverImage ? (
+                            <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0" />
+                          ) : (
+                            <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20 z-0">
+                              <span className="text-5xl font-black text-white/10">{trip.name?.[0]?.toUpperCase()}</span>
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
+                          <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                            <span className="font-bold text-xl truncate text-white drop-shadow-md">{trip.name}</span>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-white/70 line-clamp-1 drop-shadow-md font-medium">{trip.description}</span>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -2179,21 +2179,19 @@ export default function DrivingDashboard() {
                       <p className="text-xs text-white/30 px-2 mb-2">No trips found within 50 miles. Try searching by name above.</p>
                     )}
                     {categorizedTrips.nearby.map((trip) => (
-                      <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/20">
-                        {/* Cover thumbnail */}
-                        <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
-                          {trip.coverImage ? (
-                            <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20">
-                              <span className="text-lg font-black text-white/60">{trip.name?.[0]?.toUpperCase()}</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-1 min-w-0 flex-1">
-                          <span className="font-bold text-base truncate">{trip.name}</span>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="h-5 text-[10px] bg-white/5">{formatDisplayDistance(trip.distance, units)} away</Badge>
+                      <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group">
+                        {trip.coverImage ? (
+                          <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0" />
+                        ) : (
+                          <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20 z-0">
+                            <span className="text-5xl font-black text-white/10">{trip.name?.[0]?.toUpperCase()}</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
+                        <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                          <span className="font-bold text-xl truncate text-white drop-shadow-md">{trip.name}</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white border border-white/10 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
                           </div>
                         </div>
                       </div>
@@ -2216,19 +2214,20 @@ export default function DrivingDashboard() {
                           <MapIcon className="w-3 h-3" /> All Trips
                         </div>
                         {noLocationTrips.map((trip: any) => (
-                          <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="rounded-2xl cursor-pointer p-3 flex items-center gap-3 hover:bg-white/5 active:bg-white/10 transition-colors border border-white/5 mb-2 bg-black/10 opacity-80">
-                            <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
-                              {trip.coverImage ? (
-                                <img src={trip.coverImage} alt={trip.name} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5">
-                                  <span className="text-lg font-black text-white/40">{trip.name?.[0]?.toUpperCase()}</span>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex flex-col gap-1 min-w-0 flex-1">
-                              <span className="font-bold text-base truncate text-white/80">{trip.name}</span>
-                              <Badge variant="secondary" className="h-5 text-[10px] bg-white/5 text-white/40 w-fit">Location not set</Badge>
+                          <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group opacity-90">
+                            {trip.coverImage ? (
+                              <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0 grayscale" />
+                            ) : (
+                              <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-500/20 to-gray-500/10 z-0">
+                                <span className="text-5xl font-black text-white/5">{trip.name?.[0]?.toUpperCase()}</span>
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
+                            <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                              <span className="font-bold text-xl truncate text-white/80 drop-shadow-md">{trip.name}</span>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white/40 border border-white/10 shrink-0">Location not set</Badge>
+                              </div>
                             </div>
                           </div>
                         ))}

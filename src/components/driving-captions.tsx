@@ -27,34 +27,27 @@ export function DrivingCaptions({ text, isVisible, onClose }: DrivingCaptionsPro
 
   return (
     <div className={cn(
-      "fixed bottom-24 left-1/2 -translate-x-1/2 z-[120] w-[90%] max-w-2xl transition-all duration-700 ease-out",
-      isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
+      "fixed bottom-6 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-2xl z-[150] pointer-events-none transition-all duration-700 ease-out",
+      isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
     )}>
-      <div className="glass-morphism rounded-[2rem] p-6 shadow-2xl border-white/5 relative overflow-hidden group">
-        {/* Animated Progress Border (Left to Right) */}
-        <div className={cn(
-          "absolute top-0 left-0 h-1 bg-primary/40 transition-all duration-[15s] ease-linear",
-          isVisible ? "w-full" : "w-0"
-        )} />
+      <div className="glass-morphism rounded-full px-5 py-3 shadow-2xl border-white/20 overflow-hidden flex items-center mx-auto w-full">
+        <div className="relative z-10 shrink-0 pr-4 mr-2 border-r border-white/20 flex items-center bg-transparent">
+           <Sparkles className="w-5 h-5 text-primary animate-pulse" />
+        </div>
         
-        <div className="flex items-start gap-4">
-          <div className="shrink-0 p-2 bg-primary/20 rounded-xl">
-            <Sparkles className="w-4 h-4 text-primary animate-pulse" />
-          </div>
-          
-          <div className="flex-1 overflow-hidden">
-            <p className={cn(
-              "text-sm sm:text-base font-body leading-relaxed text-white/90 italic animate-in slide-in-from-left duration-1000",
-              isVisible ? "opacity-100" : "opacity-0"
-            )}>
+        <div className="flex-1 overflow-hidden flex whitespace-nowrap relative mask-marquee-edges">
+          {/* Note: mask-image may need standard CSS, but simple overflow hidden also works fine */}
+          <div 
+            className="animate-marquee inline-block" 
+            style={{ 
+              WebkitMaskImage: 'linear-gradient(to right, transparent, black 5%, black 95%, transparent)',
+              animationDuration: `${Math.max(10, displayText.length / 12)}s` 
+            }}
+          >
+            <p className="text-sm sm:text-base font-body font-bold text-white tracking-wide pr-8">
               {displayText}
             </p>
           </div>
-        </div>
-
-        {/* Subtle Decorative element */}
-        <div className="absolute -right-4 -bottom-4 opacity-5">
-           <Sparkles className="w-24 h-24 text-white" />
         </div>
       </div>
     </div>

@@ -31,7 +31,7 @@ export function UpcomingPoiGallery({ upcomingPois }: UpcomingPoiGalleryProps) {
 
   return (
     <>
-      <div className="absolute bottom-[4.5rem] left-4 right-4 z-40 pointer-events-none flex justify-center">
+      <div className="absolute bottom-2 left-4 right-4 z-40 pointer-events-none flex justify-center">
         <div className="pointer-events-auto max-w-full">
           <ScrollArea className="bg-black/20 backdrop-blur-md rounded-2xl p-2 shadow-2xl border border-white/10 max-w-full">
             <div className="flex w-max space-x-3">
