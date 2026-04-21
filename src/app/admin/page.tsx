@@ -867,8 +867,18 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     
     const id = tripId || doc(collection(firestore, 'trips')).id
     
+    // Auto-snap the global trip start pin to the exact location of the First POI
+    let startLat = tripData.startLatitude;
+    let startLng = tripData.startLongitude;
+    if (pois && pois.length > 0) {
+      startLat = pois[0].latitude;
+      startLng = pois[0].longitude;
+    }
+
     const payload: any = {
       ...tripData,
+      startLatitude: startLat,
+      startLongitude: startLng,
       id,
       adminId: user.uid,
       isAdminTrip: true,

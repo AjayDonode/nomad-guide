@@ -28,7 +28,9 @@ import {
   PauseCircle,
   PlayCircle,
   Loader2,
-  Coffee
+  Coffee,
+  CloudDownload,
+  CheckCircle2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,13 +45,13 @@ import type { RouteStep } from '@/components/navigation-map'
 import { useUser, useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase'
 import { useRouter } from 'next/navigation'
 import { UserMenu } from '@/components/user-menu'
-import { collection, query, orderBy, doc, updateDoc, increment } from 'firebase/firestore'
+import { collection, query, orderBy, doc, updateDoc, increment, getDocs } from 'firebase/firestore'
 
 import { AudioTourController } from '@/components/audio-tour-controller'
 import { UpcomingPoiGallery } from '@/components/upcoming-poi-gallery'
 import { TripChat } from '@/components/trip-chat'
 import * as Tone from 'tone'
-import { set as idbSet, get as idbGet, del as idbDel } from 'idb-keyval'
+import { set as idbSet, get as idbGet, del as idbDel, keys as idbKeys } from 'idb-keyval'
 import { ref as storageRef, listAll, getDownloadURL } from 'firebase/storage'
 
 // Dynamic imports
@@ -173,6 +175,85 @@ export default function DrivingDashboard() {
   const [isCaptionVisible, setIsCaptionVisible] = useState(false)
   const [isStartingTour, setIsStartingTour] = useState(false)
   const [downloadProgress, setDownloadProgress] = useState(0) // 0-100 during prefetch
+  const [offlineStatus, setOfflineStatus] = useState<Record<string, number | 'downloaded'>>({});
+
+  useEffect(() => {
+    const loadOfflineStatus = async () => {
+      try {
+        const keys = await idbKeys();
+        const statusMap: Record<string, 'downloaded'> = {};
+        for (const key of keys) {
+          if (typeof key === 'string' && key.startsWith('trip_offline_status_')) {
+            const tripId = key.replace('trip_offline_status_', '');
+            statusMap[tripId] = 'downloaded';
+          }
+        }
+        setOfflineStatus(statusMap);
+      } catch (e) { console.warn(e); }
+    };
+    loadOfflineStatus();
+  }, []);
+
+  const handleDownloadTripOffline = async (e: React.MouseEvent, trip: any) => {
+    e.stopPropagation();
+    if (offlineStatus[trip.id]) return;
+    setOfflineStatus(prev => ({...prev, [trip.id]: 0}));
+    
+    try {
+      const snap = await getDocs(collection(firestore!, 'trips', trip.id, 'trip_pois'));
+      const pois = snap.docs.map(d => ({id: d.id, ...d.data()}) as any).sort((a:any,b:any) => a.order - b.order);
+      
+      const cacheUrl = async (key: string, url: string): Promise<boolean> => {
+        try {
+          if (await idbGet(key)) return true;
+          const res = await fetch(url);
+          if (!res.ok) return false;
+          const blob = await res.blob();
+          const dataUri = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          await idbSet(key, dataUri);
+          return true;
+        } catch { return false; }
+      };
+
+      const totalAssets = 1 + pois.length + pois.length + 1;
+      let doneCount = 0;
+      const tick = () => {
+        doneCount++;
+        setOfflineStatus(prev => ({...prev, [trip.id]: Math.round((doneCount / totalAssets) * 100)}));
+      };
+
+      const maleUrl = voicePreference === 'male' ? trip.introNarrationMaleUrl : trip.introNarrationFemaleUrl;
+      if (maleUrl) { await cacheUrl(`intro_${trip.id}`, maleUrl); }
+      tick();
+
+      const fillerUrl = voicePreference === 'male' ? trip.fillerAudioMaleUrl : trip.fillerAudioFemaleUrl;
+      if (fillerUrl) { await cacheUrl(`filler_${trip.id}`, fillerUrl); }
+      tick();
+
+      for (let poi of pois) {
+        const poiUrl = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri;
+        if (poiUrl) { await cacheUrl(`audio_${poi.id}_${voicePreference}`, poiUrl); }
+        tick();
+
+        const legUrl = voicePreference === 'male' ? poi.legNarrationMaleUrl : poi.legNarrationFemaleUrl;
+        if (legUrl) { await cacheUrl(`leg_${poi.id}_${voicePreference}`, legUrl); }
+        tick();
+      }
+
+      await idbSet(`trip_offline_status_${trip.id}`, true);
+      setOfflineStatus(prev => ({...prev, [trip.id]: 'downloaded'}));
+      toast({ title: 'Available Offline ✓', description: `${trip.name} is saved fully on your device.` });
+    } catch (e) {
+      console.warn("Offline download failed", e);
+      setOfflineStatus(prev => ({...prev, [trip.id]: 0}));
+      toast({ title: 'Download Failed', description: 'Check your internet connection.', variant: 'destructive' });
+    }
+  };
 
   // Feedback Flow
   const [showFeedback, setShowFeedback] = useState(false)
@@ -1394,7 +1475,8 @@ export default function DrivingDashboard() {
   const formatDisplayDistance = (km: number, unitType: string) => {
     if (unitType === 'imperial') {
       const miles = km * 0.621371;
-      return miles > 0.1 ? `${miles.toFixed(1)} mi` : `${Math.round(miles * 5280)} ft`;
+      // Show feet if it's less than a quarter mile (~1320 feet) for more precision
+      return miles > 0.25 ? `${miles.toFixed(1)} mi` : `${Math.round(miles * 5280)} ft`;
     }
     return km > 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`;
   }
@@ -2125,21 +2207,41 @@ export default function DrivingDashboard() {
                 <div className="space-y-1 pb-4">
                   <div className="font-headline font-bold text-[10px] uppercase tracking-widest text-muted-foreground px-2 mb-2">Search Results</div>
                   {filteredTrips.map((trip) => (
-                    <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group">
+                    <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg border border-white/10 mb-3 h-28 group">
                       {trip.coverImage ? (
-                        <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0" />
+                        <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0 transition-transform duration-1000 group-hover:scale-110" />
                       ) : (
                         <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20 z-0">
                           <span className="text-5xl font-black text-white/10">{trip.name?.[0]?.toUpperCase()}</span>
                         </div>
                       )}
                       <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
-                      <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                      <div className="relative z-20 flex flex-col p-5 pr-16 h-full justify-center pointer-events-none">
                         <span className="font-bold text-xl truncate text-white drop-shadow-md">{trip.name}</span>
                         <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white border border-white/10 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
+                          <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white border border-white/10 shrink-0 pointer-events-auto">{formatDisplayDistance(trip.distance, units)} away</Badge>
                           <span className="text-xs text-white/70 line-clamp-1 drop-shadow-md font-medium">{trip.description}</span>
                         </div>
+                      </div>
+                      {/* Offline Download Button */}
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30">
+                        <Button
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-10 w-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white/70 hover:text-white"
+                          onClick={(e) => handleDownloadTripOffline(e, trip)}
+                        >
+                          {offlineStatus[trip.id] === 'downloaded' ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.5)]" />
+                          ) : typeof offlineStatus[trip.id] === 'number' && typeof offlineStatus[trip.id] !== 'undefined' ? (
+                            <div className="relative flex items-center justify-center w-full h-full">
+                               <Loader2 className="w-6 h-6 absolute animate-spin text-white/30" />
+                               <span className="text-[10px] font-black">{offlineStatus[trip.id]}</span>
+                            </div>
+                          ) : (
+                            <CloudDownload className="w-5 h-5" />
+                          )}
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -2152,20 +2254,40 @@ export default function DrivingDashboard() {
                         <Heart className="w-3 h-3 fill-current" /> Saved Trips
                       </div>
                       {categorizedTrips.favorites.map((trip) => (
-                        <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group">
+                        <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg border border-white/10 mb-3 h-28 group">
                           {trip.coverImage ? (
-                            <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0" />
+                            <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0 transition-transform duration-1000 group-hover:scale-110" />
                           ) : (
                             <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20 z-0">
                               <span className="text-5xl font-black text-white/10">{trip.name?.[0]?.toUpperCase()}</span>
                             </div>
                           )}
                           <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
-                          <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                          <div className="relative z-20 flex flex-col p-5 pr-16 h-full justify-center pointer-events-none">
                             <span className="font-bold text-xl truncate text-white drop-shadow-md">{trip.name}</span>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-white/70 line-clamp-1 drop-shadow-md font-medium">{trip.description}</span>
+                              <span className="text-xs text-white/70 line-clamp-1 drop-shadow-md font-medium pointer-events-auto">{trip.description}</span>
                             </div>
+                          </div>
+                          {/* Offline Download Button */}
+                          <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30">
+                            <Button
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-10 w-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white/70 hover:text-white"
+                              onClick={(e) => handleDownloadTripOffline(e, trip)}
+                            >
+                              {offlineStatus[trip.id] === 'downloaded' ? (
+                                <CheckCircle2 className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.5)]" />
+                              ) : typeof offlineStatus[trip.id] === 'number' && typeof offlineStatus[trip.id] !== 'undefined' ? (
+                                <div className="relative flex items-center justify-center w-full h-full">
+                                   <Loader2 className="w-6 h-6 absolute animate-spin text-white/30" />
+                                   <span className="text-[10px] font-black">{offlineStatus[trip.id]}</span>
+                                </div>
+                              ) : (
+                                <CloudDownload className="w-5 h-5" />
+                              )}
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -2179,20 +2301,40 @@ export default function DrivingDashboard() {
                       <p className="text-xs text-white/30 px-2 mb-2">No trips found within 50 miles. Try searching by name above.</p>
                     )}
                     {categorizedTrips.nearby.map((trip) => (
-                      <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group">
+                      <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg border border-white/10 mb-3 h-28 group">
                         {trip.coverImage ? (
-                          <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0" />
+                          <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0 transition-transform duration-1000 group-hover:scale-110" />
                         ) : (
                           <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-accent/20 z-0">
                             <span className="text-5xl font-black text-white/10">{trip.name?.[0]?.toUpperCase()}</span>
                           </div>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
-                        <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                        <div className="relative z-20 flex flex-col p-5 pr-16 h-full justify-center pointer-events-none">
                           <span className="font-bold text-xl truncate text-white drop-shadow-md">{trip.name}</span>
                           <div className="flex items-center gap-2 mt-1">
-                            <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white border border-white/10 shrink-0">{formatDisplayDistance(trip.distance, units)} away</Badge>
+                            <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white border border-white/10 shrink-0 pointer-events-auto">{formatDisplayDistance(trip.distance, units)} away</Badge>
                           </div>
+                        </div>
+                        {/* Offline Download Button */}
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30">
+                          <Button
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-10 w-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white/70 hover:text-white"
+                            onClick={(e) => handleDownloadTripOffline(e, trip)}
+                          >
+                            {offlineStatus[trip.id] === 'downloaded' ? (
+                              <CheckCircle2 className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.5)]" />
+                            ) : typeof offlineStatus[trip.id] === 'number' && typeof offlineStatus[trip.id] !== 'undefined' ? (
+                              <div className="relative flex items-center justify-center w-full h-full">
+                                 <Loader2 className="w-6 h-6 absolute animate-spin text-white/30" />
+                                 <span className="text-[10px] font-black">{offlineStatus[trip.id]}</span>
+                              </div>
+                            ) : (
+                              <CloudDownload className="w-5 h-5" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -2214,20 +2356,40 @@ export default function DrivingDashboard() {
                           <MapIcon className="w-3 h-3" /> All Trips
                         </div>
                         {noLocationTrips.map((trip: any) => (
-                          <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all shadow-lg border border-white/10 mb-3 h-28 group opacity-90">
+                          <div key={trip.id} onClick={() => handleSelectTrip(trip)} className="relative overflow-hidden rounded-3xl cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform shadow-lg border border-white/10 mb-3 h-28 group opacity-90">
                             {trip.coverImage ? (
-                              <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0 grayscale" />
+                              <img src={trip.coverImage} alt={trip.name} className="absolute inset-0 w-full h-full object-cover z-0 transition-transform duration-1000 group-hover:scale-110 grayscale" />
                             ) : (
                               <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-500/20 to-gray-500/10 z-0">
                                 <span className="text-5xl font-black text-white/5">{trip.name?.[0]?.toUpperCase()}</span>
                               </div>
                             )}
                             <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
-                            <div className="relative z-20 flex flex-col p-5 h-full justify-center">
+                            <div className="relative z-20 flex flex-col p-5 pr-16 h-full justify-center pointer-events-none">
                               <span className="font-bold text-xl truncate text-white/80 drop-shadow-md">{trip.name}</span>
                               <div className="flex items-center gap-2 mt-1">
-                                <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white/40 border border-white/10 shrink-0">Location not set</Badge>
+                                <Badge variant="secondary" className="h-5 text-[10px] bg-black/40 backdrop-blur-sm text-white/40 border border-white/10 shrink-0 pointer-events-auto">Location not set</Badge>
                               </div>
+                            </div>
+                            {/* Offline Download Button */}
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30">
+                              <Button
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-10 w-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white/70 hover:text-white"
+                                onClick={(e) => handleDownloadTripOffline(e, trip)}
+                              >
+                                {offlineStatus[trip.id] === 'downloaded' ? (
+                                  <CheckCircle2 className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.5)]" />
+                                ) : typeof offlineStatus[trip.id] === 'number' && typeof offlineStatus[trip.id] !== 'undefined' ? (
+                                  <div className="relative flex items-center justify-center w-full h-full">
+                                     <Loader2 className="w-6 h-6 absolute animate-spin text-white/30" />
+                                     <span className="text-[10px] font-black">{offlineStatus[trip.id]}</span>
+                                 </div>
+                                ) : (
+                                  <CloudDownload className="w-5 h-5" />
+                                )}
+                              </Button>
                             </div>
                           </div>
                         ))}
