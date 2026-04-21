@@ -78,13 +78,26 @@ function LoginForm() {
       const userSnap = await getDoc(userRef);
       const existingData = userSnap.exists() ? userSnap.data() : {};
 
+      // Migrate: derive canonical role from existing data or context
+      const existingRole = existingData.role;
+      let role: 'user' | 'designer' | 'admin';
+      if (existingRole === 'admin' || existingRole === 'designer' || existingRole === 'user') {
+        role = existingRole; // keep existing role
+      } else if (existingData.isAdmin || isAdminRoute) {
+        role = 'admin'; // legacy admin flag or admin login route
+      } else {
+        role = 'user'; // default for new signups
+      }
+
       const userData: any = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || '',
         displayName: name || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-        isAdmin: !!(existingData.isAdmin || isAdminRoute),
+        role,
+        isAdmin: role === 'admin' || role === 'designer', // backward compat
         photoURL: firebaseUser.photoURL || null,
-        updatedAt: serverTimestamp()
+        lastSeenAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       };
 
       if (isSignUp) {

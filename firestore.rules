@@ -10,7 +10,9 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      // Users can read/write their own doc; admins can read all and update roles
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       
       match /favorites/{tripId} {
         allow read, write: if isSignedIn() && request.auth.uid == userId;

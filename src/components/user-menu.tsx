@@ -173,11 +173,20 @@ export function UserMenu() {
   };
 
   const displayName = profile?.displayName || user.displayName || user.email?.split('@')[0] || 'User';
+  const role: 'admin' | 'designer' | 'user' = profile?.role || (profile?.isAdmin ? 'admin' : 'user');
   const isAdmin = profile?.isAdmin || false;
+  const canAccessAdmin = role === 'admin' || role === 'designer';
   const voicePreference = profile?.voicePreference || 'female';
   const unitsPreference = profile?.units || 'metric';
   const pointerPreference = profile?.pointerPreference || 'arrow';
   const photoURL = profile?.photoURL || user.photoURL;
+
+  const ROLE_BADGE: Record<string, { label: string; className: string }> = {
+    admin:    { label: 'Admin',    className: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
+    designer: { label: 'Designer', className: 'bg-sky-500/20 text-sky-300 border-sky-500/30' },
+    user:     { label: 'Explorer', className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  };
+  const roleBadge = ROLE_BADGE[role] ?? ROLE_BADGE.user;
 
   return (
     <>
@@ -194,24 +203,29 @@ export function UserMenu() {
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-card/95 backdrop-blur-xl border-white/10 rounded-2xl p-2" align="end" forceMount>
           <DropdownMenuLabel className="font-normal">
-            <div className="flex flex-col space-y-1 p-2">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-headline font-bold leading-none">{displayName}</p>
-                {isAdmin && <Badge variant="secondary" className="h-4 text-[8px] bg-primary/20 text-primary uppercase border-none">Admin</Badge>}
+              <div className="flex flex-col space-y-1 p-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-headline font-bold leading-none">{displayName}</p>
+                  <Badge
+                    variant="outline"
+                    className={`h-4 text-[8px] uppercase border font-black tracking-wider px-1.5 ${roleBadge.className}`}
+                  >
+                    {roleBadge.label}
+                  </Badge>
+                </div>
+                <p className="text-xs leading-none text-muted-foreground truncate">{user.email}</p>
               </div>
-              <p className="text-xs leading-none text-muted-foreground truncate">{user.email}</p>
-            </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-white/5" />
           
-          {isAdmin && (
+          {canAccessAdmin && (
             <>
               <DropdownMenuItem 
                 onClick={() => router.push('/admin')}
                 className="rounded-xl focus:bg-primary/10 focus:text-primary cursor-pointer h-10 font-bold"
               >
                 <LayoutDashboard className="mr-2 h-4 w-4" />
-                <span>Admin Dashboard</span>
+                <span>{role === 'admin' ? 'Admin Dashboard' : 'Trip Designer'}</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/5" />
             </>

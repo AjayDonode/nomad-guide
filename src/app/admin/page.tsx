@@ -18,7 +18,14 @@ import {
   Volume2,
   Play,
   Pause,
-  Route
+  Route,
+  FileDown,
+  Users,
+  ShieldCheck,
+  ChevronDown,
+  Search,
+  Clock,
+  MoreVertical
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,7 +48,9 @@ import {
   where, 
   doc,
   serverTimestamp,
-  orderBy
+  orderBy,
+  getDocs,
+  updateDoc
 } from 'firebase/firestore'
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'
 import { 
@@ -185,6 +194,203 @@ function SoundTagToolbar({ textareaRef, value, onChange }: SoundTagToolbarProps)
     </div>
   );
 }
+// ── User Management Panel ─────────────────────────────────────────────────────
+
+type UserRole = 'user' | 'designer' | 'admin';
+
+const ROLE_CONFIG: Record<UserRole, { label: string; color: string; bg: string; border: string }> = {
+  admin:    { label: 'Admin',    color: 'text-violet-300', bg: 'bg-violet-500/20', border: 'border-violet-500/30' },
+  designer: { label: 'Designer', color: 'text-sky-300',    bg: 'bg-sky-500/20',    border: 'border-sky-500/30' },
+  user:     { label: 'User',     color: 'text-slate-400',  bg: 'bg-white/5',       border: 'border-white/10' },
+};
+
+function UserManagementPanel({ currentUserUid }: { currentUserUid: string }) {
+  const { firestore } = useFirebase();
+  const { toast } = useToast();
+  const [users, setUsers] = React.useState<any[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [search, setSearch] = React.useState('');
+  const [updatingUid, setUpdatingUid] = React.useState<string | null>(null);
+
+  // Load all users once
+  React.useEffect(() => {
+    if (!firestore) return;
+    (async () => {
+      setIsLoading(true);
+      try {
+        const snap = await getDocs(collection(firestore, 'users'));
+        const allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Sort client-side so users without createdAt (legacy) are still included
+        allUsers.sort((a: any, b: any) => {
+          const aTs = a.createdAt?.seconds ?? 0;
+          const bTs = b.createdAt?.seconds ?? 0;
+          return bTs - aTs;
+        });
+        setUsers(allUsers);
+      } catch (e) {
+        console.warn('Failed to load users:', e);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [firestore]);
+
+  const handleRoleChange = async (uid: string, newRole: UserRole) => {
+    if (!firestore) return;
+    setUpdatingUid(uid);
+    try {
+      await updateDoc(doc(firestore, 'users', uid), {
+        role: newRole,
+        isAdmin: newRole === 'admin' || newRole === 'designer',
+        updatedAt: serverTimestamp(),
+      });
+      setUsers(prev => prev.map(u => u.id === uid ? { ...u, role: newRole, isAdmin: newRole !== 'user' } : u));
+      toast({ title: 'Role Updated', description: `User role changed to ${ROLE_CONFIG[newRole].label}` });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Update Failed', description: e.message });
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
+  const filtered = users.filter(u =>
+    !search ||
+    (u.displayName || '').toLowerCase().includes(search.toLowerCase()) ||
+    (u.email || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const counts = { admin: 0, designer: 0, user: 0 };
+  users.forEach(u => { const r = (u.role || 'user') as UserRole; counts[r] = (counts[r] || 0) + 1; });
+
+  const initials = (name: string) => name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || '??';
+
+  const timeAgo = (ts: any) => {
+    if (!ts) return 'Never';
+    const secs = Math.floor((Date.now() - ts.seconds * 1000) / 1000);
+    if (secs < 60) return 'Just now';
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
+  };
+
+  return (
+    <div className="h-full flex flex-col p-8 overflow-y-auto">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-10 h-10 rounded-2xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
+            <Users className="w-5 h-5 text-violet-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-headline font-bold">User Management</h1>
+            <p className="text-xs text-muted-foreground">Assign roles to control access levels</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        {(['admin', 'designer', 'user'] as UserRole[]).map(role => {
+          const cfg = ROLE_CONFIG[role];
+          return (
+            <div key={role} className={`rounded-2xl border ${cfg.border} ${cfg.bg} p-4`}>
+              <p className={`text-2xl font-black ${cfg.color}`}>{counts[role]}</p>
+              <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest mt-0.5">{cfg.label}s</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-6">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name or email..."
+          className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
+        />
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-16 rounded-2xl bg-white/5 animate-pulse" />)}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-20">
+          <Users className="w-10 h-10 text-muted-foreground mb-4 opacity-40" />
+          <p className="text-muted-foreground text-sm">{search ? 'No users match your search.' : 'No users found.'}</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(u => {
+            const role: UserRole = u.role || 'user';
+            const cfg = ROLE_CONFIG[role];
+            const isSelf = u.id === currentUserUid;
+            const isUpdating = updatingUid === u.id;
+
+            return (
+              <div
+                key={u.id}
+                className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${
+                  isSelf ? 'bg-primary/10 border-primary/20' : 'bg-white/5 border-white/5 hover:bg-white/8'
+                }`}
+              >
+                {/* Avatar */}
+                <div className={`w-10 h-10 rounded-xl ${cfg.bg} border ${cfg.border} flex items-center justify-center shrink-0`}>
+                  <span className={`text-xs font-black ${cfg.color}`}>{initials(u.displayName || u.email)}</span>
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">
+                    {u.displayName || 'Unnamed User'}
+                    {isSelf && <span className="ml-2 text-[10px] text-primary font-black uppercase tracking-widest">You</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                </div>
+
+                {/* Last Seen */}
+                <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground shrink-0 w-24">
+                  <Clock className="w-3 h-3" />
+                  <span>{timeAgo(u.lastSeenAt)}</span>
+                </div>
+
+                {/* Role Selector */}
+                <div className="shrink-0">
+                  {isUpdating ? (
+                    <div className={`h-9 w-32 rounded-xl ${cfg.bg} border ${cfg.border} flex items-center justify-center`}>
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <select
+                        value={role}
+                        disabled={isSelf} // can't change your own role
+                        onChange={e => handleRoleChange(u.id, e.target.value as UserRole)}
+                        className={`appearance-none h-9 pl-3 pr-8 rounded-xl text-xs font-bold border cursor-pointer
+                          ${cfg.bg} ${cfg.border} ${cfg.color}
+                          focus:outline-none focus:ring-2 focus:ring-primary/50
+                          disabled:opacity-40 disabled:cursor-not-allowed
+                          transition-colors hover:brightness-125`}
+                      >
+                        <option value="user">User</option>
+                        <option value="designer">Designer</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <ChevronDown className={`absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 ${cfg.color} pointer-events-none`} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const router = useRouter()
@@ -192,6 +398,7 @@ export default function AdminDashboard() {
   const { user, isUserLoading } = useUser()
   const [editingTripId, setEditingTripId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
+  const [activeView, setActiveView] = useState<'trips' | 'users'>('trips')
 
   // Verify Admin role from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -225,7 +432,7 @@ export default function AdminDashboard() {
     )
   }
 
-  if (user && profile && !profile.isAdmin) {
+  if (user && profile && profile.role !== 'admin' && profile.role !== 'designer' && !profile.isAdmin) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background p-6 text-center">
         <div className="w-20 h-20 rounded-3xl bg-destructive/20 flex items-center justify-center mb-6">
@@ -233,12 +440,14 @@ export default function AdminDashboard() {
         </div>
         <h1 className="text-3xl font-headline font-bold mb-2">Unauthorized</h1>
         <p className="text-muted-foreground mb-8 max-w-sm">
-          You do not have administrative privileges. Please log in with an admin account.
+          You do not have administrative privileges. Please log in with an admin or designer account.
         </p>
         <Button onClick={() => router.push('/admin/login?role=admin')}>Switch Account</Button>
       </div>
     )
   }
+
+  const canManageUsers = profile?.role === 'admin';
 
   if (!user) return null
 
@@ -310,7 +519,22 @@ export default function AdminDashboard() {
           </div>
         </ScrollArea>
         
-        <div className="p-4 border-t border-white/5">
+        <div className="p-4 border-t border-white/5 space-y-1">
+          {canManageUsers && (
+            <Button
+              variant="ghost"
+              className={cn(
+                "w-full justify-start rounded-xl h-11 text-xs font-bold",
+                activeView === 'users'
+                  ? "bg-violet-500/20 text-violet-300 hover:bg-violet-500/25"
+                  : "text-muted-foreground hover:text-white"
+              )}
+              onClick={() => { setActiveView('users'); setEditingTripId(null); setIsCreating(false); }}
+            >
+              <Users className="w-4 h-4 mr-3" />
+              Manage Users
+            </Button>
+          )}
           <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-white rounded-xl h-11" onClick={() => router.push('/')}>
             <LucideMap className="w-4 h-4 mr-3" />
             <span className="text-xs font-bold">Back to Map View</span>
@@ -318,9 +542,11 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      {/* Main Area: Editor */}
+      {/* Main Area */}
       <main className="flex-1 relative bg-black/40">
-        {editingTripId || isCreating ? (
+        {activeView === 'users' ? (
+          <UserManagementPanel currentUserUid={user?.uid || ''} />
+        ) : editingTripId || isCreating ? (
           <TripDesigner 
             tripId={editingTripId} 
             onClose={() => {
@@ -1091,6 +1317,116 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   // Preview is always possible if there are POIs
   const canPlayPreview = (pois?.length ?? 0) > 0;
 
+  // \u2500\u2500 Export Trip as Markdown \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  const exportTripAsMarkdown = () => {
+    const sortedPois = [...(pois || [])].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    const now = new Date().toISOString().split('T')[0];
+    const slug = tripData.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const filename = `${slug}-${now}.md`;
+
+    const audioStatus = (maleUrl: any, femaleUrl: any) => {
+      if (maleUrl && femaleUrl) return '\u2705 Both voices published';
+      if (maleUrl) return '\u26a0\ufe0f Male only';
+      if (femaleUrl) return '\u26a0\ufe0f Female only';
+      return '\u274c Not published';
+    };
+    const orNone = (v: any) => (v?.trim() ? v.trim() : '_Not set_');
+
+    const lines: string[] = [];
+
+    // \u2500\u2500 Header \u2500\u2500
+    lines.push(`# ${tripData.name}`);
+    lines.push(`> **Exported:** ${now}  |  **Trip ID:** ${tripId || 'Not saved yet'}`);
+    lines.push('');
+
+    // \u2500\u2500 Overview \u2500\u2500
+    lines.push('## \ud83d\uddfa\ufe0f Trip Overview');
+    lines.push(`| Field | Value |`);
+    lines.push(`|-------|-------|`);
+    lines.push(`| **Cover Image** | ${tripData.coverImage ? 'Yes (uploaded)' : 'No'} |`);
+    lines.push(`| **Total Stops** | ${sortedPois.length} |`);
+    lines.push(`| **Start Location** | ${tripData.startLatitude.toFixed(5)}, ${tripData.startLongitude.toFixed(5)} |`);
+    lines.push(`| **End Location** | ${tripData.endLatitude.toFixed(5)}, ${tripData.endLongitude.toFixed(5)} |`);
+    lines.push('');
+
+    // \u2500\u2500 Description \u2500\u2500
+    lines.push('## \ud83d\udcdd Description');
+    lines.push(orNone(tripData.description));
+    lines.push('');
+
+    // \u2500\u2500 Welcome / Intro Narration \u2500\u2500
+    lines.push('## \ud83c\udf99\ufe0f Welcome Narration (Intro)');
+    lines.push(`**Audio Status:** ${audioStatus(tripData.introNarrationMaleUrl, tripData.introNarrationFemaleUrl)}`);
+    lines.push('');
+
+    // \u2500\u2500 Filler Narration \u2500\u2500
+    lines.push('## \ud83d\ude97 Filler / Between-Stop Narration');
+    lines.push('');
+    lines.push('### Base Script');
+    lines.push(orNone(tripData.fillerBaseText));
+    lines.push('');
+    lines.push('### Generated / Rephrased Script');
+    const fillerText = tripData.fillerGeneratedText || tripData.fillerBaseText;
+    lines.push(orNone(fillerText));
+    lines.push('');
+    lines.push(`**Audio Status:** ${audioStatus(tripData.fillerAudioMaleUrl, tripData.fillerAudioFemaleUrl)}`);
+    lines.push('');
+
+    // \u2500\u2500 POI Stops \u2500\u2500
+    lines.push('---');
+    lines.push('');
+    lines.push('## \ud83d\udccd Points of Interest');
+    lines.push('');
+
+    sortedPois.forEach((poi, idx) => {
+      const imageCount = Array.isArray(poi.images) ? poi.images.length : (poi.images ? 1 : 0);
+      lines.push(`### Stop ${idx + 1}: ${poi.name}`);
+      lines.push('');
+      lines.push(`| Field | Value |`);
+      lines.push(`|-------|-------|`);
+      lines.push(`| **Category** | ${poi.category || '_Not set_'} |`);
+      lines.push(`| **Location** | ${(poi.latitude || 0).toFixed(5)}, ${(poi.longitude || 0).toFixed(5)} |`);
+      lines.push(`| **Images** | ${imageCount > 0 ? `Yes (${imageCount} image${imageCount > 1 ? 's' : ''})` : 'No'} |`);
+      lines.push(`| **POI Audio** | ${audioStatus(poi.audioMaleDataUri, poi.audioFemaleDataUri)} |`);
+      lines.push(`| **Leg Audio** | ${audioStatus(poi.legNarrationMaleUrl, poi.legNarrationFemaleUrl)} |`);
+      lines.push('');
+
+      lines.push('#### Description');
+      lines.push(orNone(poi.description));
+      lines.push('');
+
+      // Also include pending draft text (unsaved) if different from saved
+      const draftNarration = poiDraftTexts[poi.id] ?? poi.narrationText;
+      lines.push('#### Narration Script (POI Voice-Over)');
+      lines.push(orNone(draftNarration));
+      lines.push('');
+
+      const draftLeg = legDraftTexts[poi.id] ?? poi.legNarrationText;
+      if (idx < sortedPois.length - 1) {
+        lines.push(`#### Leg Narration (Driving to Stop ${idx + 2}: ${sortedPois[idx + 1]?.name || 'next stop'})`);
+        lines.push(orNone(draftLeg));
+        lines.push('');
+      }
+
+      lines.push('---');
+      lines.push('');
+    });
+
+    // \u2500\u2500 Footer \u2500\u2500
+    lines.push(`_Generated by NomadGuide AI Admin \u2014 ${new Date().toLocaleString()}_`);
+
+    // Trigger download
+    const content = lines.join('\n');
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: 'Trip Exported \u2713', description: `Saved as ${filename}` });
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Editor Header */}
@@ -1143,6 +1479,16 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 ) : (
                   <Play className={cn("w-5 h-5", canPlayPreview && "translate-x-0.5")} />
                 )}
+              </Button>
+              {/* ── Export Trip Markdown ── */}
+              <Button
+                onClick={exportTripAsMarkdown}
+                variant="outline"
+                className="rounded-xl border-sky-500/30 text-sky-400 hover:bg-sky-500/10 h-11 px-5 font-bold"
+                title="Export trip as Markdown for review"
+              >
+                <FileDown className="w-4 h-4 mr-2" />
+                Export
               </Button>
             </>
           )}
