@@ -335,188 +335,132 @@ export function NavigationMap({
     }
   }, [center, routePoints]);
 
+  // ── Decoded full-trip route (roads-accurate, from stored legs) ───────────────
+  // Populated once when storedRouteLegs changes. Stays stable during driving.
   useEffect(() => {
     if (allPois && allPois.length > 0) {
       const fullSignature = `all-${allPois.map(p => p.id).join('-')}`;
       if (lastTripSignatureRef.current !== fullSignature) {
-         setFullTripRoutePoints([]);
-         lastTripSignatureRef.current = fullSignature;
+        setFullTripRoutePoints([]);
+        lastTripSignatureRef.current = fullSignature;
       }
     }
 
-    if (destination) {
-      const currentSignature = `${destination[0]},${destination[1]}-${pois.map(p => p.id).join('-')}`;
+    if (!destination) {
+      setRoutePoints([]);
+      if (onNextStepUpdate) onNextStepUpdate(null);
+      return;
+    }
 
-      // Compute straight-line fallback FIRST so we can show it immediately
-      const sortedFallbackPois = [...pois].sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-      const fallbackPoints: [number, number][] = [];
-      if (isDriving || sortedFallbackPois.length === 0) {
-        fallbackPoints.push(center);
+    const currentSignature = `${destination[0]},${destination[1]}-${pois.map(p => p.id).join('-')}`;
+
+    // ── Decode stored route once (instant, no API) ──────────────────────────
+    if (storedRouteLegs && storedRouteLegs.length > 0 && lastRouteSignatureRef.current !== currentSignature) {
+      const coords = storedRouteLegs.flatMap(shape => decodePolyline6(shape));
+      if (coords.length > 0) {
+        setFullTripRoutePoints(coords);
+        cachedRoutePointsRef.current = coords;
+        lastRouteSignatureRef.current = currentSignature;
+        onRouteReady?.(coords);
+        if (!isDriving) {
+          // Preview mode: show the full stored route immediately, no Valhalla needed
+          setRoutePoints(coords);
+          return;
+        }
       }
-      fallbackPoints.push(...sortedFallbackPois.map(p => [p.latitude, p.longitude] as [number, number]));
-      if (fallbackPoints.length === 1 && destination) fallbackPoints.push(destination);
+    }
 
-      if (lastRouteSignatureRef.current !== currentSignature) {
-         cachedRoutePointsRef.current = null;
-         lastFetchedCenterRef.current = null;
-         // Show straight-line placeholder immediately — replaced once real route arrives
-         if (fallbackPoints.length >= 2) setRoutePoints(fallbackPoints);
-         lastRouteSignatureRef.current = currentSignature;
+    // ── DRIVING MODE: trim the pre-decoded route from the closest point forward ──
+    // This gives a smooth, road-accurate blue line that shrinks as you drive —
+    // zero API calls, zero straight-line flashes.
+    if (isDriving && cachedRoutePointsRef.current && cachedRoutePointsRef.current.length > 1) {
+      const full = cachedRoutePointsRef.current;
+      let closestIdx = 0;
+      let minDist = Infinity;
+      // Search within first 600 points (generous for any city trip) to find where we are
+      const searchLimit = Math.min(full.length, 600);
+      for (let i = 0; i < searchLimit; i++) {
+        const d = calculateDistance(center, full[i]);
+        if (d < minDist) { minDist = d; closestIdx = i; }
       }
+      // Only update if we've moved at least 5m along the route (debounce GPS noise)
+      if (lastFetchedCenterRef.current) {
+        const moved = calculateDistance(center, lastFetchedCenterRef.current);
+        if (moved < 5 && routePoints.length > 1) return; // no visible change — skip redraw
+      }
+      lastFetchedCenterRef.current = center;
+      // Slice from current position to end — roads-accurate, instant
+      const trimmed: [number, number][] = [[...center], ...full.slice(closestIdx)];
+      setRoutePoints(trimmed);
+      return;
+    }
 
-      // ── Pre-computed stored route: decode instantly in preview mode ────────
-      const sessionKey = `nomad-route-${currentSignature}`;
-      const sessionHit = (() => { try { return sessionStorage.getItem(sessionKey); } catch(e) { return null; } })();
-      if (sessionHit) {
-        try {
-          const pts = JSON.parse(sessionHit) as [number, number][];
-          setRoutePoints(pts);
-          cachedRoutePointsRef.current = pts;
-          if (!isDriving) {
-            setFullTripRoutePoints(pts);
-            onRouteReady?.(pts);
-            return; // skip Valhalla entirely in preview mode
-          }
-          onRouteReady?.(pts);
-        } catch(e) { /* corrupt cache — fall through to fetch */ }
-      } else if (storedRouteLegs && storedRouteLegs.length > 0) {
-        const coords = storedRouteLegs.flatMap(shape => decodePolyline6(shape));
-        if (coords.length > 0) {
-          setFullTripRoutePoints(coords); // always set as gray driving background
-          if (!isDriving) {
-            // Preview mode: stored route is all we need — instant, no Valhalla
-            setRoutePoints(coords);
-            cachedRoutePointsRef.current = coords;
-            try { sessionStorage.setItem(sessionKey, JSON.stringify(coords)); } catch(e) {}
-            onRouteReady?.(coords);
-            return;
-          }
-          // Driving mode: gray background set above; fall through to Valhalla for dynamic current-segment blue line
+    // ── Preview / no stored route: fetch from Valhalla once ──────────────────
+    if (isDriving) return; // driving with no stored legs — do nothing (avoids spam)
+
+    if (lastRouteSignatureRef.current === currentSignature && cachedRoutePointsRef.current) {
+      setRoutePoints(cachedRoutePointsRef.current);
+      return;
+    }
+
+    // Straight-line placeholder while Valhalla responds
+    const sortedFallbackPois = [...pois].sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    const fallbackPoints: [number, number][] = [
+      ...sortedFallbackPois.map(p => [p.latitude, p.longitude] as [number, number]),
+      destination
+    ];
+    if (fallbackPoints.length >= 2) setRoutePoints(fallbackPoints);
+    lastRouteSignatureRef.current = currentSignature;
+    cachedRoutePointsRef.current = null;
+    lastFetchedCenterRef.current = null;
+
+    const sessionKey = `nomad-route-${currentSignature}`;
+    const sessionHit = (() => { try { return sessionStorage.getItem(sessionKey); } catch(e) { return null; } })();
+    if (sessionHit) {
+      try {
+        const pts = JSON.parse(sessionHit) as [number, number][];
+        setRoutePoints(pts);
+        setFullTripRoutePoints(pts);
+        cachedRoutePointsRef.current = pts;
+        onRouteReady?.(pts);
+        return;
+      } catch(e) { /* corrupt — fall through */ }
+    }
+
+    const abortController = new AbortController();
+    const runFetch = async () => {
+      try {
+        const sortedPois = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+        const locations = [
+          ...sortedPois.map(p => ({ lon: p.longitude, lat: p.latitude })),
+          { lon: destination[1], lat: destination[0] }
+        ];
+        const response = await fetch("https://valhalla1.openstreetmap.de/route", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ locations, costing: "auto", units: "miles" }),
+          signal: abortController.signal
+        });
+        if (!response.ok) {
+          if (response.status === 429) { console.warn('Valhalla rate-limited.'); return; }
+          throw new Error(`Valhalla ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.trip?.legs) {
+          const coords = data.trip.legs.flatMap((leg: any) => decodePolyline6(leg.shape));
+          setRoutePoints(coords);
+          setFullTripRoutePoints(coords);
+          cachedRoutePointsRef.current = coords;
           onRouteReady?.(coords);
+          try { sessionStorage.setItem(sessionKey, JSON.stringify(coords)); } catch(e) {}
         }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') console.warn("Route fetch failed:", err.message);
       }
-      // ─────────────────────────────────────────────────────────────────────────
-
-      const fetchRoute = () => {
-        const abortController = new AbortController();
-        const runFetch = async () => {
-          try {
-            // Distance check to heavily throttle Valhalla 429s (require 50m movement)
-            if (lastFetchedCenterRef.current) {
-              const distanceMoved = calculateDistance(center, lastFetchedCenterRef.current);
-              if (distanceMoved < 0.05 && cachedRoutePointsRef.current) {
-                  // Simply slice the route closer to current position locally instead of hammering the API
-                  setRoutePoints(cachedRoutePointsRef.current);
-                  return;
-              }
-            }
-
-            const sortedPois = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
-            const waypointsList: string[] = [];
-            
-            if (isDriving || sortedPois.length === 0) {
-               waypointsList.push(`${center[1]},${center[0]}`);
-            }
-            
-            waypointsList.push(...sortedPois.map(p => `${p.longitude},${p.latitude}`));
-
-            if (sortedPois.length === 0 || (sortedPois[sortedPois.length-1].latitude !== destination[0])) {
-               waypointsList.push(`${destination[1]},${destination[0]}`);
-            }
-
-            const payload = {
-               locations: waypointsList.map(wpStr => {
-                 const [lon, lat] = wpStr.split(',');
-                 return { lon: parseFloat(lon), lat: parseFloat(lat) };
-               }),
-               costing: "auto",
-               units: "miles"
-            };
-
-            const response = await fetch("https://valhalla1.openstreetmap.de/route", {
-               method: "POST",
-               headers: { "Content-Type": "application/json" },
-               body: JSON.stringify(payload),
-               signal: abortController.signal
-            });
-            
-            if (!response.ok) {
-              if (response.status === 429) {
-                console.warn('Valhalla Rate Limited. Sticking to cached route.');
-                if (!cachedRoutePointsRef.current) setRoutePoints(fallbackPoints);
-                return;
-              }
-              throw new Error(`Valhalla status ${response.status}`);
-            }
-            
-            const data = await response.json()
-            if (data.trip && data.trip.legs) {
-              // Use shared module-level decoder (precision 6 = Valhalla default)
-              const coords = data.trip.legs.flatMap((leg: any) => decodePolyline6(leg.shape));
-              setRoutePoints(coords);
-              cachedRoutePointsRef.current = coords;
-              lastFetchedCenterRef.current = center;
-              onRouteReady?.(coords);
-              
-              if (!isDriving) {
-                setFullTripRoutePoints(coords);
-                // Cache for instant replay within this browser session
-                try { sessionStorage.setItem(sessionKey, JSON.stringify(coords)); } catch(e) {}
-              }
-              
-              if (data.trip.legs[0] && data.trip.legs[0].maneuvers) {
-                // Find next real maneuver (skip type 1/2/3 which are transit/straight)
-                const vStep = data.trip.legs[0].maneuvers.find((m: any) => m.type >= 9);
-                if (vStep) {
-                  const getModifier = (t: number) => {
-                    const map: Record<number, string> = { 9: 'right', 10: 'left', 11: 'sharp right', 12: 'sharp left', 13: 'slight right', 14: 'slight left', 15: 'uturn' };
-                    return map[t] || 'straight';
-                  };
-                  
-                  const step: RouteStep = {
-                    maneuver: { type: 'turn', modifier: getModifier(vStep.type), location: [0,0] },
-                    distance: typeof vStep.length !== 'undefined' ? Math.round(vStep.length * 1609.34) : 0,
-                    name: Array.isArray(vStep.street_names) ? vStep.street_names[0] : (vStep.instruction || "Destination")
-                  }
-                  if (onNextStepUpdate) onNextStepUpdate(step)
-                } else if (onNextStepUpdate) {
-                  onNextStepUpdate(null)
-                }
-              }
-            } else {
-              setRoutePoints(fallbackPoints)
-            }
-           } catch (error: any) {
-             if (error.name !== 'AbortError') {
-               console.warn("Route calculation failed:", error.message);
-               if (!cachedRoutePointsRef.current) {
-                 setRoutePoints(fallbackPoints);
-               }
-             }
-          }
-        };
-
-        if (!cachedRoutePointsRef.current) {
-          // Fetch immediately the first time
-          runFetch();
-          return () => abortController.abort();
-        } else {
-          // Throttle updates while moving
-          const timerId = setTimeout(runFetch, 3000);
-          return () => {
-            clearTimeout(timerId);
-            abortController.abort();
-          };
-        }
-      }
-      
-      const cleanup = fetchRoute()
-      return () => { if (cleanup) cleanup(); }
-    } else {
-      setRoutePoints([])
-      if (onNextStepUpdate) onNextStepUpdate(null)
-    }
-  }, [center, destination, pois, storedRouteLegs])
+    };
+    runFetch();
+    return () => abortController.abort();
+  }, [destination, pois, storedRouteLegs, isDriving, center])
   // Patch Leaflet Draggable to fix panning direction when map is CSS-rotated (e.g. heading-up mode)
   useEffect(() => {
     if (typeof window !== 'undefined' && L && !(L as any)._dragPatched) {

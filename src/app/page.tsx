@@ -49,6 +49,7 @@ import { collection, query, orderBy, doc, updateDoc, increment, getDocs } from '
 
 import { AudioTourController } from '@/components/audio-tour-controller'
 import { UpcomingPoiGallery } from '@/components/upcoming-poi-gallery'
+import { type Sight } from '@/components/sights-gallery'
 import { TripChat } from '@/components/trip-chat'
 import * as Tone from 'tone'
 import { set as idbSet, get as idbGet, del as idbDel, keys as idbKeys } from 'idb-keyval'
@@ -316,6 +317,7 @@ export default function DrivingDashboard() {
   const [isFillerPlaying, setIsFillerPlaying] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isFabOpen, setIsFabOpen] = useState(false)
+  const [poiSights, setPoiSights] = useState<Record<string, Sight[]>>({}) // keyed by poiId
   const [resumeSession, setResumeSession] = useState<TripSession | null>(null) // 4–12h prompt
   const sessionChecked = useRef(false)
 
@@ -492,6 +494,26 @@ export default function DrivingDashboard() {
     }
   }, [tripPois, activeTripId, allTrips])
 
+  // Fetch sights for all POIs when the trip loads (needed for gallery + offline cache)
+  useEffect(() => {
+    if (!firestore || !activeTripId || !tripPois || tripPois.length === 0) return
+    const fetchAll = async () => {
+      const map: Record<string, Sight[]> = {}
+      await Promise.all(tripPois.map(async (poi: any) => {
+        try {
+          const snap = await getDocs(
+            query(collection(firestore, 'trips', activeTripId, 'trip_pois', poi.id, 'sights'), orderBy('orderIndex'))
+          )
+          map[poi.id] = snap.docs.map(d => ({ id: d.id, poiId: poi.id, ...(d.data() as any) } as Sight))
+        } catch {
+          map[poi.id] = []
+        }
+      }))
+      setPoiSights(map)
+    }
+    fetchAll()
+  }, [firestore, activeTripId, tripPois]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!isDriving || !recommendedPois.length || !autoNarrate || !userLocation || isTripPaused) return
 
@@ -593,21 +615,40 @@ export default function DrivingDashboard() {
   // ── Off-route detection (checks every 6s while driving) ──────────────────
   useEffect(() => {
     if (!isDriving) {
-      // Reset when trip ends or hasn't started
       offRouteCounterRef.current = 0;
       if (isOffRouteRef.current) { isOffRouteRef.current = false; setIsOffRoute(false); }
       setRecoveryRoute(null);
-      setIsTripPaused(false); // clear pause state when trip exits
+      setIsTripPaused(false);
       return;
     }
 
+    // Separate interval that re-fetches recovery route every 20s while off-route
+    let recoveryIntervalId: ReturnType<typeof setInterval> | null = null;
+
+    const stopRecoveryInterval = () => {
+      if (recoveryIntervalId !== null) {
+        clearInterval(recoveryIntervalId);
+        recoveryIntervalId = null;
+      }
+    };
+
+    const startRecoveryInterval = () => {
+      if (recoveryIntervalId !== null) return; // already running
+      // Fetch immediately then every 20s — keeps orange line current as user moves
+      fetchRecoveryRoute();
+      recoveryIntervalId = setInterval(() => {
+        if (!isOffRouteRef.current) { stopRecoveryInterval(); return; }
+        fetchRecoveryRoute();
+      }, 20000);
+    };
+
     const interval = setInterval(() => {
-      if (isTripPausedRef.current) return; // skip detection while on break
+      if (isTripPausedRef.current) return;
       const loc = userLocationRef.current;
       const routePts = storedRoutePointsRef.current;
       if (!loc || routePts.length < 2) return;
 
-      // Sample every 4th point — fast enough for 150m detection even on long routes
+      // Sample every 4th point — fast enough for 150m detection on long routes
       let minDistKm = Infinity;
       for (let i = 0; i < routePts.length; i += 4) {
         const d = getDistance(loc[0], loc[1], routePts[i][0], routePts[i][1]);
@@ -616,9 +657,13 @@ export default function DrivingDashboard() {
 
       if (minDistKm > 0.15) { // > 150m from route
         offRouteCounterRef.current++;
-        if (offRouteCounterRef.current >= 2 && !isOffRouteRef.current) {
-          isOffRouteRef.current = true;
-          setIsOffRoute(true);
+        if (offRouteCounterRef.current >= 2) {
+          if (!isOffRouteRef.current) {
+            isOffRouteRef.current = true;
+            setIsOffRoute(true);
+          }
+          // Keep recovery route live while off-route
+          startRecoveryInterval();
         }
       } else {
         if (offRouteCounterRef.current > 0) {
@@ -626,13 +671,17 @@ export default function DrivingDashboard() {
           if (isOffRouteRef.current) {
             isOffRouteRef.current = false;
             setIsOffRoute(false);
-            setRecoveryRoute(null); // auto-clear orange line when back on track
+            setRecoveryRoute(null); // clear orange line — user is back on track
+            stopRecoveryInterval();
           }
         }
       }
     }, 6000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      stopRecoveryInterval();
+    };
   }, [isDriving]); // eslint-disable-line react-hooks/exhaustive-deps
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -894,6 +943,17 @@ export default function DrivingDashboard() {
           console.warn(`Leg narration cache failed for leg from ${poi.name}:`, err);
         }
         tick();
+      }
+
+      // ── 4. Sight images (all POIs) ──
+      for (const [poiId, sights] of Object.entries(poiSights)) {
+        for (const sight of sights) {
+          for (let i = 0; i < sight.images.length; i++) {
+            try {
+              await cacheUrl(`sight_img_${sight.id}_${i}`, sight.images[i]);
+            } catch { /* non-fatal */ }
+          }
+        }
       }
 
       if (poiCachedCount === recommendedPois.length && recommendedPois.length > 0) {
@@ -1700,6 +1760,8 @@ export default function DrivingDashboard() {
                       setIsTripPaused(true);
                       setRecoveryRoute(null);
                       window.speechSynthesis?.cancel();
+                      stopFillerAndSave();  // stop Tone.js filler
+                      stopLegNarration();   // stop leg narration player
                     }}
                     className="flex-1 flex items-center justify-center gap-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors border border-white/20"
                   >
@@ -1919,7 +1981,7 @@ export default function DrivingDashboard() {
         )}
 
         {isDriving && (
-          <UpcomingPoiGallery upcomingPois={upcomingPois} />
+          <UpcomingPoiGallery upcomingPois={upcomingPois} poiSights={poiSights} />
         )}
 
         {/* Resume Trip Prompt — shown for sessions 4–12 hours old */}

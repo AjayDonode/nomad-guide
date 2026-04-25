@@ -24,6 +24,13 @@ service cloud.firestore {
 
       match /trip_pois/{poiId} {
         allow read, write: if true;
+
+        // Nearby Sights — images stored in Firebase Storage, URLs here
+        // Write restricted to admins; all signed-in users can read for gallery
+        match /sights/{sightId} {
+          allow read: if isSignedIn();
+          allow write: if isAdmin();
+        }
       }
     }
 

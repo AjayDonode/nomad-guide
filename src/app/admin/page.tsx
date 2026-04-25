@@ -25,7 +25,10 @@ import {
   ChevronDown,
   Search,
   Clock,
-  MoreVertical
+  MoreVertical,
+  GripVertical,
+  AlertTriangle,
+  Camera
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,6 +50,7 @@ import {
   query, 
   where, 
   doc,
+  addDoc,
   serverTimestamp,
   orderBy,
   getDocs,
@@ -54,7 +58,7 @@ import {
   deleteDoc,
   writeBatch
 } from 'firebase/firestore'
-import { ref, uploadString, getDownloadURL, listAll, deleteObject } from 'firebase/storage'
+import { ref, uploadBytes, uploadString, getDownloadURL, listAll, deleteObject } from 'firebase/storage'
 import { 
   setDocumentNonBlocking, 
   addDocumentNonBlocking, 
@@ -99,100 +103,389 @@ const AdminMap = dynamic(
   { ssr: false, loading: () => <div className="w-full h-full bg-muted animate-pulse flex items-center justify-center">Loading Trip Engine...</div> }
 )
 
-// ── Sound Tag Toolbar ─────────────────────────────────────────────────────────
+// ── Nearby Sights Panel (per POI) ────────────────────────────────────────────
+// Upload-first design: pick image → pin drops on map → drag to position.
+
+interface SightDoc {
+  id: string
+  name: string
+  description?: string
+  latitude: number
+  longitude: number
+  images: string[]
+  orderIndex?: number
+}
+
+function SightsPanel({
+  tripId,
+  poiId,
+  defaultLat,
+  defaultLng,
+  firestore,
+  storage,
+  onSightsChange,
+}: {
+  tripId: string
+  poiId: string
+  defaultLat: number
+  defaultLng: number
+  firestore: any
+  storage: any
+  /** Notify parent so AdminMap gets the updated sight list */
+  onSightsChange?: (sights: SightDoc[]) => void
+}) {
+  const [sights, setSights] = React.useState<SightDoc[]>([])
+  const [uploading, setUploading] = React.useState(false)
+
+  // Keep parent in sync whenever local sights change
+  React.useEffect(() => { onSightsChange?.(sights) }, [sights]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load existing sights for this POI
+  React.useEffect(() => {
+    if (!firestore || !tripId || !poiId) return
+    getDocs(query(collection(firestore, 'trips', tripId, 'trip_pois', poiId, 'sights'), orderBy('orderIndex')))
+      .then(snap => {
+        const loaded = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as SightDoc))
+        setSights(loaded)
+      })
+      .catch(() => {})
+  }, [firestore, tripId, poiId])
+
+  /**
+   * Resize any image to exactly 50×50 px and upload to Firebase Storage.
+   * Firestore stores only the download URL — no base64 bloat.
+   * 50×50 is ideal for the 44px map pin and 32px sidebar thumbnail.
+   */
+  const uploadSightImage = (file: File, sightId: string, imageIndex: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const img = new window.Image()
+        img.onload = () => {
+          // Always produce a 50×50 square thumbnail (cover crop)
+          const SIZE = 50
+          const canvas = document.createElement('canvas')
+          canvas.width = SIZE
+          canvas.height = SIZE
+          const ctx = canvas.getContext('2d')!
+          // Center-crop: scale so the shorter side fills the square
+          const scale = Math.max(SIZE / img.width, SIZE / img.height)
+          const sw = SIZE / scale
+          const sh = SIZE / scale
+          const sx = (img.width - sw) / 2
+          const sy = (img.height - sh) / 2
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, SIZE, SIZE)
+          canvas.toBlob(async blob => {
+            if (!blob) { reject(new Error('Canvas toBlob failed')); return }
+            try {
+              const storagePath = `trips/${tripId}/pois/${poiId}/sights/${sightId}/${imageIndex}.jpg`
+              const storageRef = ref(storage, storagePath)
+              await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
+              const url = await getDownloadURL(storageRef)
+              resolve(url)
+            } catch (err) { reject(err) }
+          }, 'image/jpeg', 0.90)
+        }
+        img.onerror = () => reject(new Error('Image load failed'))
+        img.src = reader.result as string
+      }
+      reader.onerror = () => reject(new Error('FileReader failed'))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  /** Upload handler: one file → one new sight, dropped at POI location */
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !firestore || !storage || !tripId || !poiId) return
+    setUploading(true)
+    try {
+      const files = Array.from(e.target.files)
+      for (const file of files) {
+        const sightName = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+        // Create the Firestore doc first to get the sightId for the Storage path
+        const sightRef = await addDoc(collection(firestore, 'trips', tripId, 'trip_pois', poiId, 'sights'), {
+          name: sightName,
+          description: '',
+          latitude: defaultLat,
+          longitude: defaultLng,
+          images: [],
+          orderIndex: sights.length,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+        // Upload to Storage using the real sightId in the path
+        const downloadUrl = await uploadSightImage(file, sightRef.id, 0)
+        // Patch Firestore doc with the download URL
+        await updateDoc(doc(firestore, 'trips', tripId, 'trip_pois', poiId, 'sights', sightRef.id), {
+          images: [downloadUrl]
+        })
+        setSights(prev => [...prev, {
+          id: sightRef.id, name: sightName, description: '',
+          latitude: defaultLat, longitude: defaultLng,
+          images: [downloadUrl], orderIndex: prev.length
+        }])
+      }
+    } catch (err) {
+      console.error('Failed to add sight', err)
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  const handleDeleteSight = async (sightId: string) => {
+    if (!firestore || !tripId || !poiId) return
+    await deleteDoc(doc(firestore, 'trips', tripId, 'trip_pois', poiId, 'sights', sightId))
+    setSights(prev => prev.filter(s => s.id !== sightId))
+  }
+
+  const handleRename = async (sightId: string, name: string) => {
+    if (!firestore || !tripId || !poiId) return
+    await updateDoc(doc(firestore, 'trips', tripId, 'trip_pois', poiId, 'sights', sightId), { name, updatedAt: serverTimestamp() })
+    setSights(prev => prev.map(s => s.id === sightId ? { ...s, name } : s))
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Camera className="w-3.5 h-3.5 text-teal-400" />
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Nearby Sights</span>
+          {sights.length > 0 && (
+            <span className="text-[9px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 px-1.5 py-0.5 rounded-full">{sights.length}</span>
+          )}
+        </div>
+        {/* Upload button — each file becomes one sight */}
+        <label className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition-all ${
+          uploading
+            ? 'border-teal-500/30 text-teal-400/50 cursor-wait'
+            : 'border-teal-500/30 text-teal-400 hover:bg-teal-500/10 hover:border-teal-400'
+        }`}>
+          {uploading
+            ? <Loader2 className="w-3 h-3 animate-spin" />
+            : <Camera className="w-3 h-3" />}
+          {uploading ? 'Adding…' : '+ Sight'}
+          <input
+            type="file"
+            className="hidden"
+            accept="image/*"
+            multiple
+            disabled={uploading}
+            onChange={handleFileSelect}
+          />
+        </label>
+      </div>
+
+      {/* Hint when empty */}
+      {sights.length === 0 && (
+        <p className="text-[9px] text-white/20 leading-relaxed">
+          Upload an image — a teal pin drops on the map at this stop. Drag it to the exact attraction location.
+        </p>
+      )}
+
+      {/* Compact sight strip */}
+      {sights.length > 0 && (
+        <div className="space-y-1.5">
+          {sights.map(sight => (
+            <div key={sight.id} className="flex items-center gap-2 group/sight">
+              {/* Thumbnail */}
+              {sight.images[0] && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={sight.images[0]} alt={sight.name} className="w-8 h-8 rounded-lg object-cover shrink-0 border border-teal-500/30" />
+              )}
+              {/* Editable name */}
+              <input
+                type="text"
+                defaultValue={sight.name}
+                onBlur={e => handleRename(sight.id, e.target.value.trim() || sight.name)}
+                className="flex-1 min-w-0 bg-transparent text-xs text-teal-300 placeholder:text-white/20 focus:outline-none border-b border-transparent focus:border-teal-500/40 truncate"
+                placeholder="Sight name"
+              />
+              {/* Delete */}
+              <button
+                onClick={() => handleDeleteSight(sight.id)}
+                className="shrink-0 text-white/10 hover:text-red-400 transition-colors opacity-0 group-hover/sight:opacity-100 p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+          <p className="text-[9px] text-teal-400/40">💡 Drag the teal pins on the map to reposition each sight</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Sound Library Modal ───────────────────────────────────────────────────────
+// A single popup accessible from the sidebar — keeps all panels clean.
 
 const SOUND_SHORTCUTS = [
-  { label: '🚂 Train', tag: '<sound>train chugging</sound>' },
-  { label: '🚂 Whistle', tag: '<sound>train whistle</sound>' },
-  { label: '💧 Waterfall', tag: '<sound>waterfall</sound>' },
-  { label: '🌊 Ocean', tag: '<sound>ocean waves</sound>' },
-  { label: '🐦 Birds', tag: '<sound>birds chirping</sound>' },
-  { label: '👥 Crowd', tag: '<sound>people talking</sound>' },
-  { label: '🔔 Bells', tag: '<sound>church bells</sound>' },
-  { label: '🌬️ Wind', tag: '<sound>wind</sound>' },
+  { label: '🚂 Train',     tag: '<sound>train chugging</sound>',  file: '/sounds/train-chug.wav' },
+  { label: '🚂 Whistle',   tag: '<sound>train whistle</sound>',   file: '/sounds/train-whistle.wav' },
+  { label: '💧 Waterfall', tag: '<sound>waterfall</sound>',       file: '/sounds/waterfall.wav' },
+  { label: '🌊 Ocean',     tag: '<sound>ocean waves</sound>',     file: '/sounds/ocean-waves.wav' },
+  { label: '🐦 Birds',     tag: '<sound>birds chirping</sound>',  file: '/sounds/birds-chirping.wav' },
+  { label: '👥 Crowd',     tag: '<sound>people talking</sound>',  file: '/sounds/crowd-murmur.wav' },
+  { label: '🔔 Bells',     tag: '<sound>church bells</sound>',    file: '/sounds/church-bells.wav' },
+  { label: '🌬️ Wind',      tag: '<sound>wind</sound>',            file: '/sounds/wind.wav' },
 ];
 
 const MUSIC_SHORTCUTS = [
-  { label: '🎹 Piano', tag: '<music>calm piano</music>' },
-  { label: '🌿 Nature', tag: '<music>calm music with water stream flowing</music>' },
-  { label: '🎻 Epic', tag: '<music>dramatic orchestral</music>' },
-  { label: '🎷 Jazz', tag: '<music>jazz</music>' },
-  { label: '⛪ Sacred', tag: '<music>spiritual sacred choir</music>' },
+  { label: '🎹 Piano',  tag: '<music>calm piano</music>',                          file: '/sounds/music-piano-soft.wav' },
+  { label: '🌿 Nature', tag: '<music>calm music with water stream flowing</music>', file: '/sounds/music-nature.wav' },
+  { label: '🎻 Epic',   tag: '<music>dramatic orchestral</music>',                  file: '/sounds/music-orchestral.wav' },
+  { label: '🎷 Jazz',   tag: '<music>jazz</music>',                                 file: '/sounds/music-jazz.wav' },
+  { label: '⛪ Sacred', tag: '<music>spiritual sacred choir</music>',               file: '/sounds/music-sacred.wav' },
 ];
 
-/** Inserts a sound/music tag into a textarea at the current cursor position. */
-function insertTagAtCursor(
-  textareaEl: HTMLTextAreaElement | null,
-  tag: string,
-  currentValue: string,
-  onChange: (newValue: string) => void
-) {
-  if (!textareaEl) {
-    onChange(currentValue + '\n' + tag + ' ');
-    return;
-  }
-  const start = textareaEl.selectionStart ?? currentValue.length;
-  const end   = textareaEl.selectionEnd   ?? currentValue.length;
-  const prefix = currentValue.slice(0, start);
-  const suffix = currentValue.slice(end);
-  const separator = prefix.length > 0 && !prefix.endsWith('\n') && !prefix.endsWith(' ') ? '\n' : '';
-  const newValue = prefix + separator + tag + ' ' + suffix;
-  onChange(newValue);
-  // Restore focus + move cursor after inserted tag
-  setTimeout(() => {
-    textareaEl.focus();
-    const newPos = (prefix + separator + tag + ' ').length;
-    textareaEl.setSelectionRange(newPos, newPos);
-  }, 0);
-}
+function SoundLibraryModal({ onClose }: { onClose: () => void }) {
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
+  const [playing, setPlaying]     = React.useState<string | null>(null);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
-interface SoundTagToolbarProps {
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  value: string;
-  onChange: (v: string) => void;
-}
+  const stopPreview = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    setPlaying(null);
+  };
 
-function SoundTagToolbar({ textareaRef, value, onChange }: SoundTagToolbarProps) {
-  const hasTags = /<(sound|music)>/i.test(value);
-  const tagCount = (value.match(/<(sound|music)>/gi) || []).length;
+  const handleClick = (tag: string, file: string) => {
+    // Copy tag to clipboard
+    navigator.clipboard.writeText(tag).catch(() => {});
+    setActiveTag(tag);
+
+    // Stop any currently playing preview
+    stopPreview();
+
+    // Play audio preview (cap at 5s for music clips)
+    const audio = new Audio(file);
+    audio.volume = 0.7;
+    audioRef.current = audio;
+    setPlaying(tag);
+
+    const PREVIEW_CAP_MS = 5000;
+    const stopTimer = setTimeout(() => {
+      if (audioRef.current === audio) stopPreview();
+    }, PREVIEW_CAP_MS);
+
+    audio.play().catch(() => { clearTimeout(stopTimer); stopPreview(); });
+    audio.onended = () => { clearTimeout(stopTimer); setPlaying(null); };
+  };
+
+  // Stop audio when modal closes
+  React.useEffect(() => () => stopPreview(), []);
+
+  const buttonClass = (tag: string, base: string, active: string) =>
+    `text-[11px] font-semibold px-3 py-1.5 rounded-xl border transition-all ${
+      playing === tag ? active + ' scale-95 animate-pulse' :
+      activeTag === tag ? active + ' scale-95' : base + ' hover:scale-105'
+    }`;
 
   return (
-    <div className="space-y-1.5">
-      {/* Sound row */}
-      <div className="flex flex-wrap gap-1 items-center">
-        <span className="text-[9px] text-white/30 uppercase tracking-widest font-bold w-full">+ Sound</span>
-        {SOUND_SHORTCUTS.map(({ label, tag }) => (
+    <div
+      className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-md rounded-3xl bg-[#1a1825]/95 border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/60 p-6 space-y-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center">
+              <Music className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-headline font-bold">Sound Library</h2>
+              <p className="text-[10px] text-muted-foreground">Click to preview &amp; copy tag — paste into any narration</p>
+            </div>
+          </div>
           <button
-            key={tag}
-            type="button"
-            onClick={() => insertTagAtCursor(textareaRef.current, tag, value, onChange)}
-            className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/20 transition-colors"
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
           >
-            {label}
+            <X className="w-4 h-4 text-muted-foreground" />
           </button>
-        ))}
-      </div>
-      {/* Music row */}
-      <div className="flex flex-wrap gap-1 items-center">
-        <span className="text-[9px] text-white/30 uppercase tracking-widest font-bold w-full">+ Music</span>
-        {MUSIC_SHORTCUTS.map(({ label, tag }) => (
-          <button
-            key={tag}
-            type="button"
-            onClick={() => insertTagAtCursor(textareaRef.current, tag, value, onChange)}
-            className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-violet-500/10 hover:bg-violet-500/25 text-violet-300 border border-violet-500/20 transition-colors"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {/* Tag count indicator */}
-      {hasTags && (
-        <p className="text-[9px] text-white/30 flex items-center gap-1 pt-0.5">
-          <Music className="w-2.5 h-2.5" />
-          {tagCount} sound tag{tagCount !== 1 ? 's' : ''} detected — audio will be stitched server-side
+        </div>
+
+        {/* Tag display box — shows the copied tag string */}
+        <div className={`rounded-2xl border px-4 py-3 transition-all duration-300 min-h-[52px] flex items-center gap-3 ${
+          activeTag
+            ? 'bg-emerald-500/10 border-emerald-500/25'
+            : 'bg-white/3 border-white/8'
+        }`}>
+          {activeTag ? (
+            <>
+              <div className="w-5 h-5 rounded-lg bg-emerald-500/20 flex items-center justify-center shrink-0">
+                {playing ? <Volume2 className="w-3 h-3 text-emerald-400 animate-pulse" /> : <Sparkles className="w-3 h-3 text-emerald-400" />}
+              </div>
+              <code className="text-[11px] font-mono text-emerald-300 flex-1 break-all">{activeTag}</code>
+              {playing && (
+                <button
+                  onClick={stopPreview}
+                  className="shrink-0 text-[9px] font-bold uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors px-2 py-1 rounded-lg hover:bg-white/10"
+                >
+                  Stop
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="text-[10px] text-white/20 italic">Click a sound below to preview and copy its tag</p>
+          )}
+        </div>
+
+        {/* Sound Effects */}
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-amber-400/70 font-bold">🎵 Sound Effects</p>
+          <div className="flex flex-wrap gap-1.5">
+            {SOUND_SHORTCUTS.map(({ label, tag, file }) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => handleClick(tag, file)}
+                className={buttonClass(
+                  tag,
+                  'bg-amber-500/10 text-amber-300 border-amber-500/20',
+                  'bg-amber-500/25 text-amber-200 border-amber-500/40'
+                )}
+              >
+                {playing === tag ? '▶ Playing…' : label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Music Moods */}
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-violet-400/70 font-bold">🎼 Music Moods</p>
+          <div className="flex flex-wrap gap-1.5">
+            {MUSIC_SHORTCUTS.map(({ label, tag, file }) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => handleClick(tag, file)}
+                className={buttonClass(
+                  tag,
+                  'bg-violet-500/10 text-violet-300 border-violet-500/20',
+                  'bg-violet-500/25 text-violet-200 border-violet-500/40'
+                )}
+              >
+                {playing === tag ? '▶ Playing…' : label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Hint */}
+        <p className="text-[10px] text-white/20 text-center border-t border-white/5 pt-4">
+          Tags are stitched into audio server-side during voice publishing
         </p>
-      )}
+      </div>
     </div>
   );
 }
@@ -421,6 +714,7 @@ export default function AdminDashboard() {
   const [editingTripId, setEditingTripId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [activeView, setActiveView] = useState<'trips' | 'users'>('trips')
+  const [showSoundLibrary, setShowSoundLibrary] = useState(false)
 
   // Verify Admin role from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -542,6 +836,15 @@ export default function AdminDashboard() {
         </ScrollArea>
         
         <div className="p-4 border-t border-white/5 space-y-1">
+          {/* Sound Library button — opens the tag reference popup */}
+          <Button
+            variant="ghost"
+            className="w-full justify-start rounded-xl h-11 text-xs font-bold text-muted-foreground hover:text-amber-300 hover:bg-amber-500/10"
+            onClick={() => setShowSoundLibrary(true)}
+          >
+            <Music className="w-4 h-4 mr-3 text-amber-400" />
+            Sound Library
+          </Button>
           {canManageUsers && (
             <Button
               variant="ghost"
@@ -563,6 +866,9 @@ export default function AdminDashboard() {
           </Button>
         </div>
       </aside>
+
+      {/* Sound Library modal — portal rendered above everything */}
+      {showSoundLibrary && <SoundLibraryModal onClose={() => setShowSoundLibrary(false)} />}
 
       <main className="flex-1 relative bg-black/40 flex flex-col overflow-y-auto">
         {activeView === 'users' ? (
@@ -712,6 +1018,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   // Route pre-computation refs
   const poisRef = useRef<any[]>([])
   const routeComputeTimerRef = useRef<any>(null)
+  // ── Drag-to-reorder state ───────────────────────────────────────────────────
+  const dragSrcIndexRef = useRef<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   // Fetch user preference for preview
   const userDocRef = useMemoFirebase(() => {
@@ -1362,6 +1671,67 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     setPlayingPoiId(null)
   }
 
+  /** Reorders POIs after a drag-drop — batch-updates orderIndex for all shifted stops */
+  const handleReorder = async (fromIdx: number, toIdx: number) => {
+    if (!firestore || !tripId || !pois || fromIdx === toIdx) return
+    const sorted = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
+    const reordered = [...sorted]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    const batch = writeBatch(firestore)
+    reordered.forEach((poi, idx) => {
+      if ((poi.orderIndex || 0) !== idx + 1) {
+        batch.update(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
+          orderIndex: idx + 1,
+          updatedAt: serverTimestamp()
+        })
+      }
+    })
+    await batch.commit()
+    scheduleRouteCompute()
+    toast({ title: 'Stops Reordered ✓', description: 'Route and map updated.' })
+  }
+
+  /** Inserts a new POI between two existing stops at their geographic midpoint */
+  const handleInsertAfter = async (afterIdx: number) => {
+    if (!firestore || !tripId || !user || !pois) return
+    const sorted = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
+    const poiA = sorted[afterIdx]
+    const poiB = sorted[afterIdx + 1]
+    const lat = poiB ? (poiA.latitude + poiB.latitude) / 2 : poiA.latitude + 0.002
+    const lng = poiB ? (poiA.longitude + poiB.longitude) / 2 : poiA.longitude + 0.002
+    const newPoiId = doc(collection(firestore, 'trips', tripId, 'trip_pois')).id
+    const insertAt = afterIdx + 1 // 0-based position in sorted array
+    const batch = writeBatch(firestore)
+    // Shift all POIs at or after the insertion point up by 1
+    sorted.forEach((poi, idx) => {
+      if (idx >= insertAt) {
+        batch.update(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
+          orderIndex: idx + 2,
+          updatedAt: serverTimestamp()
+        })
+      }
+    })
+    // Create the new POI at the midpoint
+    batch.set(doc(firestore, 'trips', tripId, 'trip_pois', newPoiId), {
+      id: newPoiId,
+      tripId,
+      adminId: user.uid,
+      name: `Stop #${insertAt + 1}`,
+      description: '',
+      latitude: lat,
+      longitude: lng,
+      orderIndex: insertAt + 1,
+      category: 'Landmark',
+      images: [],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
+    await batch.commit()
+    scheduleRouteCompute()
+    toast({ title: '📍 Stop Inserted', description: 'Drag the marker on the map to reposition it.' })
+  }
+
   const handleAddPoi = (lat: number, lng: number) => {
     if (!firestore || !tripId || !user) return
     
@@ -1401,6 +1771,53 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     })
     // Recompute stored route after drag settles (debounced 2.5s)
     scheduleRouteCompute();
+  }
+
+  // ── Sights state (all POIs in this trip) ──────────────────────────────────
+  // Keyed by poiId — each SightsPanel calls onSightsChange to keep this live.
+  const [poiSightsAdmin, setPoiSightsAdmin] = React.useState<Record<string, SightDoc[]>>({})
+
+  const handleSightsChange = (poiId: string, sights: SightDoc[]) => {
+    setPoiSightsAdmin(prev => ({ ...prev, [poiId]: sights }))
+  }
+
+  /** Flatten all sights into SightMarker shape for the map */
+  const sightMarkersForMap = React.useMemo(() => {
+    return Object.values(poiSightsAdmin).flat().map(s => ({
+      id: s.id,
+      poiId: '',
+      name: s.name,
+      latitude: s.latitude,
+      longitude: s.longitude,
+      thumbnail: s.images[0],
+    }))
+  }, [poiSightsAdmin])
+
+  const handleSightMove = async (sightId: string, lat: number, lng: number) => {
+    if (!firestore || !tripId) return
+    for (const [poiId, sights] of Object.entries(poiSightsAdmin)) {
+      if (sights.some(s => s.id === sightId)) {
+        await updateDoc(doc(firestore, 'trips', tripId, 'trip_pois', poiId, 'sights', sightId), {
+          latitude: lat, longitude: lng, updatedAt: serverTimestamp()
+        })
+        setPoiSightsAdmin(prev => ({
+          ...prev,
+          [poiId]: prev[poiId].map(s => s.id === sightId ? { ...s, latitude: lat, longitude: lng } : s)
+        }))
+        break
+      }
+    }
+  }
+
+  const handleSightDelete = async (sightId: string) => {
+    if (!firestore || !tripId) return
+    for (const [poiId, sights] of Object.entries(poiSightsAdmin)) {
+      if (sights.some(s => s.id === sightId)) {
+        await deleteDoc(doc(firestore, 'trips', tripId, 'trip_pois', poiId, 'sights', sightId))
+        setPoiSightsAdmin(prev => ({ ...prev, [poiId]: prev[poiId].filter(s => s.id !== sightId) }))
+        break
+      }
+    }
   }
 
   const handleImageUpload = (poiId: string, currentImages: string[] = [], e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1784,8 +2201,21 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 <div className="space-y-4">
                   {pois?.map((poi, idx) => (
                     <React.Fragment key={poi.id}>
+                    {/* Draggable wrapper */}
+                    <div
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; dragSrcIndexRef.current = idx; }}
+                      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragSrcIndexRef.current !== idx) setDragOverIndex(idx); }}
+                      onDrop={(e) => { e.preventDefault(); const src = dragSrcIndexRef.current; if (src !== null && src !== idx) handleReorder(src, idx); dragSrcIndexRef.current = null; setDragOverIndex(null); }}
+                      onDragEnd={() => { dragSrcIndexRef.current = null; setDragOverIndex(null); }}
+                      className={cn('relative rounded-3xl transition-all duration-200', dragOverIndex === idx && 'ring-2 ring-primary/60 scale-[1.01]')}
+                    >
                     <Card className="bg-white/5 border-white/5 rounded-3xl overflow-hidden group">
-                      <CardHeader className="p-4 flex flex-row items-center gap-4 space-y-0 pb-2">
+                      <CardHeader className="p-4 flex flex-row items-center gap-3 space-y-0 pb-2">
+                        {/* Drag handle — visible on hover */}
+                        <div className="cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity shrink-0">
+                          <GripVertical className="w-4 h-4 text-muted-foreground" />
+                        </div>
                         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold text-xs shrink-0">
                           {idx + 1}
                         </div>
@@ -1859,23 +2289,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                               Suggest Script
                             </Button>
                           </div>
-                          <div className="flex items-center justify-between mt-2">
-                            <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
-                              Automatic Intro
-                            </Label>
-                          </div>
-                          {/* Sound tag toolbar */}
-                          <SoundTagToolbar
-                            textareaRef={{ current: poiTextareaRefs.current[poi.id] ?? null }}
-                            value={poiDraftTexts[poi.id] ?? (poi.narrationText || '')}
-                            onChange={(v) => setPoiDraftTexts(prev => ({ ...prev, [poi.id]: v }))}
-                          />
                           {/* Editable intro text */}
                           <Textarea
                             ref={(el) => { poiTextareaRefs.current[poi.id] = el }}
                             value={poiDraftTexts[poi.id] ?? (poi.narrationText || "")}
                             onChange={(e) => setPoiDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
-                            placeholder="Click ✨ Suggest Script above, or type your narration here... Use quick-insert buttons above to add sound tags!"
+                            placeholder="Click ✨ Suggest Script, or write narration here. Use Sound Library in the sidebar to add <sound> tags."
                             className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[60px] focus:border-emerald-500/40 text-slate-200 placeholder:text-white/20"
                           />
 
@@ -1936,8 +2355,22 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                             ))}
                           </div>
                         </div>
+
+                        {/* Nearby Sights */}
+                        {tripId && firestore && (
+                          <SightsPanel
+                            tripId={tripId}
+                            poiId={poi.id}
+                            defaultLat={poi.latitude}
+                            defaultLng={poi.longitude}
+                            firestore={firestore}
+                            storage={storage}
+                            onSightsChange={sights => handleSightsChange(poi.id, sights)}
+                          />
+                        )}
                       </CardContent>
                     </Card>
+                    </div>{/* end draggable wrapper */}
 
                     {/* ── Leg Narration connector (between every pair except after last POI) ── */}
                     {idx < (pois?.length ?? 0) - 1 && (
@@ -1954,21 +2387,19 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                             <Label className="text-[10px] uppercase tracking-widest text-blue-300/70 font-bold">
                               Driving → {pois?.[idx + 1]?.name || 'Next Stop'}
                             </Label>
-                            {(poi.legNarrationMaleUrl || poi.legNarrationFemaleUrl) && (
+                            {(poi.legNarrationMaleUrl || poi.legNarrationFemaleUrl) ? (
                               <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest">● Live</span>
-                            )}
+                            ) : !(legDraftTexts[poi.id] || poi.legNarrationText) ? (
+                              <span className="flex items-center gap-1 text-amber-400 text-[10px] font-bold uppercase tracking-widest">
+                                <AlertTriangle className="w-3 h-3" /> No narration
+                              </span>
+                            ) : null}
                           </div>
-                          {/* Sound tag toolbar for leg narration */}
-                          <SoundTagToolbar
-                            textareaRef={{ current: legTextareaRefs.current[poi.id] ?? null }}
-                            value={legDraftTexts[poi.id] ?? (poi.legNarrationText || '')}
-                            onChange={(v) => setLegDraftTexts(prev => ({ ...prev, [poi.id]: v }))}
-                          />
                           <Textarea
                             ref={(el) => { legTextareaRefs.current[poi.id] = el }}
                             value={legDraftTexts[poi.id] ?? (poi.legNarrationText || '')}
                             onChange={(e) => setLegDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
-                            placeholder={`Narration to play while driving from ${poi.name} toward ${pois?.[idx + 1]?.name || 'next stop'}... Add <sound> tags for ambient effects!`}
+                            placeholder={`Narration while driving from ${poi.name} toward ${pois?.[idx + 1]?.name || 'next stop'}. Use Sound Library for <sound> tags.`}
                             className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[60px] focus:border-blue-400/30 resize-none"
                           />
                           <div className="flex gap-2">
@@ -1996,6 +2427,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                                 : <><Volume2 className="w-3 h-3 mr-1.5" />Publish Leg Audio</>}
                             </Button>
                           </div>
+                          {/* ── Insert Stop Here button ── */}
+                          <button
+                            type="button"
+                            onClick={() => handleInsertAfter(idx)}
+                            className="w-full mt-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-dashed border-white/10 hover:border-primary/40 hover:bg-primary/5 text-[10px] font-bold uppercase tracking-widest text-white/25 hover:text-primary transition-all"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Insert Stop Here
+                          </button>
                         </div>
                       </div>
                     )}
@@ -2023,6 +2463,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           <AdminMap 
             center={[tripData.startLatitude, tripData.startLongitude]} 
             pois={pois || []}
+            sights={sightMarkersForMap}
             playingPoiId={playingPoiId}
             onMapClick={handleAddPoi}
             onStartPointSet={(lat, lng) => setTripData({...tripData, startLatitude: lat, startLongitude: lng})}
@@ -2035,6 +2476,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 handlePreviewAudio(idx)
               }
             }}
+            onSightMove={handleSightMove}
+            onSightDelete={handleSightDelete}
           />
         </section>
       </div>
