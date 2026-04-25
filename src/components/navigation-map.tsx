@@ -389,8 +389,10 @@ export function NavigationMap({
         if (moved < 5 && routePoints.length > 1) return; // no visible change — skip redraw
       }
       lastFetchedCenterRef.current = center;
-      // Slice from current position to end — roads-accurate, instant
-      const trimmed: [number, number][] = [[...center], ...full.slice(closestIdx)];
+      // Slice from current position to end — roads-accurate, instant.
+      // If user is far from the route (>30m), don't draw a straight line from them to the route.
+      // The recoveryRoute (orange line) handles the path back to the route.
+      const trimmed: [number, number][] = minDist > 30 ? full.slice(closestIdx) : [[...center], ...full.slice(closestIdx)];
       setRoutePoints(trimmed);
       return;
     }

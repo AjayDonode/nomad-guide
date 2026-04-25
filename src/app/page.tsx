@@ -753,6 +753,7 @@ export default function DrivingDashboard() {
     session.narratedPoiNames.forEach(name => narratedPois.current.add(name))
     setActiveTripId(session.tripId)
     setActiveTripName(session.tripName)
+    introPlayed.current = true; // Skip intro when resuming a session
     const resumedFrom = session.lastVisitedPoiIndex + 1
     toast({
       title: '↪ Resuming Trip',
@@ -1057,6 +1058,15 @@ export default function DrivingDashboard() {
       }
       // Start ambient music immediately (plays quietly beneath intro)
       startAmbientMusic();
+    } else {
+      // Resuming a previous session (intro skipped)
+      startAmbientMusic();
+      if (!poiNarrationActiveRef.current && !fillerExhaustedRef.current) {
+        const snapshotTripId = activeTripId;
+        const snapshotTrip = activeTrip;
+        const snapshotVoice = voicePreference;
+        playFillerAudio({ tripId: snapshotTripId, trip: snapshotTrip, voice: snapshotVoice, offset: fillerOffsetRef.current });
+      }
     }
   }
 
@@ -1729,6 +1739,9 @@ export default function DrivingDashboard() {
                   isOffRouteRef.current = false;
                   offRouteCounterRef.current = 0;
                   setRecoveryRoute(null);
+                  if (!poiNarrationActiveRef.current && !fillerExhaustedRef.current) {
+                    resumeFillerAudio();
+                  }
                 }}
                 className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-xl shrink-0 transition-colors border border-white/20"
               >
