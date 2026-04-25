@@ -19,6 +19,13 @@ service cloud.firestore {
       }
     }
 
+    // Trip feedback: any signed-in user can submit feedback
+    match /trip_feedback/{feedbackId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /trips/{tripId} {
       allow read, write: if true;
 

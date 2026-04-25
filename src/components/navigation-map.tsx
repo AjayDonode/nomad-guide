@@ -26,6 +26,14 @@ interface POI {
   images?: string[]
 }
 
+export interface SightMarker {
+  id: string
+  name: string
+  latitude: number
+  longitude: number
+  thumbnail?: string
+}
+
 interface NavigationMapProps {
   center?: [number, number]
   pois?: POI[]
@@ -45,7 +53,22 @@ interface NavigationMapProps {
   onRouteReady?: (points: [number, number][]) => void
   /** When user is off-route: decoded Valhalla recovery path from user → next POI, drawn as dashed orange line */
   recoveryRoute?: [number, number][] | null
+  sights?: SightMarker[]
 }
+
+/** Teal sight marker — shows a thumbnail photo inside the pin if available */
+const SightIcon = (thumbnail?: string) => L.divIcon({
+  className: 'sight-marker',
+  html: thumbnail
+    ? `<div style="width:44px;height:44px;border-radius:12px;border:2.5px solid #14b8a6;box-shadow:0 4px 12px rgba(0,0,0,0.4);overflow:hidden;background:#0d4a45;">
+         <img src="${thumbnail}" style="width:100%;height:100%;object-fit:cover;" />
+       </div>`
+    : `<div style="width:36px;height:36px;border-radius:10px;border:2.5px solid #14b8a6;background:#0d4a45;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.4);">
+         <svg viewBox="0 0 24 24" fill="none" stroke="#14b8a6" stroke-width="2" style="width:18px;height:18px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+       </div>`,
+  iconSize: thumbnail ? [44, 44] : [36, 36],
+  iconAnchor: thumbnail ? [22, 22] : [18, 18],
+})
 
 // Custom Icons
 const UserIcon = (isDriving: boolean, isReady: boolean, bearing: number, pointerType: string = 'arrow') => {
@@ -226,6 +249,7 @@ export function NavigationMap({
   storedRouteLegs,
   onRouteReady,
   recoveryRoute,
+  sights = [],
 }: NavigationMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
@@ -239,6 +263,7 @@ export function NavigationMap({
   const [forceRevertToDrive, setForceRevertToDrive] = useState(0)
   const lastRouteSignatureRef = useRef<string>("")
   const lastTripSignatureRef = useRef<string>("")
+  const currentRouteIndexRef = useRef<number>(0)
 
   const handleUserActivity = React.useCallback(() => {
     setLastActivityTime(Date.now())
@@ -354,45 +379,62 @@ export function NavigationMap({
 
     const currentSignature = `${destination[0]},${destination[1]}-${pois.map(p => p.id).join('-')}`;
 
-    // ── Decode stored route once (instant, no API) ──────────────────────────
-    if (storedRouteLegs && storedRouteLegs.length > 0 && lastRouteSignatureRef.current !== currentSignature) {
+    // ── Decode stored route once per trip (instant, no API) ──────────────────
+    // We use a broader signature here so it doesn't reset when `pois` shrinks during driving.
+    const tripSignature = allPois ? `trip-${allPois.map(p => p.id).join('-')}` : currentSignature;
+    
+    if (storedRouteLegs && storedRouteLegs.length > 0 && lastRouteSignatureRef.current !== tripSignature) {
       const coords = storedRouteLegs.flatMap(shape => decodePolyline6(shape));
       if (coords.length > 0) {
         setFullTripRoutePoints(coords);
         cachedRoutePointsRef.current = coords;
-        lastRouteSignatureRef.current = currentSignature;
+        lastRouteSignatureRef.current = tripSignature;
+        currentRouteIndexRef.current = 0; // Reset progress when a completely new trip is loaded
         onRouteReady?.(coords);
         if (!isDriving) {
-          // Preview mode: show the full stored route immediately, no Valhalla needed
           setRoutePoints(coords);
           return;
         }
       }
     }
 
-    // ── DRIVING MODE: trim the pre-decoded route from the closest point forward ──
-    // This gives a smooth, road-accurate blue line that shrinks as you drive —
-    // zero API calls, zero straight-line flashes.
+    // ── DRIVING MODE: Stateful Route Trimming ──────────────────────────────────
+    // This maintains our progress along the route and permanently discards past points,
+    // preventing the blue line from snapping backwards on looping routes.
     if (isDriving && cachedRoutePointsRef.current && cachedRoutePointsRef.current.length > 1) {
       const full = cachedRoutePointsRef.current;
-      let closestIdx = 0;
+      
+      // Look forward up to 1000 points (~10 miles) from our last known position
+      const startIndex = currentRouteIndexRef.current;
+      const searchLimit = Math.min(full.length, startIndex + 1000);
+      
+      let closestIdx = startIndex;
       let minDist = Infinity;
-      // Search within first 600 points (generous for any city trip) to find where we are
-      const searchLimit = Math.min(full.length, 600);
-      for (let i = 0; i < searchLimit; i++) {
+      
+      for (let i = startIndex; i < searchLimit; i++) {
         const d = calculateDistance(center, full[i]);
         if (d < minDist) { minDist = d; closestIdx = i; }
       }
-      // Only update if we've moved at least 5m along the route (debounce GPS noise)
+      
+      // Debounce GPS noise to avoid unnecessary React re-renders
       if (lastFetchedCenterRef.current) {
         const moved = calculateDistance(center, lastFetchedCenterRef.current);
-        if (moved < 5 && routePoints.length > 1) return; // no visible change — skip redraw
+        if (moved < 5 && routePoints.length > 1) return;
       }
       lastFetchedCenterRef.current = center;
-      // Slice from current position to end — roads-accurate, instant.
-      // If user is far from the route (>30m), don't draw a straight line from them to the route.
-      // The recoveryRoute (orange line) handles the path back to the route.
-      const trimmed: [number, number][] = minDist > 30 ? full.slice(closestIdx) : [[...center], ...full.slice(closestIdx)];
+      
+      // Update our stateful index ONLY if we are reasonably close to the route.
+      // If we are far off route (>30m), we freeze the index so the blue line stays
+      // anchored where we left it. The orange `recoveryRoute` guides us back.
+      if (minDist <= 30) {
+        currentRouteIndexRef.current = closestIdx;
+      }
+      
+      // Slice from the frozen/updated index to the end.
+      const trimmed: [number, number][] = minDist > 30 
+        ? full.slice(currentRouteIndexRef.current) 
+        : [[...center], ...full.slice(currentRouteIndexRef.current)];
+        
       setRoutePoints(trimmed);
       return;
     }

@@ -1929,7 +1929,7 @@ export default function DrivingDashboard() {
                   </div>
                 </div>
               ) : (
-                <Button onClick={startDriving} disabled={isStartingTour} className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-headline tracking-wide font-bold rounded-full h-14 shadow-lg shadow-primary/20 text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
+                <Button onClick={() => startDriving()} disabled={isStartingTour} className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-headline tracking-wide font-bold rounded-full h-14 shadow-lg shadow-primary/20 text-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-75">
                   <><Play className="w-5 h-5 mr-2 fill-current" /> GO</>
                 </Button>
               )}
@@ -1994,7 +1994,7 @@ export default function DrivingDashboard() {
         )}
 
         {isDriving && (
-          <UpcomingPoiGallery upcomingPois={upcomingPois} poiSights={poiSights} />
+          <UpcomingPoiGallery upcomingPois={upcomingPois} />
         )}
 
         {/* Resume Trip Prompt — shown for sessions 4–12 hours old */}
@@ -2100,14 +2100,14 @@ export default function DrivingDashboard() {
               console.log('[NomadGuide] POI cooldown elapsed \u2014 resuming background audio');
 
               // \u2500\u2500 Detect Trip Completion \u2500\u2500
-              if (!nextPoiInfo?.poi && isDriving) {
+                            if (!nextPoiInfo?.poi && isDriving) {
                 const completedTripId = activeTripId;
-                const completedTripObj = allTrips.find(t => t.id === completedTripId);
+                const completedTripObj = allTrips?.find(t => t.id === completedTripId);
                 stopDriving();
                 setActiveTripId(null);
                 setIsFabOpen(false);
-                setTripToRate(completedTripObj || { id: completedTripId, name: activeTripName });
-                setTimeout(() => { setShowFeedback(true); }, 60000);
+                setTripToRate(completedTripObj || { id: completedTripId!, name: activeTripName });
+                setShowFeedback(true);
                 return; // Trip over — no leg or filler to start
               }
 
