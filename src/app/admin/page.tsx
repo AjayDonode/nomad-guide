@@ -973,6 +973,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     fillerAudioFemaleUrl: null as string | null,
     introNarrationMaleUrl: null as string | null,
     introNarrationFemaleUrl: null as string | null,
+    welcomeAudioText: "",
     coverImage: null as string | null,
   })
 
@@ -1054,6 +1055,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         fillerAudioFemaleUrl: existingTrip.fillerAudioFemaleUrl || null,
         introNarrationMaleUrl: existingTrip.introNarrationMaleUrl || null,
         introNarrationFemaleUrl: existingTrip.introNarrationFemaleUrl || null,
+        welcomeAudioText: existingTrip.welcomeAudioText || (existingTrip.description ? existingTrip.description.split(/\n\n+/)[0].trim() : ""),
         coverImage: existingTrip.coverImage || null,
       })
     }
@@ -1446,17 +1448,19 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   }
 
 
-  /** Publishes AI audio for the trip intro (first paragraph of trip description) */
+  /** Publishes AI audio for the trip intro (using welcomeAudioText) */
   const handlePublishIntroAudio = async () => {
-    if (!tripId || !tripData.description?.trim()) return;
-    const firstParagraph = tripData.description.split(/\n\n+/)[0].trim();
-    if (!firstParagraph) return;
+    if (!tripId || !tripData.welcomeAudioText?.trim()) {
+        toast({ variant: 'destructive', title: 'Missing Script', description: 'Please write a Tour Welcome Script first.' });
+        return;
+    }
+    const welcomeText = tripData.welcomeAudioText.trim();
     setIsPublishingIntro(true);
     toast({ title: '🎙️ Publishing Tour Welcome Audio', description: 'Generating both voices — takes ~30s...' });
     try {
-      const maleUrl = await callPublishVoice(tripId, 'intro', firstParagraph, 'male');
+      const maleUrl = await callPublishVoice(tripId, 'intro', welcomeText, 'male');
       await new Promise(r => setTimeout(r, 2000));
-      const femaleUrl = await callPublishVoice(tripId, 'intro', firstParagraph, 'female');
+      const femaleUrl = await callPublishVoice(tripId, 'intro', welcomeText, 'female');
       if (firestore) {
         updateDocumentNonBlocking(doc(firestore, 'trips', tripId), {
           introNarrationMaleUrl: maleUrl,
@@ -2076,7 +2080,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 <Textarea 
                   value={tripData.description}
                   onChange={(e) => setTripData({...tripData, description: e.target.value})}
-                  placeholder="Describe the mood and purpose of this trip..."
+                  placeholder="Define the mood, tone, and any AI parameters..."
                   className="bg-white/5 border-white/10 rounded-2xl min-h-[120px] focus:border-primary/50 transition-colors"
                 />
 
@@ -2143,17 +2147,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Tour Welcome Audio</Label>
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    The <strong className="text-white">first paragraph</strong> of your Trip Strategy is used as the tour welcome — it plays when the driver taps GO.
+                    Write the exact script the driver should hear when they tap GO to begin the tour.
                   </p>
-                  {tripData.description && (
-                    <div className="bg-black/30 rounded-xl p-3 border border-white/5">
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold mb-1">Will speak:</p>
-                      <p className="text-xs text-slate-300 italic leading-relaxed line-clamp-3">
-                        &ldquo;{tripData.description.split(/\n\n+/)[0].trim()}&rdquo;
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex gap-2 items-center">
+                  <Textarea 
+                    value={tripData.welcomeAudioText || ''}
+                    onChange={(e) => setTripData({...tripData, welcomeAudioText: e.target.value})}
+                    placeholder="Welcome to Yosemite! Today we will explore..."
+                    className="bg-black/30 border-white/10 rounded-xl h-10 min-h-[40px] focus:min-h-[120px] transition-all py-2 px-3 text-sm"
+                  />
+                  <div className="flex gap-2 items-center pt-2">
                     {(tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl) && (
                       <Button
                         onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? tripData.introNarrationMaleUrl : tripData.introNarrationFemaleUrl)}
@@ -2163,22 +2165,19 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                           ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                       </Button>
                     )}
-                    <Button
-                      onClick={handlePublishIntroAudio}
-                      disabled={isPublishingIntro || !tripId || !tripData.description?.trim()}
-                      className={cn(
-                        "flex-1 h-9 rounded-xl text-xs font-bold border-none",
-                        (tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl)
-                          ? "bg-emerald-700 hover:bg-emerald-600 text-white"
-                          : "bg-primary hover:bg-primary/90 text-white"
-                      )}
-                    >
-                      {isPublishingIntro
-                        ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing...</>
-                        : <><Volume2 className="w-3.5 h-3.5 mr-2" />
-                          {(tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl) ? 'Republish' : 'Publish Welcome Audio'}
-                        </>}
-                    </Button>
+                    <div className="flex-1">
+                      <Button 
+                        onClick={handlePublishIntroAudio}
+                        disabled={isPublishingIntro || !tripId || !tripData.welcomeAudioText?.trim()}
+                        className="w-full bg-white/10 hover:bg-white/20 text-white rounded-xl border-none"
+                      >
+                        {isPublishingIntro
+                          ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing...</>
+                          : <><Volume2 className="w-3.5 h-3.5 mr-2" />
+                            {(tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl) ? 'Republish' : 'Publish Welcome Audio'}
+                          </>}
+                      </Button>
+                    </div>
                     {(tripData.introNarrationMaleUrl || tripData.introNarrationFemaleUrl) && (
                       <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest shrink-0">● Live</span>
                     )}

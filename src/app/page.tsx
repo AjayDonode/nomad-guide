@@ -318,6 +318,22 @@ export default function DrivingDashboard() {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isFabOpen, setIsFabOpen] = useState(false)
   const [poiSights, setPoiSights] = useState<Record<string, Sight[]>>({}) // keyed by poiId
+
+  const sightMarkersForMap = useMemo(() => {
+    const markers: any[] = [];
+    Object.values(poiSights).forEach(sights => {
+      sights.forEach(s => {
+        markers.push({
+          id: s.id,
+          name: s.name,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          thumbnail: s.images?.[0]
+        });
+      });
+    });
+    return markers;
+  }, [poiSights]);
   const [resumeSession, setResumeSession] = useState<TripSession | null>(null) // 4–12h prompt
   const sessionChecked = useRef(false)
 
@@ -991,49 +1007,38 @@ export default function DrivingDashboard() {
       pendingLegUrlRef.current = null;
       pendingLegIndexRef.current = -1;
 
-      const triggerFiller = async () => {
-        if (!snapshotTripId) return;
-        await playFillerAudio({ tripId: snapshotTripId, trip: snapshotTrip, voice: snapshotVoice, offset: 0 });
-      };
-
-      // ── Intro: try published audio → TTS first paragraph → generic fallback ──
+      // The actual tour narration (filler) should NOT begin until the user reaches 
+      // the first point (starting point).
+      
+      // ── Intro: try published audio → minimal TTS routing instruction ──
       const introMaleUrl = snapshotTrip?.introNarrationMaleUrl;
       const introFemaleUrl = snapshotTrip?.introNarrationFemaleUrl;
       const introUrl = snapshotVoice === 'male' ? introMaleUrl : introFemaleUrl;
 
       if (introUrl) {
-        // Play pre-published AI intro audio — check IDB cache first
+        // Play pre-published AI intro audio (if admin explicitly uploaded one)
         try {
           if (Tone.getContext().state !== 'running') await Tone.start();
           const cachedIntro = await idbGet(`intro_${snapshotTripId}`);
-          const introSrc = cachedIntro ?? introUrl; // IDB data URI beats streaming URL
+          const introSrc = cachedIntro ?? introUrl;
           const introPlayer = new Tone.Player({
             url: introSrc,
             onload: () => { introPlayer.start(); },
-            onstop: () => { introPlayer.dispose(); triggerFiller(); },
-            onerror: () => { introPlayer.dispose(); triggerFiller(); }
+            onstop: () => { introPlayer.dispose(); }, // Silent after intro until 1st POI
+            onerror: () => { introPlayer.dispose(); }
           }).toDestination();
         } catch (e) {
           console.warn('Intro audio failed:', e);
-          triggerFiller();
         }
       } else {
-        // Fallback: use first paragraph of description via browser TTS
-        const rawDesc = snapshotTrip?.description || '';
-        const firstParagraph = rawDesc.split(/\n\n+/)[0].trim();
-        let introText = firstParagraph || `Let's go explore ${activeTripName}.`;
+        // Fallback: Just give routing instructions, do NOT read the trip description
+        let introText = `Let's go explore ${activeTripName}.`;
 
-        // Append driving instruction if first stop is far
-        let isFarFromStart = false;
-        if (recommendedPois.length > 0 && userLocation) {
+        // Tell them to head to the starting point
+        if (recommendedPois.length > 0) {
           const firstUnvisitedPoi = recommendedPois.find(p => !narratedPois.current.has(p.name));
           if (firstUnvisitedPoi) {
-            const dist = getDistance(userLocation[0], userLocation[1], firstUnvisitedPoi.latitude, firstUnvisitedPoi.longitude);
-            if (dist > 0.1) {
-              isFarFromStart = true;
-              const stopDescriptor = narratedPois.current.size > 0 ? 'next stop' : 'starting point';
-              introText += ` Our first stop is ${firstUnvisitedPoi.name}.`;
-            }
+             introText += ` Head to the starting point: ${firstUnvisitedPoi.name}.`;
           }
         }
 
@@ -1044,16 +1049,10 @@ export default function DrivingDashboard() {
             const mv = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel'));
             if (mv) utterance.voice = mv;
           }
-          const estMs = Math.max(introText.length * 65, 2000);
-          let fillerTriggered = false;
-          const exec = () => { if (!fillerTriggered) { fillerTriggered = true; if (!isFarFromStart) triggerFiller(); } };
-          const safety = setTimeout(exec, estMs + 1000);
-          utterance.onend = () => { clearTimeout(safety); exec(); };
           window.speechSynthesis.cancel();
           window.speechSynthesis.speak(utterance);
         } catch (e) {
           console.warn('Intro TTS failed:', e);
-          triggerFiller();
         }
       }
       // Start ambient music immediately (plays quietly beneath intro)
@@ -1838,6 +1837,7 @@ export default function DrivingDashboard() {
           center={userLocation}
           pois={isDriving ? upcomingPois : recommendedPois}
           allPois={recommendedPois}
+          sights={sightMarkersForMap}
           narratedPoiNames={narratedPois.current}
           destination={destination}
           isDriving={isDriving}

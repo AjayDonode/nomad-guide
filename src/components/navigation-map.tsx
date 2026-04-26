@@ -57,13 +57,13 @@ interface NavigationMapProps {
 }
 
 /** Teal sight marker — shows a thumbnail photo inside the pin if available */
-const SightIcon = (thumbnail?: string) => L.divIcon({
+const SightIcon = (thumbnail?: string, counterRotate: number = 0) => L.divIcon({
   className: 'sight-marker',
   html: thumbnail
-    ? `<div style="width:44px;height:44px;border-radius:12px;border:2.5px solid #14b8a6;box-shadow:0 4px 12px rgba(0,0,0,0.4);overflow:hidden;background:#0d4a45;">
+    ? `<div style="width:44px;height:44px;border-radius:12px;border:2.5px solid #14b8a6;box-shadow:0 4px 12px rgba(0,0,0,0.4);overflow:hidden;background:#0d4a45; transform: rotate(${counterRotate}deg); transition: transform 0.5s ease-out;">
          <img src="${thumbnail}" style="width:100%;height:100%;object-fit:cover;" />
        </div>`
-    : `<div style="width:36px;height:36px;border-radius:10px;border:2.5px solid #14b8a6;background:#0d4a45;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.4);">
+    : `<div style="width:36px;height:36px;border-radius:10px;border:2.5px solid #14b8a6;background:#0d4a45;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.4); transform: rotate(${counterRotate}deg); transition: transform 0.5s ease-out;">
          <svg viewBox="0 0 24 24" fill="none" stroke="#14b8a6" stroke-width="2" style="width:18px;height:18px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
        </div>`,
   iconSize: thumbnail ? [44, 44] : [36, 36],
@@ -567,9 +567,9 @@ export function NavigationMap({
     iconAnchor: [16, 16],
   })
 
-  const POIIcon = (isSelected: boolean, idx?: number, isVisited: boolean = false) => L.divIcon({
+  const POIIcon = (isSelected: boolean, idx?: number, isVisited: boolean = false, counterRotate: number = 0) => L.divIcon({
     className: 'poi-marker',
-    html: `<div class="w-8 h-8 ${isVisited ? 'bg-gray-500/80 saturate-0 scale-90' : isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125 font-bold text-white text-[10px]">${idx !== undefined ? idx + 1 : ''}</div>`,
+    html: `<div style="transform: rotate(${counterRotate}deg); transition: transform 0.5s ease-out;" class="w-full h-full flex items-center justify-center"><div class="w-8 h-8 ${isVisited ? 'bg-gray-500/80 saturate-0 scale-90' : isSelected ? 'bg-accent' : 'bg-primary'} rounded-xl border-2 border-white flex items-center justify-center shadow-2xl transition-all duration-300 scale-110 hover:scale-125 font-bold text-white text-[10px]">${idx !== undefined ? idx + 1 : ''}</div></div>`,
     iconSize: [32, 32],
     iconAnchor: [16, 16],
   })
@@ -648,13 +648,22 @@ export function NavigationMap({
             </>
           )}
 
+          {/* Nearby Sights */}
+          {sights.map(sight => (
+            <Marker
+              key={sight.id}
+              position={[sight.latitude, sight.longitude]}
+              icon={SightIcon(sight.thumbnail, isCompassActive ? bearing : 0)}
+            />
+          ))}
+
           {(allPois || pois).map((poi, idx) => {
             const isVisited = narratedPoiNames?.has(poi.name) || false;
             return (
               <Marker 
                 key={`${poi.id}-${idx}`} 
                 position={[poi.latitude, poi.longitude]}
-                icon={POIIcon(selectedPoi?.id === poi.id, isTripMode ? idx : undefined, isVisited)}
+                icon={POIIcon(selectedPoi?.id === poi.id, isTripMode ? idx : undefined, isVisited, isCompassActive ? bearing : 0)}
                 eventHandlers={{ click: () => onPoiSelect?.(poi) }}
               >
                 <Popup>
