@@ -56,7 +56,8 @@ import {
   getDocs,
   updateDoc,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  deleteField
 } from 'firebase/firestore'
 import { ref, uploadBytes, uploadString, getDownloadURL, listAll, deleteObject } from 'firebase/storage'
 import { 
@@ -1011,6 +1012,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   // Which POI leg is having audio published
   const [publishingLegPoiId, setPublishingLegPoiId] = useState<string | null>(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
+  const [previewLocation, setPreviewLocation] = useState<[number, number] | null>(null)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
   const playerRef = useRef<Tone.Player | null>(null)
   // Per-POI textarea refs for sound tag cursor insertion
@@ -1478,22 +1480,30 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   };
 
   /** Publishes driving narration audio for the leg that departs from a given POI */
-  const handlePublishLegAudio = async (poi: any) => {
+  const handlePublishLegAudio = async (poiId: string, legId: string) => {
     if (!tripId || !firestore) return;
-    const text = legDraftTexts[poi.id] ?? poi.legNarrationText ?? '';
+    const poi = pois?.find(p => p.id === poiId);
+    if (!poi) return;
+    const text = legDraftTexts[legId] ?? (poi.legNarrations?.find((l: any) => l.id === legId)?.text || poi.legNarrationText || '');
     if (!text.trim()) return;
-    const poiIndex = pois?.findIndex((p: any) => p.id === poi.id) ?? -1;
+    const poiIndex = pois?.findIndex((p: any) => p.id === poiId) ?? -1;
     const nextPoiName = poiIndex >= 0 ? (pois?.[poiIndex + 1]?.name || 'next stop') : 'next stop';
-    setPublishingLegPoiId(poi.id);
+    setPublishingLegPoiId(legId);
     toast({ title: `🚗 Publishing Leg — toward ${nextPoiName}`, description: 'Generating both voices...' });
     try {
-      const maleUrl = await callPublishVoice(tripId, `leg-${poi.id}`, text, 'male');
+      const maleUrl = await callPublishVoice(tripId, `leg-${legId}`, text, 'male');
       await new Promise(r => setTimeout(r, 2000));
-      const femaleUrl = await callPublishVoice(tripId, `leg-${poi.id}`, text, 'female');
+      const femaleUrl = await callPublishVoice(tripId, `leg-${legId}`, text, 'female');
+      
+      let legs = poi.legNarrations || [];
+      if (legs.length === 0 && poi.legTriggerLat) {
+         legs = [{ id: poi.id, triggerLat: poi.legTriggerLat, triggerLng: poi.legTriggerLng, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+      }
+      
+      const updated = legs.map((l: any) => l.id === legId ? { ...l, text, maleUrl, femaleUrl } : l);
+      
       updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poi.id), {
-        legNarrationText: text,
-        legNarrationMaleUrl: maleUrl,
-        legNarrationFemaleUrl: femaleUrl,
+        legNarrations: updated,
         updatedAt: serverTimestamp()
       });
       toast({ title: 'Leg Audio Published ✓', description: 'Will play while driving to next stop.' });
@@ -1505,24 +1515,68 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   };
 
   const handlePreviewAudio = async (startIndex: number = 0) => {
-    if (!pois || pois.length === 0 || startIndex >= pois.length) {
-      setIsPreviewing(false);
+    if (!pois || pois.length === 0) {
+      stopPreview();
       return;
     }
     
-    // Find the nearest playable POI
-    let currentIndex = startIndex;
-    let poi = pois[currentIndex];
-    while (currentIndex < pois.length && !poi) {
-      currentIndex++;
-      poi = pois[currentIndex];
+    const sortedPois = [...pois].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+    // Build flattened playlist
+    const playlist: any[] = [];
+
+    // Add Welcome if available
+    if ((tripData as any).introNarrationMaleUrl || (tripData as any).introNarrationFemaleUrl || tripData.welcomeAudioText) {
+       playlist.push({
+         type: 'welcome',
+         id: 'welcome',
+         text: tripData.welcomeAudioText || tripData.description,
+         maleUrl: (tripData as any).introNarrationMaleUrl,
+         femaleUrl: (tripData as any).introNarrationFemaleUrl,
+         lat: tripData.startLatitude,
+         lng: tripData.startLongitude
+       });
     }
 
-    if (currentIndex >= pois.length || !poi) {
-      setIsPreviewing(false);
+    sortedPois.forEach((poi: any) => {
+      // Add POI
+      playlist.push({
+        type: 'poi',
+        id: poi.id,
+        text: poi.narrationText || poi.description || poi.name,
+        maleUrl: poi.audioMaleDataUri,
+        femaleUrl: poi.audioFemaleDataUri,
+        lat: poi.latitude,
+        lng: poi.longitude
+      });
+      
+      // Add Legs
+      let legs = poi.legNarrations || [];
+      if (legs.length === 0 && poi.legTriggerLat) {
+         legs = [{ id: poi.id, triggerLat: poi.legTriggerLat, triggerLng: poi.legTriggerLng, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+      }
+      legs.forEach((leg: any) => {
+         if (leg.text || leg.maleUrl || leg.femaleUrl) {
+            playlist.push({
+              type: 'leg',
+              id: leg.id,
+              text: leg.text,
+              maleUrl: leg.maleUrl,
+              femaleUrl: leg.femaleUrl,
+              lat: leg.triggerLat || poi.latitude,
+              lng: leg.triggerLng || poi.longitude
+            });
+         }
+      });
+    });
+
+    if (startIndex >= playlist.length) {
+      stopPreview();
       return;
     }
-    
+
+    const item = playlist[startIndex];
+
     // Start Audio context if needed
     if (Tone.getContext().state !== 'running') {
       await Tone.start()
@@ -1533,10 +1587,16 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       playerRef.current.stop()
       playerRef.current.dispose()
       playerRef.current = null
-      setIsPreviewing(false)
     }
 
-    let audioUri = voicePreference === 'male' ? poi.audioMaleDataUri : poi.audioFemaleDataUri
+    // Jump map
+    if (item.lat && item.lng) {
+      setPreviewLocation([item.lat, item.lng]);
+    } else {
+      setPreviewLocation(null);
+    }
+
+    let audioUri = voicePreference === 'male' ? item.maleUrl : item.femaleUrl;
 
     try {
       if (audioUri) {
@@ -1546,25 +1606,25 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
           onload: () => {
             player.start()
             setIsPreviewing(true)
-            setPlayingPoiId(poi.id)
+            setPlayingPoiId(item.type === 'poi' ? item.id : null)
           },
           onerror: (err) => {
             console.error("Tone.Player load error", err)
-            setIsPreviewing(false)
+            stopPreview();
           },
           onstop: () => {
             player.dispose()
             playerRef.current = null
             setPlayingPoiId(null)
-            handlePreviewAudio(currentIndex + 1)
+            handlePreviewAudio(startIndex + 1)
           }
         }).toDestination()
         playerRef.current = player
       } else {
         // Fallback to Native TTS if not optimized yet
         setIsPreviewing(true)
-        setPlayingPoiId(poi.id)
-        const textToRead = poi.narrationText || poi.description || poi.name
+        setPlayingPoiId(item.type === 'poi' ? item.id : null)
+        const textToRead = item.text || "Audio unavailable."
         const utterance = new SpeechSynthesisUtterance(textToRead)
         
         if (voicePreference === 'male') {
@@ -1575,18 +1635,18 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
         utterance.onend = () => {
           setPlayingPoiId(null)
-          setTimeout(() => handlePreviewAudio(currentIndex + 1), 500)
+          setTimeout(() => handlePreviewAudio(startIndex + 1), 500)
         }
         utterance.onerror = () => {
           setPlayingPoiId(null)
-          setIsPreviewing(false)
+          stopPreview();
         }
         window.speechSynthesis.cancel()
         window.speechSynthesis.speak(utterance)
       }
     } catch (e) {
       console.error("Playback error", e)
-      setIsPreviewing(false)
+      stopPreview();
     }
   }
 
@@ -1673,6 +1733,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     window.speechSynthesis.cancel()
     setIsPreviewing(false)
     setPlayingPoiId(null)
+    setPreviewLocation(null)
   }
 
   /** Reorders POIs after a drag-drop — batch-updates orderIndex for all shifted stops */
@@ -2372,72 +2433,75 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                     </div>{/* end draggable wrapper */}
 
                     {/* ── Leg Narration connector (between every pair except after last POI) ── */}
-                    {idx < (pois?.length ?? 0) - 1 && (
-                      <div className="flex items-stretch gap-3 px-2">
-                        <div className="flex flex-col items-center">
-                          <div className="w-px flex-1 bg-white/10" />
-                          <div className="w-6 h-6 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center my-1 shrink-0">
-                            <Route className="w-3 h-3 text-blue-400" />
-                          </div>
-                          <div className="w-px flex-1 bg-white/10" />
-                        </div>
-                        <div className="flex-1 bg-blue-500/5 border border-blue-400/15 rounded-2xl p-3 space-y-2 my-1">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-[10px] uppercase tracking-widest text-blue-300/70 font-bold">
-                              Driving → {pois?.[idx + 1]?.name || 'Next Stop'}
-                            </Label>
-                            {(poi.legNarrationMaleUrl || poi.legNarrationFemaleUrl) ? (
-                              <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest">● Live</span>
-                            ) : !(legDraftTexts[poi.id] || poi.legNarrationText) ? (
-                              <span className="flex items-center gap-1 text-amber-400 text-[10px] font-bold uppercase tracking-widest">
-                                <AlertTriangle className="w-3 h-3" /> No narration
-                              </span>
-                            ) : null}
-                          </div>
-                          <Textarea
-                            ref={(el) => { legTextareaRefs.current[poi.id] = el }}
-                            value={legDraftTexts[poi.id] ?? (poi.legNarrationText || '')}
-                            onChange={(e) => setLegDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
-                            placeholder={`Narration while driving from ${poi.name} toward ${pois?.[idx + 1]?.name || 'next stop'}. Use Sound Library for <sound> tags.`}
-                            className="bg-black/20 border-white/5 rounded-xl text-xs min-h-[60px] focus:border-blue-400/30 resize-none"
-                          />
-                          <div className="flex gap-2">
-                            {(poi.legNarrationMaleUrl || poi.legNarrationFemaleUrl) && (
-                              <Button
-                                onClick={() => handlePlaySpecificAudio(voicePreference === 'male' ? poi.legNarrationMaleUrl : poi.legNarrationFemaleUrl)}
-                                className="h-8 w-9 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl border-none flex items-center justify-center p-0 shrink-0"
-                              >
-                                {playingSpecificAudioUrl === (voicePreference === 'male' ? poi.legNarrationMaleUrl : poi.legNarrationFemaleUrl)
-                                  ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                              </Button>
-                            )}
-                            <Button
-                              onClick={() => handlePublishLegAudio(poi)}
-                              disabled={publishingLegPoiId === poi.id || !(legDraftTexts[poi.id] || poi.legNarrationText)}
-                              className={cn(
-                                "flex-1 h-8 rounded-xl text-[10px] font-bold border-none",
-                                (legDraftTexts[poi.id] || poi.legNarrationText)
-                                  ? "bg-blue-600 hover:bg-blue-500 text-white"
-                                  : "bg-white/5 text-muted-foreground cursor-not-allowed"
-                              )}
-                            >
-                              {publishingLegPoiId === poi.id
-                                ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Publishing...</>
-                                : <><Volume2 className="w-3 h-3 mr-1.5" />Publish Leg Audio</>}
-                            </Button>
-                          </div>
+                    {idx < (pois?.length ?? 0) - 1 && (() => {
+                       let legs = poi.legNarrations || [];
+                       if (legs.length === 0) {
+                          legs = [{ id: poi.id, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+                       }
+                       return legs.map((leg: any, lIdx: number) => (
+                         <div key={`designer-leg-${leg.id}`} className="flex items-stretch gap-3 px-2">
+                           <div className="flex flex-col items-center">
+                             <div className="w-px flex-1 bg-white/10" />
+                             <div className="w-6 h-6 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center my-1 shrink-0">
+                               <Route className="w-3 h-3 text-blue-400" />
+                             </div>
+                             <div className="w-px flex-1 bg-white/10" />
+                           </div>
+                           <div className="flex-1 bg-blue-500/5 border border-blue-400/15 rounded-2xl p-3 space-y-2 my-1">
+                             <div className="flex items-center justify-between">
+                               <Label className="text-[10px] uppercase tracking-widest text-blue-300/70 font-bold">
+                                 Driving → {pois?.[idx + 1]?.name || 'Next Stop'} {legs.length > 1 ? `(Pt ${lIdx+1})` : ''}
+                               </Label>
+                               {(leg.maleUrl || leg.femaleUrl) ? (
+                                 <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest">● Live</span>
+                               ) : !(legDraftTexts[leg.id] || leg.text) ? (
+                                 <span className="flex items-center gap-1 text-amber-400 text-[10px] font-bold uppercase tracking-widest">
+                                   <AlertTriangle className="w-3 h-3" /> No narration
+                                 </span>
+                               ) : null}
+                             </div>
+                             <Textarea
+                               ref={(el) => { legTextareaRefs.current[leg.id] = el }}
+                               value={legDraftTexts[leg.id] ?? (leg.text || '')}
+                               onChange={(e) => setLegDraftTexts(prev => ({ ...prev, [leg.id]: e.target.value }))}
+                               className={cn(
+                                 "min-h-[60px] text-xs resize-y bg-black/40 border-black/50 placeholder:text-muted-foreground/50 rounded-xl px-3 py-2 leading-relaxed transition-all",
+                                 publishingLegPoiId === leg.id ? "opacity-50 pointer-events-none" : "focus:border-blue-500/50"
+                               )}
+                               placeholder="What should the traveler hear after departing..."
+                             />
+                             <div className="flex gap-2">
+                               <Button
+                                 type="button"
+                                 onClick={() => handlePublishLegAudio(poi.id, leg.id)}
+                                 disabled={publishingLegPoiId === leg.id || !(legDraftTexts[leg.id] || leg.text)}
+                                 className={cn(
+                                   "flex-1 h-8 rounded-xl text-[10px] font-bold border-none",
+                                   (legDraftTexts[leg.id] || leg.text)
+                                     ? "bg-blue-600 hover:bg-blue-500 text-white"
+                                     : "bg-white/5 text-muted-foreground cursor-not-allowed"
+                                 )}
+                               >
+                                 {publishingLegPoiId === leg.id
+                                   ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Publishing...</>
+                                   : <><Volume2 className="w-3 h-3 mr-1.5" />Publish Leg Audio</>}
+                               </Button>
+                             </div>
+                           </div>
+                         </div>
+                       ));
+                    })()}
                           {/* ── Insert Stop Here button ── */}
-                          <button
-                            type="button"
-                            onClick={() => handleInsertAfter(idx)}
-                            className="w-full mt-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-dashed border-white/10 hover:border-primary/40 hover:bg-primary/5 text-[10px] font-bold uppercase tracking-widest text-white/25 hover:text-primary transition-all"
-                          >
-                            <Plus className="w-3 h-3" />
-                            Insert Stop Here
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                          <div className="px-2 mb-4">
+                            <button
+                              type="button"
+                              onClick={() => handleInsertAfter(idx)}
+                              className="w-full mt-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-dashed border-white/10 hover:border-primary/40 hover:bg-primary/5 text-[10px] font-bold uppercase tracking-widest text-white/25 hover:text-primary transition-all"
+                            >
+                              <Plus className="w-3 h-3" />
+                              Insert Stop Here
+                            </button>
+                          </div>
                     </React.Fragment>
                   ))}
 
@@ -2464,6 +2528,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
             pois={pois || []}
             sights={sightMarkersForMap}
             playingPoiId={playingPoiId}
+            previewLocation={previewLocation}
             onMapClick={handleAddPoi}
             onStartPointSet={(lat, lng) => setTripData({...tripData, startLatitude: lat, startLongitude: lng})}
             onPoiMove={handlePoiMove}
@@ -2477,6 +2542,60 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
             }}
             onSightMove={handleSightMove}
             onSightDelete={handleSightDelete}
+            legDraftTexts={legDraftTexts}
+            onLegNarrationChange={(poiId, legId, text) => setLegDraftTexts(prev => ({ ...prev, [legId]: text }))}
+            onPublishLegAudio={(poiId, legId) => handlePublishLegAudio(poiId, legId)}
+            onLegTriggerMove={(poiId, legId, lat, lng) => {
+               if (!firestore || !tripId) return;
+               const poi = pois?.find(p => p.id === poiId);
+               if (!poi) return;
+               let legs = poi.legNarrations || [];
+               if (legs.length === 0 && poi.legTriggerLat) {
+                  legs = [{ id: poiId, triggerLat: poi.legTriggerLat, triggerLng: poi.legTriggerLng, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+               }
+               const updated = legs.map((l: any) => l.id === legId ? { ...l, triggerLat: lat, triggerLng: lng } : l);
+               updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+                  legNarrations: updated,
+                  updatedAt: serverTimestamp()
+               });
+            }}
+            onLegTriggerDelete={(poiId, legId) => {
+               if (!firestore || !tripId) return;
+               const poi = pois?.find(p => p.id === poiId);
+               if (!poi) return;
+               let legs = poi.legNarrations || [];
+               if (legs.length === 0 && poi.legTriggerLat) {
+                  legs = [{ id: poiId, triggerLat: poi.legTriggerLat, triggerLng: poi.legTriggerLng, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+               }
+               const updated = legs.filter((l: any) => l.id !== legId);
+               updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+                  legNarrations: updated,
+                  updatedAt: serverTimestamp()
+               });
+            }}
+            onLegTriggerAdd={(poiId, afterLegId) => {
+               if (!firestore || !tripId) return;
+               const poi = pois?.find(p => p.id === poiId);
+               const nextPoi = pois?.find(p => p.orderIndex === (poi?.orderIndex || 0) + 1);
+               if (!poi || !nextPoi) return;
+               let legs = poi.legNarrations || [];
+               if (legs.length === 0 && poi.legTriggerLat) {
+                  legs = [{ id: poiId, triggerLat: poi.legTriggerLat, triggerLng: poi.legTriggerLng, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+               }
+               const afterIndex = legs.findIndex((l: any) => l.id === afterLegId);
+               if (afterIndex === -1) return;
+               const cur = legs[afterIndex];
+               const nextLat = afterIndex < legs.length - 1 ? (legs[afterIndex+1].triggerLat || nextPoi.latitude) : nextPoi.latitude;
+               const nextLng = afterIndex < legs.length - 1 ? (legs[afterIndex+1].triggerLng || nextPoi.longitude) : nextPoi.longitude;
+               const newLat = ((cur.triggerLat || poi.latitude) + nextLat) / 2;
+               const newLng = ((cur.triggerLng || poi.longitude) + nextLng) / 2;
+               const newLeg = { id: Math.random().toString(36).substring(2, 9), triggerLat: newLat, triggerLng: newLng, text: "" };
+               const newArray = [...legs.slice(0, afterIndex + 1), newLeg, ...legs.slice(afterIndex + 1)];
+               updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+                  legNarrations: newArray,
+                  updatedAt: serverTimestamp()
+               });
+            }}
           />
         </section>
       </div>

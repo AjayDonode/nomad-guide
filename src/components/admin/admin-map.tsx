@@ -6,6 +6,15 @@ import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline } from 'react-leaflet'
 import { Map as LucideMap, Search, Loader2 } from 'lucide-react'
 
+export interface LegNarration {
+  id: string
+  triggerLat?: number
+  triggerLng?: number
+  text?: string
+  maleUrl?: string
+  femaleUrl?: string
+}
+
 interface POI {
   id: string
   name: string
@@ -13,6 +22,12 @@ interface POI {
   longitude: number
   category: string
   orderIndex?: number
+  legTriggerLat?: number
+  legTriggerLng?: number
+  legNarrationText?: string
+  legNarrationMaleUrl?: string
+  legNarrationFemaleUrl?: string
+  legNarrations?: LegNarration[]
 }
 
 interface SightMarker {
@@ -37,6 +52,15 @@ interface AdminMapProps {
   onSightMove?: (sightId: string, lat: number, lng: number) => void
   onSightDelete?: (sightId: string) => void
   playingPoiId?: string | null
+  previewLocation?: [number, number] | null
+
+  // Leg Triggers
+  legDraftTexts?: Record<string, string>
+  onLegTriggerMove?: (poiId: string, legId: string, lat: number, lng: number) => void
+  onLegNarrationChange?: (poiId: string, legId: string, text: string) => void
+  onPublishLegAudio?: (poiId: string, legId: string) => void
+  onLegTriggerDelete?: (poiId: string, legId: string) => void
+  onLegTriggerAdd?: (poiId: string, afterLegId: string) => void
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -76,6 +100,31 @@ const SightIcon = (thumbnail?: string) => L.divIcon({
   iconAnchor: thumbnail ? [22, 22] : [18, 18],
 })
 
+const LegTriggerIcon = L.divIcon({
+  className: 'leg-trigger-marker',
+  html: `<div style="width:28px;height:28px;border-radius:50%;border:2px solid #a855f7;background:#7e22ce;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.4); z-index: 45;">
+         <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="width:14px;height:14px;"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+       </div>`,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+})
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function getClosestPoint(lat: number, lng: number, points: [number, number][]): [number, number] {
+  if (points.length === 0) return [lat, lng];
+  let minDist = Infinity;
+  let closest = points[0];
+  for (const p of points) {
+    const d = Math.pow(p[0] - lat, 2) + Math.pow(p[1] - lng, 2);
+    if (d < minDist) {
+      minDist = d;
+      closest = p;
+    }
+  }
+  return closest;
+}
+
 // ── Map helpers ───────────────────────────────────────────────────────────────
 
 function MapEvents({ onMapClick }: { onMapClick?: (lat: number, lng: number) => void }) {
@@ -87,9 +136,14 @@ function MapEvents({ onMapClick }: { onMapClick?: (lat: number, lng: number) => 
   return null
 }
 
-function MapUpdater({ center, pois }: { center: [number, number], pois: POI[] }) {
+function MapUpdater({ center, pois, previewLocation }: { center: [number, number], pois: POI[], previewLocation?: [number, number] | null }) {
   const map = useMap()
   
+  useEffect(() => {
+    if (previewLocation) {
+      map.flyTo(previewLocation, 18, { animate: true, duration: 1.5 })
+    }
+  }, [previewLocation, map])
   useEffect(() => {
     if (pois.length > 0) {
       const markers = [
@@ -188,14 +242,27 @@ function MapSearchControl() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+function snapToLine(lat: number, lng: number, line: [number, number][]): [number, number] {
+  if (!line || line.length === 0) return [lat, lng];
+  let minD = Infinity;
+  let snapped = line[0];
+  for (const pt of line) {
+    const d = Math.pow(pt[0]-lat, 2) + Math.pow(pt[1]-lng, 2);
+    if (d < minD) { minD = d; snapped = pt; }
+  }
+  return snapped;
+}
+
 export function AdminMap({
   center, pois, sights = [],
   onMapClick, onStartPointSet, onPoiMove, onPoiDelete, onPoiPlay,
   onSightMove, onSightDelete,
-  playingPoiId
+  playingPoiId, previewLocation,
+  legDraftTexts, onLegTriggerMove, onLegNarrationChange, onPublishLegAudio, onLegTriggerDelete, onLegTriggerAdd
 }: AdminMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
+  const [routeLegs, setRouteLegs] = useState<[number, number][][]>([])
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -253,13 +320,16 @@ export function AdminMap({
               }
               return coordinates;
             };
-            const coords = data.trip.legs.flatMap((leg: any) => decodePolyline(leg.shape, 6));
-            setRoutePoints(coords)
+            const coords = data.trip.legs.map((leg: any) => decodePolyline(leg.shape, 6));
+            setRouteLegs(coords);
+            setRoutePoints(coords.flat())
           } else {
+            setRouteLegs([]);
             setRoutePoints(prev => prev.length > 3 ? prev : allPoints.map(p => [p[1], p[0]] as [number, number]));
           }
         } catch (error: any) {
           if (error.name !== 'AbortError') {
+            setRouteLegs([]);
             setRoutePoints(prev => prev.length > 3 ? prev : allPoints.map(p => [p[1], p[0]] as [number, number]));
           }
         }
@@ -287,7 +357,7 @@ export function AdminMap({
         />
         
         <MapEvents onMapClick={onMapClick} />
-        <MapUpdater center={center} pois={pois} />
+        <MapUpdater center={center} pois={pois} previewLocation={previewLocation} />
         <MapSimulatorFocus pois={sortedPois} playingPoiId={playingPoiId} center={center} />
 
         {/* Start Point */}
@@ -354,6 +424,101 @@ export function AdminMap({
           )
         })}
 
+        {/* ── Leg Narration Triggers ── */}
+        {sortedPois.flatMap((poi, idx) => {
+          if (idx === sortedPois.length - 1) return []; // Last POI has no departing leg
+
+          const legCoords = routeLegs[idx + 1] || [];
+          
+          let triggers: LegNarration[] = poi.legNarrations || [];
+          if (triggers.length === 0) {
+             triggers = [{
+                id: poi.id,
+                triggerLat: poi.legTriggerLat,
+                triggerLng: poi.legTriggerLng,
+                text: poi.legNarrationText,
+                maleUrl: poi.legNarrationMaleUrl,
+                femaleUrl: poi.legNarrationFemaleUrl
+             }];
+          }
+
+          return triggers.map((trigger, tIdx) => {
+            let triggerLat = trigger.triggerLat;
+            let triggerLng = trigger.triggerLng;
+
+            if (triggerLat === undefined || triggerLng === undefined) {
+               if (legCoords && legCoords.length > 0) {
+                  const mid = legCoords[Math.floor(legCoords.length / 2)];
+                  triggerLat = mid[0];
+                  triggerLng = mid[1];
+               } else {
+                  const nextPoi = sortedPois[idx + 1];
+                  triggerLat = (poi.latitude + nextPoi.latitude) / 2;
+                  triggerLng = (poi.longitude + nextPoi.longitude) / 2;
+               }
+            }
+
+            return (
+              <Marker 
+                key={`leg-trigger-${poi.id}-${trigger.id}`} 
+                position={[triggerLat, triggerLng]} 
+                icon={LegTriggerIcon}
+                draggable={true}
+                eventHandlers={{
+                  dragend: (e) => {
+                    const marker = e.target;
+                    const position = marker.getLatLng();
+                    const snapped = snapToLine(position.lat, position.lng, legCoords);
+                    marker.setLatLng(snapped);
+                    onLegTriggerMove?.(poi.id, trigger.id, snapped[0], snapped[1]);
+                  }
+                }}
+              >
+                <Popup>
+                  <div className="p-1 min-w-[200px]">
+                    <div className="font-headline font-bold text-sm text-purple-700 mb-1 flex items-center justify-between">
+                       <span>Leg Narration</span>
+                       <button 
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           onLegTriggerAdd?.(poi.id, trigger.id);
+                         }}
+                         className="w-5 h-5 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded flex items-center justify-center font-bold pb-0.5"
+                         title="Add another narration point"
+                       >
+                         +
+                       </button>
+                    </div>
+                    <div className="text-xs text-slate-500 mb-2">Plays while driving to {sortedPois[idx+1].name}</div>
+                    
+                    <textarea 
+                      className="w-full h-24 p-2 text-xs border rounded bg-slate-50 mb-2"
+                      value={legDraftTexts?.[trigger.id] !== undefined ? legDraftTexts[trigger.id] : (trigger.text || "")}
+                      onChange={(e) => onLegNarrationChange?.(poi.id, trigger.id, e.target.value)}
+                      placeholder="Enter narration to play at this point..."
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onPublishLegAudio?.(poi.id, trigger.id)}
+                        className="text-white bg-purple-600 hover:bg-purple-700 text-[10px] uppercase tracking-wider font-bold py-1.5 px-3 rounded flex-1"
+                      >
+                        Publish Audio
+                      </button>
+                      {onLegTriggerDelete && (
+                         <button
+                           onClick={() => onLegTriggerDelete(poi.id, trigger.id)}
+                           className="text-red-500 bg-red-50 hover:bg-red-100 text-[10px] uppercase tracking-wider font-bold py-1.5 px-2 rounded"
+                         >
+                           Delete
+                         </button>
+                      )}
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          });
+        })}
         {/* ── Sight Markers — teal, draggable, thumbnail photo ── */}
         {sights.map(sight => (
           <Marker
@@ -398,7 +563,7 @@ export function AdminMap({
         )}
         
         <MapSearchControl />
-      </MapContainer>
+        </MapContainer>
 
       {/* Map Control Overlay */}
       <div className="absolute top-6 left-6 z-[1000] glass-morphism p-3 rounded-2xl flex items-center gap-3">
