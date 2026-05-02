@@ -77,6 +77,9 @@ import Image from 'next/image'
 import { composeFillerText } from '@/ai/flows/compose-filler'
 import { generateNarrationText } from '@/ai/flows/generate-narrative-tour'
 
+import { translateToHindi } from '@/ai/flows/translate-to-hindi'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
 // ── Cloud Function URL ────────────────────────────────────────────────────────
 // This is the deployed publishVoiceAudio function. It runs on Google's servers,
 // so there is no browser timeout, no memory limit, and no Genkit overhead.
@@ -975,6 +978,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     introNarrationMaleUrl: null as string | null,
     introNarrationFemaleUrl: null as string | null,
     welcomeAudioText: "",
+    welcomeAudioTextHi: "",
+    introNarrationMaleUrlHi: null as string | null,
+    introNarrationFemaleUrlHi: null as string | null,
     coverImage: null as string | null,
   })
 
@@ -1009,11 +1015,18 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
   const [publishingAudioPoiId, setPublishingAudioPoiId] = useState<string | null>(null)
   // Per-POI leg narration draft texts
   const [legDraftTexts, setLegDraftTexts] = useState<Record<string, string>>({})
+  const [poiDraftTextsHi, setPoiDraftTextsHi] = useState<Record<string, string>>({})
+  const [legDraftTextsHi, setLegDraftTextsHi] = useState<Record<string, string>>({})
   // Which POI leg is having audio published
   const [publishingLegPoiId, setPublishingLegPoiId] = useState<string | null>(null)
+  const [publishingPoiId, setPublishingPoiId] = useState<string | null>(null)
+  const [translatingPoiId, setTranslatingPoiId] = useState<string | null>(null)
+  const [workspaceLang, setWorkspaceLang] = useState<'en' | 'hi'>('en')
+  const [translatingLegId, setTranslatingLegId] = useState<string | null>(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [previewLocation, setPreviewLocation] = useState<[number, number] | null>(null)
   const [playingPoiId, setPlayingPoiId] = useState<string | null>(null)
+  const [previewVoice, setPreviewVoice] = useState<'male' | 'female' | 'male-hi' | 'female-hi'>('male')
   const playerRef = useRef<Tone.Player | null>(null)
   // Per-POI textarea refs for sound tag cursor insertion
   const poiTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
@@ -1058,6 +1071,9 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         introNarrationMaleUrl: existingTrip.introNarrationMaleUrl || null,
         introNarrationFemaleUrl: existingTrip.introNarrationFemaleUrl || null,
         welcomeAudioText: existingTrip.welcomeAudioText || (existingTrip.description ? existingTrip.description.split(/\n\n+/)[0].trim() : ""),
+        welcomeAudioTextHi: existingTrip.welcomeAudioTextHi || "",
+        introNarrationMaleUrlHi: existingTrip.introNarrationMaleUrlHi || null,
+        introNarrationFemaleUrlHi: existingTrip.introNarrationFemaleUrlHi || null,
         coverImage: existingTrip.coverImage || null,
       })
     }
@@ -1514,6 +1530,120 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
     }
   };
 
+
+  // ─── HINDI TRANSLATION & PUBLISHING ──────────────────────────────────────────
+
+  const handleTranslatePoi = async (poiId: string) => {
+    const poi = pois?.find(p => p.id === poiId);
+    if (!poi) return;
+    const textToTranslate = poiDraftTexts[poiId] ?? (poi.narrationText || poi.description || poi.name);
+    if (!textToTranslate) return;
+
+    setTranslatingPoiId(poiId);
+    toast({ title: '🌐 Translating...', description: 'Translating POI narration to Hindi...' });
+    try {
+      const translated = await translateToHindi({ text: textToTranslate });
+      setPoiDraftTextsHi(prev => ({ ...prev, [poiId]: translated }));
+      if (firestore && tripId) {
+        updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+          narrationTextHi: translated,
+          updatedAt: serverTimestamp()
+        });
+      }
+      toast({ title: '✅ Translated', description: 'Hindi translation complete.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Translation Failed', description: e.message });
+    } finally {
+      setTranslatingPoiId(null);
+    }
+  };
+
+  const handleTranslateLeg = async (poiId: string, legId: string) => {
+    const poi = pois?.find(p => p.id === poiId);
+    if (!poi) return;
+    const leg = poi.legNarrations?.find((l:any) => l.id === legId);
+    const textToTranslate = legDraftTexts[legId] ?? (leg?.text || poi.legNarrationText || "");
+    if (!textToTranslate) return;
+
+    setTranslatingLegId(legId);
+    toast({ title: '🌐 Translating...', description: 'Translating leg narration to Hindi...' });
+    try {
+      const translated = await translateToHindi({ text: textToTranslate });
+      setLegDraftTextsHi(prev => ({ ...prev, [legId]: translated }));
+      
+      if (firestore && tripId && poi.legNarrations) {
+        const updated = poi.legNarrations.map((l:any) => l.id === legId ? { ...l, textHi: translated } : l);
+        updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+          legNarrations: updated,
+          updatedAt: serverTimestamp()
+        });
+      }
+      toast({ title: '✅ Translated', description: 'Hindi translation complete.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Translation Failed', description: e.message });
+    } finally {
+      setTranslatingLegId(null);
+    }
+  };
+
+  const handlePublishPoiAudioHi = async (poiId: string) => {
+    if (!tripId || !firestore) return;
+    const poi = pois?.find(p => p.id === poiId);
+    if (!poi) return;
+    
+    const text = poiDraftTextsHi[poiId] ?? poi.narrationTextHi;
+    if (!text) return;
+
+    setPublishingPoiId(poiId);
+    toast({ title: '🎙️ Publishing Hindi Audio', description: 'Generating Hindi voices...' });
+    try {
+      const maleUrl = await callPublishVoice(tripId, `${poiId}-hi`, text, 'male');
+      await new Promise(r => setTimeout(r, 2000));
+      const femaleUrl = await callPublishVoice(tripId, `${poiId}-hi`, text, 'female');
+
+      updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+        audioMaleDataUriHi: maleUrl,
+        audioFemaleDataUriHi: femaleUrl,
+        updatedAt: serverTimestamp()
+      });
+      toast({ title: '✅ Published', description: 'Hindi audio published.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Publish Failed', description: e.message });
+    } finally {
+      setPublishingPoiId(null);
+    }
+  };
+
+  const handlePublishLegAudioHi = async (poiId: string, legId: string) => {
+    if (!tripId || !firestore) return;
+    const poi = pois?.find(p => p.id === poiId);
+    if (!poi) return;
+    const leg = poi.legNarrations?.find((l:any) => l.id === legId);
+    const text = legDraftTextsHi[legId] ?? leg?.textHi;
+    if (!text) return;
+
+    setPublishingLegPoiId(legId);
+    toast({ title: '🎙️ Publishing Hindi Leg Audio', description: 'Generating Hindi leg voices...' });
+    try {
+      const maleUrl = await callPublishVoice(tripId, `leg-${legId}-hi`, text, 'male');
+      await new Promise(r => setTimeout(r, 2000));
+      const femaleUrl = await callPublishVoice(tripId, `leg-${legId}-hi`, text, 'female');
+
+      if (poi.legNarrations) {
+        const updated = poi.legNarrations.map((l:any) => l.id === legId ? { ...l, maleUrlHi: maleUrl, femaleUrlHi: femaleUrl } : l);
+        updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
+          legNarrations: updated,
+          updatedAt: serverTimestamp()
+        });
+      }
+      toast({ title: '✅ Published', description: 'Hindi leg audio published.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Publish Failed', description: e.message });
+    } finally {
+      setPublishingLegPoiId(null);
+    }
+  };
+
   const handlePreviewAudio = async (startIndex: number = 0) => {
     if (!pois || pois.length === 0) {
       stopPreview();
@@ -1544,8 +1674,11 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         type: 'poi',
         id: poi.id,
         text: poi.narrationText || poi.description || poi.name,
+        textHi: poi.narrationTextHi,
         maleUrl: poi.audioMaleDataUri,
         femaleUrl: poi.audioFemaleDataUri,
+        maleUrlHi: poi.audioMaleDataUriHi,
+        femaleUrlHi: poi.audioFemaleDataUriHi,
         lat: poi.latitude,
         lng: poi.longitude
       });
@@ -1561,8 +1694,11 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
               type: 'leg',
               id: leg.id,
               text: leg.text,
+              textHi: leg.textHi,
               maleUrl: leg.maleUrl,
               femaleUrl: leg.femaleUrl,
+              maleUrlHi: leg.maleUrlHi,
+              femaleUrlHi: leg.femaleUrlHi,
               lat: leg.triggerLat || poi.latitude,
               lng: leg.triggerLng || poi.longitude
             });
@@ -1596,7 +1732,19 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
       setPreviewLocation(null);
     }
 
-    let audioUri = voicePreference === 'male' ? item.maleUrl : item.femaleUrl;
+    let audioUri = null;
+    let textToRead = item.text || "Audio unavailable.";
+    if (previewVoice === 'male-hi') {
+      audioUri = item.maleUrlHi;
+      textToRead = item.textHi || textToRead;
+    } else if (previewVoice === 'female-hi') {
+      audioUri = item.femaleUrlHi;
+      textToRead = item.textHi || textToRead;
+    } else if (previewVoice === 'male') {
+      audioUri = item.maleUrl;
+    } else {
+      audioUri = item.femaleUrl;
+    }
 
     try {
       if (audioUri) {
@@ -1624,8 +1772,8 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         // Fallback to Native TTS if not optimized yet
         setIsPreviewing(true)
         setPlayingPoiId(item.type === 'poi' ? item.id : null)
-        const textToRead = item.text || "Audio unavailable."
         const utterance = new SpeechSynthesisUtterance(textToRead)
+        if (previewVoice.includes('hi')) utterance.lang = 'hi-IN';
         
         if (voicePreference === 'male') {
           const voices = window.speechSynthesis.getVoices()
@@ -2074,26 +2222,39 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 {isPublishingAll ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Volume2 className="w-4 h-4 mr-2" />}
                 Publish All Audio
               </Button>
-              <Button 
-                onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(0)}
-                disabled={!canPlayPreview || (isPreviewing && !playerRef.current && typeof window !== 'undefined' && !window.speechSynthesis.speaking)}
-                variant={canPlayPreview && (!isPreviewing || playerRef.current || (typeof window !== 'undefined' && window.speechSynthesis.speaking)) ? "default" : "ghost"}
-                size="icon"
-                className={cn(
-                  "rounded-xl h-11 w-11 transition-all", 
-                  isPreviewing ? "bg-primary/20 text-primary" : 
-                  canPlayPreview ? "bg-green-500 text-white hover:bg-green-600 shadow-xl shadow-green-500/20" : 
-                  "text-muted-foreground hover:bg-white/5 opacity-50"
-                )}
-              >
-                {(isPreviewing && !playerRef.current && typeof window !== 'undefined' && !window.speechSynthesis.speaking) ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : isPreviewing ? (
-                  <Pause className="w-5 h-5" />
-                ) : (
-                  <Play className={cn("w-5 h-5", canPlayPreview && "translate-x-0.5")} />
-                )}
-              </Button>
+              <div className="flex gap-2 items-center bg-white/5 p-1 rounded-2xl">
+                <Select value={previewVoice} onValueChange={(val: any) => setPreviewVoice(val)}>
+                  <SelectTrigger className="w-28 h-9 bg-transparent text-white text-[10px] uppercase font-bold border-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[9999]">
+                    <SelectItem value="male">MALE</SelectItem>
+                    <SelectItem value="female">FEMALE</SelectItem>
+                    <SelectItem value="male-hi">MALE (HINDI)</SelectItem>
+                    <SelectItem value="female-hi">FEMALE (HINDI)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button 
+                  onClick={() => isPreviewing ? stopPreview() : handlePreviewAudio(0)}
+                  disabled={!canPlayPreview || (isPreviewing && !playerRef.current && typeof window !== 'undefined' && !window.speechSynthesis.speaking)}
+                  variant={canPlayPreview && (!isPreviewing || playerRef.current || (typeof window !== 'undefined' && window.speechSynthesis.speaking)) ? "default" : "ghost"}
+                  size="icon"
+                  className={cn(
+                    "rounded-xl h-9 w-9 transition-all", 
+                    isPreviewing ? "bg-primary/20 text-primary" : 
+                    canPlayPreview ? "bg-green-500 text-white hover:bg-green-600 shadow-xl shadow-green-500/20" : 
+                    "text-muted-foreground hover:bg-white/5 opacity-50"
+                  )}
+                >
+                  {(isPreviewing && !playerRef.current && typeof window !== 'undefined' && !window.speechSynthesis.speaking) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : isPreviewing ? (
+                    <Pause className="w-4 h-4" />
+                  ) : (
+                    <Play className={cn("w-4 h-4", canPlayPreview && "translate-x-0.5")} />
+                  )}
+                </Button>
+              </div>
               {/* ── Export Trip Markdown ── */}
               <Button
                 onClick={exportTripAsMarkdown}
@@ -2136,6 +2297,22 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
         <aside className="w-[450px] border-r border-white/5 flex flex-col bg-card/20">
           <ScrollArea className="flex-1">
             <div className="p-8 space-y-10">
+              {/* Workspace Toggle */}
+              <div className="flex items-center justify-between bg-white/5 p-1 rounded-xl">
+                <button
+                  onClick={() => setWorkspaceLang('en')}
+                  className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${workspaceLang === 'en' ? 'bg-emerald-600 text-white shadow-md' : 'text-muted-foreground hover:bg-white/5'}`}
+                >
+                  🇬🇧 English Workspace
+                </button>
+                <button
+                  onClick={() => setWorkspaceLang('hi')}
+                  className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${workspaceLang === 'hi' ? 'bg-orange-600 text-white shadow-md' : 'text-muted-foreground hover:bg-white/5'}`}
+                >
+                  🇮🇳 Hindi Workspace
+                </button>
+              </div>
+
               <section className="space-y-4">
                 <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Trip Strategy</Label>
                 <Textarea 
@@ -2328,53 +2505,99 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
 
                         {/* ── Narration Script Section ── */}
                         <div className="rounded-2xl border border-white/10 bg-black/20 p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
-                              Voice Script
-                              {(poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
-                                <span className="ml-2 text-emerald-400">● Live</span>
-                              )}
-                            </Label>
-                            {/* ✨ Step 1: Generate suggested text */}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={generatingTextPoiId === poi.id}
-                              onClick={() => handleGeneratePoiText(poi, idx)}
-                              className="h-7 px-3 text-[10px] font-bold text-primary hover:bg-primary/10 rounded-lg uppercase tracking-wider"
-                            >
-                              {generatingTextPoiId === poi.id
-                                ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                : <Sparkles className="w-3 h-3 mr-1" />}
-                              Suggest Script
-                            </Button>
-                          </div>
-                          {/* Editable intro text */}
-                          <Textarea
-                            ref={(el) => { poiTextareaRefs.current[poi.id] = el }}
-                            value={poiDraftTexts[poi.id] ?? (poi.narrationText || "")}
-                            onChange={(e) => setPoiDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
-                            placeholder="Click ✨ Suggest Script, or write narration here. Use Sound Library in the sidebar to add <sound> tags."
-                            className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[60px] focus:border-emerald-500/40 text-slate-200 placeholder:text-white/20"
-                          />
+                          {workspaceLang === 'en' ? (
+                            <>
+                              <div className="flex items-center justify-between">
+                                <Label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                                  Voice Script
+                                  {(poi.audioMaleDataUri || poi.audioFemaleDataUri) && (
+                                    <span className="ml-2 text-emerald-400">● Live</span>
+                                  )}
+                                </Label>
+                                {/* ✨ Step 1: Generate suggested text */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={generatingTextPoiId === poi.id}
+                                  onClick={() => handleGeneratePoiText(poi, idx)}
+                                  className="h-7 px-3 text-[10px] font-bold text-primary hover:bg-primary/10 rounded-lg uppercase tracking-wider"
+                                >
+                                  {generatingTextPoiId === poi.id
+                                    ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                    : <Sparkles className="w-3 h-3 mr-1" />}
+                                  Suggest Script
+                                </Button>
+                              </div>
+                              {/* Editable intro text */}
+                              <Textarea
+                                ref={(el) => { poiTextareaRefs.current[poi.id] = el }}
+                                value={poiDraftTexts[poi.id] ?? (poi.narrationText || "")}
+                                onChange={(e) => setPoiDraftTexts(prev => ({ ...prev, [poi.id]: e.target.value }))}
+                                placeholder="Click ✨ Suggest Script, or write narration here. Use Sound Library in the sidebar to add <sound> tags."
+                                className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[60px] focus:border-emerald-500/40 text-slate-200 placeholder:text-white/20"
+                              />
 
-                          {/* 🔊 Step 2: Publish audio from the script */}
-                          <Button
-                            onClick={() => handlePublishSinglePoiAudio(poi)}
-                            disabled={publishingAudioPoiId === poi.id || !(poiDraftTexts[poi.id] || poi.narrationText)}
-                            className={cn(
-                              "w-full h-9 rounded-xl text-xs font-bold border-none transition-all mt-4",
-                              (poiDraftTexts[poi.id] || poi.narrationText)
-                                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-900/30"
-                                : "bg-white/5 text-muted-foreground cursor-not-allowed"
-                            )}
-                          >
-                            {publishingAudioPoiId === poi.id ? (
-                              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing Audio...</>
-                            ) : (
-                              <><Volume2 className="w-3.5 h-3.5 mr-2" />Publish Voice (Both Tracks)</>
-                            )}
-                          </Button>
+                              {/* 🔊 Step 2: Publish audio from the script */}
+                              <Button
+                                onClick={() => handlePublishSinglePoiAudio(poi)}
+                                disabled={publishingAudioPoiId === poi.id || !(poiDraftTexts[poi.id] || poi.narrationText)}
+                                className={cn(
+                                  "w-full h-9 rounded-xl text-xs font-bold border-none transition-all mt-4",
+                                  (poiDraftTexts[poi.id] || poi.narrationText)
+                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-900/30"
+                                    : "bg-white/5 text-muted-foreground cursor-not-allowed"
+                                )}
+                              >
+                                {publishingAudioPoiId === poi.id ? (
+                                  <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing Audio...</>
+                                ) : (
+                                  <><Volume2 className="w-3.5 h-3.5 mr-2" />Publish Voice (Both Tracks)</>
+                                )}
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between mb-1">
+                                <Label className="text-[10px] uppercase tracking-[0.1em] text-orange-200/70 font-bold flex items-center">
+                                  <span className="text-orange-400 mr-2 font-black text-xs">Aअ</span> Hindi Translation
+                                  {(poi.audioMaleDataUriHi || poi.audioFemaleDataUriHi) && (
+                                    <span className="ml-2 text-orange-400">● Live</span>
+                                  )}
+                                </Label>
+                                <Button
+                                  onClick={() => handleTranslatePoi(poi.id)}
+                                  disabled={translatingPoiId === poi.id || !(poiDraftTexts[poi.id] || poi.narrationText)}
+                                  className="h-6 text-[10px] uppercase font-bold bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border-none rounded-lg px-2"
+                                >
+                                  {translatingPoiId === poi.id ? "Translating..." : "Auto Translate"}
+                                </Button>
+                              </div>
+                              
+                              <Textarea
+                                value={poiDraftTextsHi[poi.id] ?? (poi.narrationTextHi || "")}
+                                onChange={(e) => setPoiDraftTextsHi(prev => ({ ...prev, [poi.id]: e.target.value }))}
+                                placeholder="Hindi translation will appear here..."
+                                className="bg-white/5 border-white/10 rounded-xl text-xs min-h-[60px] focus:border-orange-500/40 text-slate-200 placeholder:text-white/20"
+                              />
+                              
+                              <Button
+                                onClick={() => handlePublishPoiAudioHi(poi.id)}
+                                disabled={publishingPoiId === poi.id || !(poiDraftTextsHi[poi.id] || poi.narrationTextHi)}
+                                className={cn(
+                                  "w-full h-9 rounded-xl text-xs font-bold border-none transition-all mt-4",
+                                  (poiDraftTextsHi[poi.id] || poi.narrationTextHi)
+                                    ? "bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-900/30"
+                                    : "bg-white/5 text-muted-foreground cursor-not-allowed"
+                                )}
+                              >
+                                {publishingPoiId === poi.id ? (
+                                  <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Publishing...</>
+                                ) : (
+                                  <><Volume2 className="w-3.5 h-3.5 mr-2" />Publish Hindi Audio</>
+                                )}
+                              </Button>
+                            </>
+                          )}
                         </div>
 
                         {/* Gallery */}
@@ -2545,6 +2768,12 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
             legDraftTexts={legDraftTexts}
             onLegNarrationChange={(poiId, legId, text) => setLegDraftTexts(prev => ({ ...prev, [legId]: text }))}
             onPublishLegAudio={(poiId, legId) => handlePublishLegAudio(poiId, legId)}
+            legDraftTextsHi={legDraftTextsHi}
+            onLegNarrationHiChange={(poiId, legId, text) => setLegDraftTextsHi(prev => ({ ...prev, [legId]: text }))}
+            onTranslateLeg={(poiId, legId) => handleTranslateLeg(poiId, legId)}
+            onPublishLegAudioHi={(poiId, legId) => handlePublishLegAudioHi(poiId, legId)}
+            translatingLegId={translatingLegId}
+            workspaceLang={workspaceLang}
             onLegTriggerMove={(poiId, legId, lat, lng) => {
                if (!firestore || !tripId) return;
                const poi = pois?.find(p => p.id === poiId);

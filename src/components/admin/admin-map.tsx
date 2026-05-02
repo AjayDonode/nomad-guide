@@ -13,6 +13,9 @@ export interface LegNarration {
   text?: string
   maleUrl?: string
   femaleUrl?: string
+  textHi?: string
+  maleUrlHi?: string
+  femaleUrlHi?: string
 }
 
 interface POI {
@@ -61,6 +64,12 @@ interface AdminMapProps {
   onPublishLegAudio?: (poiId: string, legId: string) => void
   onLegTriggerDelete?: (poiId: string, legId: string) => void
   onLegTriggerAdd?: (poiId: string, afterLegId: string) => void
+  legDraftTextsHi?: Record<string, string>
+  onLegNarrationHiChange?: (poiId: string, legId: string, text: string) => void
+  onTranslateLeg?: (poiId: string, legId: string) => void
+  onPublishLegAudioHi?: (poiId: string, legId: string) => void
+  translatingLegId?: string | null
+  workspaceLang?: 'en' | 'hi'
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -258,7 +267,8 @@ export function AdminMap({
   onMapClick, onStartPointSet, onPoiMove, onPoiDelete, onPoiPlay,
   onSightMove, onSightDelete,
   playingPoiId, previewLocation,
-  legDraftTexts, onLegTriggerMove, onLegNarrationChange, onPublishLegAudio, onLegTriggerDelete, onLegTriggerAdd
+  legDraftTexts, onLegTriggerMove, onLegNarrationChange, onPublishLegAudio, onLegTriggerDelete, onLegTriggerAdd,
+  legDraftTextsHi, onLegNarrationHiChange, onTranslateLeg, onPublishLegAudioHi, translatingLegId, workspaceLang = 'en'
 }: AdminMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
@@ -491,28 +501,67 @@ export function AdminMap({
                     </div>
                     <div className="text-xs text-slate-500 mb-2">Plays while driving to {sortedPois[idx+1].name}</div>
                     
-                    <textarea 
-                      className="w-full h-24 p-2 text-xs border rounded bg-slate-50 mb-2"
-                      value={legDraftTexts?.[trigger.id] !== undefined ? legDraftTexts[trigger.id] : (trigger.text || "")}
-                      onChange={(e) => onLegNarrationChange?.(poi.id, trigger.id, e.target.value)}
-                      placeholder="Enter narration to play at this point..."
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => onPublishLegAudio?.(poi.id, trigger.id)}
-                        className="text-white bg-purple-600 hover:bg-purple-700 text-[10px] uppercase tracking-wider font-bold py-1.5 px-3 rounded flex-1"
-                      >
-                        Publish Audio
-                      </button>
-                      {onLegTriggerDelete && (
-                         <button
-                           onClick={() => onLegTriggerDelete(poi.id, trigger.id)}
-                           className="text-red-500 bg-red-50 hover:bg-red-100 text-[10px] uppercase tracking-wider font-bold py-1.5 px-2 rounded"
-                         >
-                           Delete
-                         </button>
-                      )}
-                    </div>
+                    {workspaceLang === 'en' ? (
+                      <>
+                        <textarea 
+                          className="w-full h-24 p-2 text-xs border rounded bg-slate-50 mb-2"
+                          value={legDraftTexts?.[trigger.id] !== undefined ? legDraftTexts[trigger.id] : (trigger.text || "")}
+                          onChange={(e) => onLegNarrationChange?.(poi.id, trigger.id, e.target.value)}
+                          placeholder="Enter narration to play at this point..."
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => onPublishLegAudio?.(poi.id, trigger.id)}
+                            className="text-white bg-purple-600 hover:bg-purple-700 text-[10px] uppercase tracking-wider font-bold py-1.5 px-3 rounded flex-1"
+                          >
+                            Publish Audio
+                          </button>
+                          {onLegTriggerDelete && (
+                             <button
+                               onClick={() => onLegTriggerDelete(poi.id, trigger.id)}
+                               className="text-red-500 bg-red-50 hover:bg-red-100 text-[10px] uppercase tracking-wider font-bold py-1.5 px-2 rounded"
+                             >
+                               Delete
+                             </button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between mb-2">
+                           <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wider flex items-center"><span className="mr-1 text-xs font-black">Aअ</span> Hindi</span>
+                           <button 
+                             onClick={() => onTranslateLeg?.(poi.id, trigger.id)}
+                             disabled={translatingLegId === trigger.id}
+                             className="text-[9px] bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-2 py-1 rounded"
+                           >
+                             {translatingLegId === trigger.id ? "Translating..." : "Auto Translate"}
+                           </button>
+                        </div>
+                        <textarea 
+                          className="w-full h-24 p-2 text-xs border rounded bg-orange-50/50 mb-2 focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+                          value={legDraftTextsHi?.[trigger.id] !== undefined ? legDraftTextsHi[trigger.id] : (trigger.textHi || "")}
+                          onChange={(e) => onLegNarrationHiChange?.(poi.id, trigger.id, e.target.value)}
+                          placeholder="Hindi translation..."
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => onPublishLegAudioHi?.(poi.id, trigger.id)}
+                            className="w-full text-white bg-orange-500 hover:bg-orange-600 text-[10px] uppercase tracking-wider font-bold py-1.5 px-3 rounded flex-1"
+                          >
+                            Publish Hindi Audio
+                          </button>
+                          {onLegTriggerDelete && (
+                             <button
+                               onClick={() => onLegTriggerDelete(poi.id, trigger.id)}
+                               className="text-red-500 bg-red-50 hover:bg-red-100 text-[10px] uppercase tracking-wider font-bold py-1.5 px-2 rounded"
+                             >
+                               Delete
+                             </button>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </Popup>
               </Marker>
