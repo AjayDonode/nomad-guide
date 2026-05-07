@@ -62,5 +62,11 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow write: if false;
     }
+
+    // Tour Blogs - read by anyone, writable only by admins
+    match /tourBlogs/{blogId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

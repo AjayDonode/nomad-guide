@@ -108,6 +108,41 @@
         "audioFemaleDataUri": { "type": "string" }
       },
       "required": ["id", "tripId", "adminId", "orderIndex"]
+    },
+    "TourBlog": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "TourBlog",
+      "type": "object",
+      "description": "A blog post representing a tour. Distinct from existing trip functionality.",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "headerImage": { "type": "string", "description": "URL to the blog header image" },
+        "aboutText": { "type": "string" },
+        "experienceText": { "type": "string" },
+        "otherText": { "type": "string" },
+        "mapLocation": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "reviews": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "reviewerName": { "type": "string" },
+              "rating": { "type": "number" },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title"]
     }
   },
   "auth": {
@@ -129,6 +164,10 @@
     "/trips/{tripId}/trip_pois/{tripPoiId}": {
       "schema": "TripPoi",
       "description": "Stops within a trip."
+    },
+    "/tourBlogs/{blogId}": {
+      "schema": "TourBlog",
+      "description": "Top-level collection for Tour Blog entities."
     }
   }
 }
