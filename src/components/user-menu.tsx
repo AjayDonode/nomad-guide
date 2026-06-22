@@ -13,7 +13,8 @@ import {
   Ruler,
   Camera,
   Map as MapIcon,
-  Navigation
+  Navigation,
+  Globe
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -154,6 +155,15 @@ export function UserMenu() {
     }
   };
 
+  const handleLanguageChange = (value: string) => {
+    if (userDocRef) {
+      updateDoc(userDocRef, {
+        narratorLang: value,
+        updatedAt: serverTimestamp()
+      });
+    }
+  };
+
   const handleUnitsChange = (value: string) => {
     if (userDocRef) {
       updateDoc(userDocRef, {
@@ -179,6 +189,7 @@ export function UserMenu() {
   const voicePreference = profile?.voicePreference || 'female';
   const unitsPreference = profile?.units || 'metric';
   const pointerPreference = profile?.pointerPreference || 'arrow';
+  const narratorLang = (profile?.narratorLang as 'en' | 'hi' | 'en+hi') || 'en+hi';
   const photoURL = profile?.photoURL || user.photoURL;
 
   const ROLE_BADGE: Record<string, { label: string; className: string }> = {
@@ -328,6 +339,40 @@ export function UserMenu() {
                       <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
                         <RadioGroupItem value="male" id="male" />
                         <Label htmlFor="male" className="text-xs font-bold cursor-pointer">Algenib (M)</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  {/* ── Narrator Language ── */}
+                  <div className="space-y-4 pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-3">
+                      <Globe className="w-4 h-4 text-primary" />
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold leading-none">Narrator Language</p>
+                    </div>
+                    <RadioGroup
+                      key={narratorLang}
+                      defaultValue={narratorLang}
+                      onValueChange={handleLanguageChange}
+                      className="grid gap-2"
+                    >
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="en" id="lang-en" />
+                        <Label htmlFor="lang-en" className="text-xs font-bold cursor-pointer flex items-center gap-2">
+                          <span className="text-base leading-none">🇬🇧</span> English only
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="hi" id="lang-hi" />
+                        <Label htmlFor="lang-hi" className="text-xs font-bold cursor-pointer flex items-center gap-2">
+                          <span className="text-base leading-none">🇮🇳</span> Hindi only
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-primary/50 transition-colors">
+                        <RadioGroupItem value="en+hi" id="lang-en-hi" />
+                        <Label htmlFor="lang-en-hi" className="text-xs font-bold cursor-pointer flex items-center gap-2 w-full">
+                          <span className="text-base leading-none">🌐</span> English + Hindi
+                          <span className="ml-auto text-[8px] font-black uppercase tracking-widest bg-primary/20 text-primary border border-primary/30 px-1.5 py-0.5 rounded-full">Default</span>
+                        </Label>
                       </div>
                     </RadioGroup>
                   </div>

@@ -1,8 +1,26 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    match /trips/{tripId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /tour_blogs/{blogId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Default fallback
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAdmin();
     }
   }
 }

@@ -24,6 +24,7 @@ export interface TourBlogData {
     lng: number;
   };
   reviews: any[];
+  poiBlogTexts?: Record<string, string>;
 }
 
 interface TourBlogDetailProps {

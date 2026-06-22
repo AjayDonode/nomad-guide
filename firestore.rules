@@ -5,8 +5,16 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid != null;
     }
 
+    // isAdmin: true if user has isAdmin:true flag OR role:"admin" in their profile
     function isAdmin() {
-      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isSignedIn() && (u.isAdmin == true || u.role == 'admin');
+    }
+
+    // isStaff: admin OR designer role (can create/edit tours but not delete)
+    function isStaff() {
+      let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isSignedIn() && (u.isAdmin == true || u.role == 'admin' || u.role == 'designer');
     }
 
     match /users/{userId} {
@@ -27,16 +35,20 @@ service cloud.firestore {
     }
 
     match /trips/{tripId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow create: if isStaff();          // admin + designer can create trips
+      allow delete: if isAdmin();          // only admin can delete
+      allow update: if isStaff() || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['runCount']));
 
       match /trip_pois/{poiId} {
-        allow read, write: if true;
+        allow read: if isSignedIn();
+        allow write: if isStaff();
 
         // Nearby Sights — images stored in Firebase Storage, URLs here
-        // Write restricted to admins; all signed-in users can read for gallery
+        // Write restricted to staff; all signed-in users can read for gallery
         match /sights/{sightId} {
           allow read: if isSignedIn();
-          allow write: if isAdmin();
+          allow write: if isStaff();
         }
       }
     }
@@ -67,6 +79,12 @@ service cloud.firestore {
     match /tourBlogs/{blogId} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // AI Tour Workflow documents — created and managed by admin agents
+    // Cloud Functions write progress updates; admin UI reads in real time
+    match /tour_workflows/{workflowId} {
+      allow read, write: if isStaff();
     }
   }
 }

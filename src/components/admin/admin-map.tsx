@@ -70,6 +70,7 @@ interface AdminMapProps {
   onPublishLegAudioHi?: (poiId: string, legId: string) => void
   translatingLegId?: string | null
   workspaceLang?: 'en' | 'hi'
+  storedRouteLegs?: string[] | null
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -268,11 +269,21 @@ export function AdminMap({
   onSightMove, onSightDelete,
   playingPoiId, previewLocation,
   legDraftTexts, onLegTriggerMove, onLegNarrationChange, onPublishLegAudio, onLegTriggerDelete, onLegTriggerAdd,
-  legDraftTextsHi, onLegNarrationHiChange, onTranslateLeg, onPublishLegAudioHi, translatingLegId, workspaceLang = 'en'
+  legDraftTextsHi, onLegNarrationHiChange, onTranslateLeg, onPublishLegAudioHi, translatingLegId, workspaceLang = 'en',
+  storedRouteLegs
 }: AdminMapProps) {
   const [mounted, setMounted] = useState(false)
   const [routePoints, setRoutePoints] = useState<[number, number][]>([])
   const [routeLegs, setRouteLegs] = useState<[number, number][][]>([])
+
+  const isInitialLoadRef = useRef(true)
+  const lastTripSignatureRef = useRef('')
+  const tripSig = `${center[0].toFixed(4)},${center[1].toFixed(4)}-${pois.length}`
+
+  if (lastTripSignatureRef.current !== tripSig) {
+    lastTripSignatureRef.current = tripSig
+    isInitialLoadRef.current = true
+  }
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -290,6 +301,43 @@ export function AdminMap({
   useEffect(() => {
     const fetchRoute = () => {
       if (sortedPois.length === 0) { setRoutePoints([]); return undefined; }
+
+      // Check if we have pre-computed route legs stored in Firestore.
+      // If yes and it is the initial load, decode locally to avoid Valhalla rate limits.
+      if (isInitialLoadRef.current) {
+        if (storedRouteLegs && storedRouteLegs.length > 0) {
+          const decodePolyline = (str: string, precision = 6) => {
+            let index = 0, lat = 0, lng = 0, coordinates: [number, number][] = [], shift = 0, result = 0, byte: number | null = null, latitude_change: number, longitude_change: number;
+            const factor = Math.pow(10, precision);
+            while (index < str.length) {
+              byte = null; shift = 0; result = 0;
+              do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+              latitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lat += latitude_change;
+              shift = 0; result = 0;
+              do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+              longitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1)); lng += longitude_change;
+              coordinates.push([lat / factor, lng / factor]);
+            }
+            return coordinates;
+          };
+          try {
+            const coords = storedRouteLegs.map(shape => decodePolyline(shape, 6));
+            setRouteLegs(coords);
+            setRoutePoints(coords.flat());
+            isInitialLoadRef.current = false;
+            return undefined;
+          } catch (e) {
+            console.warn('[AdminMap] Failed to decode storedRouteLegs:', e);
+          }
+        } else if (storedRouteLegs !== undefined) {
+          // Trip data is fully loaded but has no stored route legs (e.g. brand new trip).
+          // Allow it to fall through to live routing fetch.
+          isInitialLoadRef.current = false;
+        } else {
+          // Trip data is still loading from Firestore. Hold off and wait.
+          return undefined;
+        }
+      }
 
       const allPoints = [
         [center[1], center[0]],
@@ -349,7 +397,7 @@ export function AdminMap({
     }
     const cleanup = fetchRoute()
     return () => { if (cleanup) cleanup(); }
-  }, [geoHash])
+  }, [geoHash, storedRouteLegs])
 
   if (!mounted) return null
 
@@ -478,7 +526,8 @@ export function AdminMap({
                   dragend: (e) => {
                     const marker = e.target;
                     const position = marker.getLatLng();
-                    const snapped = snapToLine(position.lat, position.lng, legCoords);
+                    const snapLine = (legCoords && legCoords.length > 0) ? legCoords : routePoints;
+                    const snapped = snapToLine(position.lat, position.lng, snapLine);
                     marker.setLatLng(snapped);
                     onLegTriggerMove?.(poi.id, trigger.id, snapped[0], snapped[1]);
                   }

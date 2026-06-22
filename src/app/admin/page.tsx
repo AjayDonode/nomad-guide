@@ -28,7 +28,8 @@ import {
   MoreVertical,
   GripVertical,
   AlertTriangle,
-  Camera
+  Camera,
+  Settings
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -76,8 +77,8 @@ import { UserMenu } from '@/components/user-menu'
 import Image from 'next/image'
 import { composeFillerText } from '@/ai/flows/compose-filler'
 import { generateNarrationText } from '@/ai/flows/generate-narrative-tour'
-
 import { translateToHindi } from '@/ai/flows/translate-to-hindi'
+import { TourWorkflowWizard } from '@/components/admin/tour-workflow-wizard'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // ── Cloud Function URL ────────────────────────────────────────────────────────
@@ -711,13 +712,179 @@ function UserManagementPanel({ currentUserUid }: { currentUserUid: string }) {
   );
 }
 
+// ── Settings Panel ───────────────────────────────────────────────────────────
+
+const NARRATOR_LANGUAGES = [
+  { value: 'en',      label: '🇬🇧 English only',          description: 'Audio published in English' },
+  { value: 'hi',      label: '🇮🇳 Hindi only',            description: 'Audio published in Hindi' },
+  { value: 'en+hi',   label: '🌐 English + Hindi',        description: 'Both languages published (default)' },
+] as const
+
+type NarratorLang = 'en' | 'hi' | 'en+hi'
+
+const VOICE_GENDERS = [
+  { value: 'female', label: '👩 Female', description: 'Warm, clear female voice' },
+  { value: 'male',   label: '👨 Male',   description: 'Deep, authoritative male voice' },
+] as const
+
+function SettingsPanel({ currentUserUid }: { currentUserUid: string }) {
+  const { firestore } = useFirebase()
+  const { toast } = useToast()
+
+  const userRef = React.useMemo(() => {
+    if (!firestore || !currentUserUid) return null
+    return doc(firestore, 'users', currentUserUid)
+  }, [firestore, currentUserUid])
+
+  const { data: profile, isLoading } = useDoc(userRef)
+
+  const [narratorLang, setNarratorLang] = React.useState<NarratorLang>('en+hi')
+  const [voiceGender, setVoiceGender]   = React.useState<'male' | 'female'>('female')
+  const [isSaving, setIsSaving]         = React.useState(false)
+
+  // Populate from profile once loaded
+  React.useEffect(() => {
+    if (profile) {
+      setNarratorLang((profile.narratorLang as NarratorLang) || 'en+hi')
+      setVoiceGender((profile.voicePreference as 'male' | 'female') || 'female')
+    }
+  }, [profile])
+
+  const handleSave = async () => {
+    if (!firestore || !currentUserUid) return
+    setIsSaving(true)
+    try {
+      await updateDoc(doc(firestore, 'users', currentUserUid), {
+        narratorLang,
+        voicePreference: voiceGender,
+        updatedAt: serverTimestamp(),
+      })
+      toast({ title: 'Settings saved ✓', description: 'Narrator preferences updated.' })
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Save failed', description: e.message })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <div className="h-full flex flex-col p-8 overflow-y-auto max-w-2xl mx-auto w-full">
+      {/* Header */}
+      <div className="mb-10">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-10 h-10 rounded-2xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center">
+            <Settings className="w-5 h-5 text-sky-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-headline font-bold">Settings</h1>
+            <p className="text-xs text-muted-foreground">Narrator and audio publishing preferences</p>
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-4">
+          {[1,2].map(i => <div key={i} className="h-28 rounded-3xl bg-white/5 animate-pulse" />)}
+        </div>
+      ) : (
+        <div className="space-y-8">
+
+          {/* ── Narrator Language ── */}
+          <div className="space-y-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-widest font-bold text-sky-400/80 mb-0.5">Narrator Language</p>
+              <p className="text-xs text-muted-foreground">Controls which languages are generated when publishing audio</p>
+            </div>
+            <div className="grid gap-3">
+              {NARRATOR_LANGUAGES.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setNarratorLang(opt.value)}
+                  className={cn(
+                    'flex items-center gap-4 p-4 rounded-2xl border text-left transition-all',
+                    narratorLang === opt.value
+                      ? 'bg-sky-500/15 border-sky-500/40 ring-1 ring-sky-500/30'
+                      : 'bg-white/3 border-white/8 hover:bg-white/6 hover:border-white/15'
+                  )}
+                >
+                  <div className={cn(
+                    'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all',
+                    narratorLang === opt.value ? 'border-sky-400 bg-sky-400' : 'border-white/20'
+                  )}>
+                    {narratorLang === opt.value && <div className="w-2 h-2 rounded-full bg-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold">{opt.label}</p>
+                    <p className="text-xs text-muted-foreground">{opt.description}</p>
+                  </div>
+                  {opt.value === 'en+hi' && (
+                    <span className="text-[9px] font-black uppercase tracking-widest bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full shrink-0">Default</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Voice Gender ── */}
+          <div className="space-y-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-widest font-bold text-violet-400/80 mb-0.5">Voice Gender</p>
+              <p className="text-xs text-muted-foreground">Which voice gender to use for audio previews and primary narration</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {VOICE_GENDERS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setVoiceGender(opt.value)}
+                  className={cn(
+                    'flex flex-col items-center gap-2 p-5 rounded-2xl border text-center transition-all',
+                    voiceGender === opt.value
+                      ? 'bg-violet-500/15 border-violet-500/40 ring-1 ring-violet-500/30'
+                      : 'bg-white/3 border-white/8 hover:bg-white/6 hover:border-white/15'
+                  )}
+                >
+                  <span className="text-2xl">{opt.value === 'female' ? '👩' : '👨'}</span>
+                  <p className="text-sm font-bold">{opt.value === 'female' ? 'Female' : 'Male'}</p>
+                  <p className="text-[10px] text-muted-foreground">{opt.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Info box ── */}
+          <div className="p-4 rounded-2xl bg-white/3 border border-white/8 space-y-1">
+            <p className="text-[11px] uppercase tracking-widest font-bold text-muted-foreground">How it works</p>
+            <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+              <li>Language setting applies to AI Tour Wizard auto-publish and individual POI audio</li>
+              <li>Voice gender affects which track plays in previews and is used as the primary narration</li>
+              <li>Both tracks (male &amp; female) are always stored — changing gender just changes which plays by default</li>
+            </ul>
+          </div>
+
+          {/* Save button */}
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="w-full h-13 rounded-2xl bg-sky-600 hover:bg-sky-500 font-bold text-base shadow-lg shadow-sky-900/30"
+          >
+            {isSaving
+              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</>
+              : <><Settings className="w-4 h-4 mr-2" />Save Settings</>
+            }
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function AdminDashboard() {
   const router = useRouter()
   const { firestore, storage } = useFirebase()
   const { user, isUserLoading } = useUser()
   const [editingTripId, setEditingTripId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
-  const [activeView, setActiveView] = useState<'trips' | 'users'>('trips')
+  const [activeView, setActiveView] = useState<'trips' | 'users' | 'ai-wizard' | 'settings'>('trips')
   const [showSoundLibrary, setShowSoundLibrary] = useState(false)
 
   // Verify Admin role from Firestore
@@ -789,15 +956,33 @@ export default function AdminDashboard() {
             <UserMenu />
           </div>
           
-          <Button 
-            onClick={() => {
-              setIsCreating(true)
-              setEditingTripId(null)
-            }}
-            className="w-full h-12 rounded-xl font-headline font-bold bg-white text-black hover:bg-white/90"
-          >
-            <Plus className="w-4 h-4 mr-2" /> New Trip Plan
-          </Button>
+          <div className="space-y-2">
+            <Button 
+              onClick={() => {
+                setIsCreating(true)
+                setEditingTripId(null)
+                setActiveView('trips')
+              }}
+              className="w-full h-12 rounded-xl font-headline font-bold bg-white text-black hover:bg-white/90"
+            >
+              <Plus className="w-4 h-4 mr-2" /> New Trip Plan
+            </Button>
+            <Button
+              onClick={() => {
+                setActiveView('ai-wizard')
+                setEditingTripId(null)
+                setIsCreating(false)
+              }}
+              className={cn(
+                "w-full h-11 rounded-xl font-headline font-bold text-sm",
+                activeView === 'ai-wizard'
+                  ? 'bg-violet-600 text-white hover:bg-violet-500'
+                  : 'bg-violet-500/15 text-violet-300 border border-violet-500/25 hover:bg-violet-500/25'
+              )}
+            >
+              <Sparkles className="w-4 h-4 mr-2" /> AI Create Tour
+            </Button>
+          </div>
         </div>
 
         <ScrollArea className="flex-1">
@@ -820,6 +1005,7 @@ export default function AdminDashboard() {
                   onClick={() => {
                     setEditingTripId(trip.id)
                     setIsCreating(false)
+                    setActiveView('trips')
                   }}
                   className={cn(
                     "w-full text-left p-4 rounded-2xl transition-all group relative overflow-hidden border border-transparent",
@@ -864,6 +1050,19 @@ export default function AdminDashboard() {
               Manage Users
             </Button>
           )}
+          <Button
+            variant="ghost"
+            className={cn(
+              "w-full justify-start rounded-xl h-11 text-xs font-bold",
+              activeView === 'settings'
+                ? "bg-sky-500/20 text-sky-300 hover:bg-sky-500/25"
+                : "text-muted-foreground hover:text-white hover:bg-sky-500/10"
+            )}
+            onClick={() => { setActiveView('settings'); setEditingTripId(null); setIsCreating(false); }}
+          >
+            <Settings className="w-4 h-4 mr-3 text-sky-400" />
+            Settings
+          </Button>
           <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-white rounded-xl h-11" onClick={() => router.push('/')}>
             <LucideMap className="w-4 h-4 mr-3" />
             <span className="text-xs font-bold">Back to Map View</span>
@@ -875,7 +1074,20 @@ export default function AdminDashboard() {
       {showSoundLibrary && <SoundLibraryModal onClose={() => setShowSoundLibrary(false)} />}
 
       <main className="flex-1 relative bg-black/40 flex flex-col overflow-y-auto">
-        {activeView === 'users' ? (
+        {activeView === 'ai-wizard' ? (
+          <TourWorkflowWizard
+            onClose={() => setActiveView('trips')}
+            onTripCreated={(tid) => {
+              setEditingTripId(tid)
+              setIsCreating(false)
+              setActiveView('trips')
+            }}
+            firestore={firestore}
+            user={user}
+          />
+        ) : activeView === 'settings' ? (
+          <SettingsPanel currentUserUid={user?.uid || ''} />
+        ) : activeView === 'users' ? (
           <UserManagementPanel currentUserUid={user?.uid || ''} />
         ) : editingTripId || isCreating ? (
           <TripDesigner 
@@ -925,6 +1137,7 @@ export default function AdminDashboard() {
                       onClick={() => {
                         setEditingTripId(trip.id);
                         setIsCreating(false);
+                        setActiveView('trips');
                       }}
                     >
                       <div className="flex items-center gap-4 mb-4 sm:mb-0">
@@ -2763,6 +2976,7 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                 handlePreviewAudio(idx)
               }
             }}
+            storedRouteLegs={existingTrip?.routeLegsShapes}
             onSightMove={handleSightMove}
             onSightDelete={handleSightDelete}
             legDraftTexts={legDraftTexts}
@@ -2779,8 +2993,15 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                const poi = pois?.find(p => p.id === poiId);
                if (!poi) return;
                let legs = poi.legNarrations || [];
-               if (legs.length === 0 && poi.legTriggerLat) {
-                  legs = [{ id: poiId, triggerLat: poi.legTriggerLat, triggerLng: poi.legTriggerLng, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+               if (legs.length === 0) {
+                  legs = [{
+                     id: poiId,
+                     triggerLat: lat,
+                     triggerLng: lng,
+                     text: poi.legNarrationText || "",
+                     maleUrl: poi.legNarrationMaleUrl || null,
+                     femaleUrl: poi.legNarrationFemaleUrl || null
+                  }];
                }
                const updated = legs.map((l: any) => l.id === legId ? { ...l, triggerLat: lat, triggerLng: lng } : l);
                updateDocumentNonBlocking(doc(firestore, 'trips', tripId, 'trip_pois', poiId), {
@@ -2808,8 +3029,17 @@ function TripDesigner({ tripId, onClose }: { tripId: string | null, onClose: () 
                const nextPoi = pois?.find(p => p.orderIndex === (poi?.orderIndex || 0) + 1);
                if (!poi || !nextPoi) return;
                let legs = poi.legNarrations || [];
-               if (legs.length === 0 && poi.legTriggerLat) {
-                  legs = [{ id: poiId, triggerLat: poi.legTriggerLat, triggerLng: poi.legTriggerLng, text: poi.legNarrationText, maleUrl: poi.legNarrationMaleUrl, femaleUrl: poi.legNarrationFemaleUrl }];
+               if (legs.length === 0) {
+                  const initLat = poi.legTriggerLat || (poi.latitude + nextPoi.latitude) / 2;
+                  const initLng = poi.legTriggerLng || (poi.longitude + nextPoi.longitude) / 2;
+                  legs = [{
+                     id: poiId,
+                     triggerLat: initLat,
+                     triggerLng: initLng,
+                     text: poi.legNarrationText || "",
+                     maleUrl: poi.legNarrationMaleUrl || null,
+                     femaleUrl: poi.legNarrationFemaleUrl || null
+                  }];
                }
                const afterIndex = legs.findIndex((l: any) => l.id === afterLegId);
                if (afterIndex === -1) return;

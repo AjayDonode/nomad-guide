@@ -41,8 +41,9 @@ export function Landmark3DPreview({ landmarkId }: Landmark3DPreviewProps) {
 
     camera.position.z = 5
 
+    let animationFrameId: number;
     const animate = () => {
-      requestAnimationFrame(animate)
+      animationFrameId = requestAnimationFrame(animate)
       landmark.rotation.x += 0.005
       landmark.rotation.y += 0.005
       renderer.render(scene, camera)
@@ -60,8 +61,12 @@ export function Landmark3DPreview({ landmarkId }: Landmark3DPreviewProps) {
     window.addEventListener('resize', handleResize)
 
     return () => {
+      cancelAnimationFrame(animationFrameId)
       window.removeEventListener('resize', handleResize)
       containerRef.current?.removeChild(renderer.domElement)
+      renderer.dispose()
+      geometry.dispose()
+      material.dispose()
     }
   }, [landmarkId])
 
