@@ -23,11 +23,11 @@ Raw Input/Facts to cover:
 ${input.baseText}
 
 Instructions:
-- Write an organically flowing, conversational script meant to be spoken aloud. 
-- Make it engaging, informative, and fit the requested mood perfectly. 
+- Write an organically flowing, more human like conversational script meant to be spoken aloud. 
+- Make it engaging, entertaining informative, and fit the requested mood perfectly. 
 - It should be continuous and sound like a passionate guide, NOT a Wikipedia article. 
-- Output ONLY the spoken text, without sound effect directions or speaker labels.`
+- Output ONLY the spoken text, including sound effect if mentioned and directions/suggestions for music, sound effects, voice acting cues, etc..`
   });
-  
+
   return text;
 }

@@ -20,8 +20,9 @@ import {
   Sparkles, Loader2, CheckCircle2, XCircle, ArrowLeft,
   ArrowRight, MapPin, Trash2, Volume2,
   Globe, ChevronDown, ChevronUp, Navigation, AlertTriangle,
-  RefreshCw, Map as MapIcon, Route
+  RefreshCw, Map as MapIcon, Route, ShieldCheck
 } from 'lucide-react'
+import { VoiceValidatorPanel } from './voice-validator-panel'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -119,6 +120,7 @@ export function TourWorkflowWizard({
   const [workflow, setWorkflow] = useState<WorkflowDoc | null>(null)
   const [workflowId, setWorkflowId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [showValidator, setShowValidator] = useState(false)
 
   // Local form state (before workflow is created)
   const [form, setForm] = useState({
@@ -897,7 +899,7 @@ export function TourWorkflowWizard({
           )}
 
           {/* ── PUBLISHED: Success ───────────────────────────────────────── */}
-          {status === 'published' && (
+          {status === 'published' && !showValidator && (
             <div className="text-center py-12 space-y-6">
               <div className="w-24 h-24 rounded-[2rem] bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-12 h-12 text-emerald-400" />
@@ -921,6 +923,26 @@ export function TourWorkflowWizard({
                   </div>
                 ))}
               </div>
+
+              {/* Audit CTA */}
+              <div className="p-5 rounded-2xl border border-sky-500/25 bg-sky-500/5 max-w-sm mx-auto space-y-3">
+                <div className="flex items-center gap-2 justify-center">
+                  <ShieldCheck className="w-4 h-4 text-sky-400" />
+                  <p className="text-sm font-semibold text-sky-300">Verify Audio Quality</p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Run a quick audit to confirm every voice file published correctly in Storage.
+                </p>
+                <Button
+                  onClick={() => setShowValidator(true)}
+                  variant="outline"
+                  className="w-full h-10 rounded-xl border-sky-500/40 text-sky-300 hover:bg-sky-500/10 hover:text-sky-200 font-bold"
+                >
+                  <ShieldCheck className="w-4 h-4 mr-2" />
+                  Audit Voice Files
+                </Button>
+              </div>
+
               <div className="flex gap-3 justify-center">
                 {tripId && (
                   <Button
@@ -936,6 +958,15 @@ export function TourWorkflowWizard({
                 </Button>
               </div>
             </div>
+          )}
+
+          {/* ── PUBLISHED: Validator panel (inline) ──────────────────────── */}
+          {status === 'published' && showValidator && tripId && (
+            <VoiceValidatorPanel
+              tripId={tripId}
+              tripName={workflow?.plan?.tourName}
+              onClose={() => setShowValidator(false)}
+            />
           )}
 
           {/* ── ERROR ────────────────────────────────────────────────────── */}

@@ -79,6 +79,7 @@ import { composeFillerText } from '@/ai/flows/compose-filler'
 import { generateNarrationText } from '@/ai/flows/generate-narrative-tour'
 import { translateToHindi } from '@/ai/flows/translate-to-hindi'
 import { TourWorkflowWizard } from '@/components/admin/tour-workflow-wizard'
+import { VoiceValidatorPanel } from '@/components/admin/voice-validator-panel'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // ── Cloud Function URL ────────────────────────────────────────────────────────
@@ -886,6 +887,7 @@ export default function AdminDashboard() {
   const [isCreating, setIsCreating] = useState(false)
   const [activeView, setActiveView] = useState<'trips' | 'users' | 'ai-wizard' | 'settings'>('trips')
   const [showSoundLibrary, setShowSoundLibrary] = useState(false)
+  const [validatorTripId, setValidatorTripId] = useState<{ id: string; name: string } | null>(null)
 
   // Verify Admin role from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -1073,6 +1075,19 @@ export default function AdminDashboard() {
       {/* Sound Library modal — portal rendered above everything */}
       {showSoundLibrary && <SoundLibraryModal onClose={() => setShowSoundLibrary(false)} />}
 
+      {/* Voice Validator modal */}
+      {validatorTripId && (
+        <div className="fixed inset-0 z-50 flex items-stretch bg-black/70 backdrop-blur-sm">
+          <div className="flex-1 max-w-3xl mx-auto my-8 rounded-3xl overflow-hidden border border-white/10 bg-background shadow-2xl flex flex-col">
+            <VoiceValidatorPanel
+              tripId={validatorTripId.id}
+              tripName={validatorTripId.name}
+              onClose={() => setValidatorTripId(null)}
+            />
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 relative bg-black/40 flex flex-col overflow-y-auto">
         {activeView === 'ai-wizard' ? (
           <TourWorkflowWizard
@@ -1133,31 +1148,55 @@ export default function AdminDashboard() {
                   {[...(trips || [])].sort((a: any, b: any) => (b.runCount || 0) - (a.runCount || 0)).map((trip: any, idx: number) => (
                     <div 
                       key={trip.id} 
-                      className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 px-6 rounded-2xl bg-card/20 border border-white/5 hover:bg-card/40 hover:border-white/10 transition-colors cursor-pointer"
-                      onClick={() => {
-                        setEditingTripId(trip.id);
-                        setIsCreating(false);
-                        setActiveView('trips');
-                      }}
+                      className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 px-6 rounded-2xl bg-card/20 border border-white/5 hover:bg-card/40 hover:border-white/10 transition-colors"
                     >
-                      <div className="flex items-center gap-4 mb-4 sm:mb-0">
+                      <div
+                        className="flex items-center gap-4 mb-4 sm:mb-0 cursor-pointer flex-1 min-w-0"
+                        onClick={() => {
+                          setEditingTripId(trip.id);
+                          setIsCreating(false);
+                          setActiveView('trips');
+                        }}
+                      >
                         <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                           <span className="text-sm font-black text-primary">#{idx + 1}</span>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <h4 className="font-bold text-lg leading-tight mb-1">{trip.name}</h4>
                           <p className="text-sm text-muted-foreground line-clamp-1 max-w-xl">{trip.description || 'No description provided'}</p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-6 sm:pl-4 shrink-0 justify-between sm:justify-end border-t border-white/5 sm:border-0 pt-4 sm:pt-0">
+                      <div className="flex items-center gap-3 sm:pl-4 shrink-0 justify-between sm:justify-end border-t border-white/5 sm:border-0 pt-4 sm:pt-0">
                          <div className="flex flex-col items-center sm:items-end">
                             <span className="text-2xl font-black text-emerald-400 leading-none mb-1">
                                {trip.runCount ? trip.runCount.toLocaleString() : '0'}
                             </span>
                             <span className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Explorers</span>
                          </div>
-                         <Button variant="ghost" size="icon" className="group-hover:bg-primary/20 rounded-xl h-10 w-10 text-primary hover:text-primary transition-colors">
+                         {/* Audit voice files button */}
+                         <Button
+                           variant="ghost"
+                           size="sm"
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             setValidatorTripId({ id: trip.id, name: trip.name });
+                           }}
+                           className="h-9 px-3 rounded-xl border border-sky-500/25 text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 transition-colors text-[11px] font-bold"
+                         >
+                           <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
+                           Audit Audio
+                         </Button>
+                         <Button
+                           variant="ghost"
+                           size="icon"
+                           className="group-hover:bg-primary/20 rounded-xl h-10 w-10 text-primary hover:text-primary transition-colors"
+                           onClick={() => {
+                             setEditingTripId(trip.id);
+                             setIsCreating(false);
+                             setActiveView('trips');
+                           }}
+                         >
                             <Route className="w-4 h-4" />
                          </Button>
                       </div>

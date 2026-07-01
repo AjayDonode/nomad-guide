@@ -18,6 +18,7 @@ import * as admin from "firebase-admin";
 import type { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
 import { GoogleGenAI } from "@google/genai";
+import { ObservabilityClient, extractTokens, startTimer } from "./observability";
 
 // CONCEPT: defineSecret tells Cloud Functions to pull the value from
 // Firebase Secret Manager at runtime. It's NEVER in your source code.
@@ -128,16 +129,15 @@ export const publishVoiceAudio = onRequest(
 
     logger.info(`[publishVoiceAudio] Starting`, { tripId, assetId, voice, textLength: text.length });
 
+    // ── Observability: standalone TTS calls use tripId as workflowId proxy ──
+    const db = admin.firestore();
+    const obs = new ObservabilityClient(db, `tts_${tripId}`, tripId);
+    const elapsed = startTimer();
+
     try {
       // ── Step 1: Generate TTS audio via Gemini API ─────────────────────────
-      // CONCEPT: We use the raw @google/genai SDK here (not Genkit) because
-      // Cloud Functions doesn't load the Genkit framework — it's lighter and
-      // more explicit for server-side use.
-
-      const apiKey = googleGenAiApiKey.value(); // Secret Manager value at runtime
+      const apiKey = googleGenAiApiKey.value();
       const genai = new GoogleGenAI({ apiKey });
-
-      // Map voice preference to Gemini voice name
       const voiceName = voice === "male" ? "Algenib" : "Kore";
 
       logger.info(`[publishVoiceAudio] Calling Gemini TTS API`, { voiceName });
@@ -165,14 +165,9 @@ export const publishVoiceAudio = onRequest(
       logger.info(`[publishVoiceAudio] Audio generated`, { pcmBytes: pcmBuffer.length });
 
       // ── Step 2: Encode raw PCM → WAV with proper headers ──────────────────
-      // CONCEPT: Gemini returns raw linear PCM (headerless). A WAV file is
-      // just a PCM file with a 44-byte RIFF/WAV header prepended.
       const wavBuffer = encodeWav(pcmBuffer);
 
       // ── Step 3: Upload WAV to Firebase Storage ─────────────────────────────
-      // CONCEPT: firebase-admin Storage uses GCS under the hood.
-      // We write directly to the default bucket with admin credentials —
-      // no signed URL, no browser, no size limit.
       const bucket = admin.storage().bucket();
       const filePath = `trips/${tripId}/audio/${assetId}_${voice}.wav`;
       const file = bucket.file(filePath);
@@ -180,25 +175,31 @@ export const publishVoiceAudio = onRequest(
       await file.save(wavBuffer, {
         metadata: {
           contentType: "audio/wav",
-          cacheControl: "public, max-age=31536000",  // Cache for 1 year (content never changes)
+          cacheControl: "public, max-age=31536000",
         },
       });
 
-      // Make the file publicly readable
       await file.makePublic();
       const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
-
       logger.info(`[publishVoiceAudio] Uploaded to Storage`, { filePath, publicUrl });
 
+      // ── Observability: log TTS success + track char usage ─────────────────
+      await obs.trackTtsChars(text.length);
+      await obs.logEvent({
+        agent: "tts",
+        event: "tts_success",
+        assetId,
+        storagePath: filePath,
+        ttsCharacters: text.length,
+        estimatedTtsCostUsd: text.length * 0.000004,
+        durationMs: elapsed(),
+      });
+
       // ── Step 4: Write URL back to Firestore ────────────────────────────────
-      // CONCEPT: The browser is listening to this Firestore document in real time.
-      // When we write here, the admin page will update automatically within ~1 second.
-      const db = admin.firestore();
       const fieldName = assetId === "filler"
         ? (voice === "male" ? "fillerAudioMaleUrl" : "fillerAudioFemaleUrl")
         : (voice === "male" ? `pois.${assetId}.audioMaleUrl` : `pois.${assetId}.audioFemaleUrl`);
 
-      // For POIs we update the top-level URL fields on the trip doc
       const updatePayload: Record<string, any> = {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
@@ -206,19 +207,32 @@ export const publishVoiceAudio = onRequest(
       if (assetId === "filler") {
         updatePayload[fieldName] = publicUrl;
       } else {
-        // POI audio URLs are stored on the POI's sub-document in the pois array
-        // We use a separate pois_audio sub-collection for cleanliness
         updatePayload[`audioUrls.${assetId}_${voice}`] = publicUrl;
       }
 
       await db.collection("trips").doc(tripId).update(updatePayload);
       logger.info(`[publishVoiceAudio] Firestore updated`, { fieldName });
 
-      // ── Step 5: Return the public URL to the caller ───────────────────────
       res.json({ status: "ok", url: publicUrl, assetId, voice });
 
     } catch (err: any) {
       logger.error(`[publishVoiceAudio] Error`, { message: err.message, stack: err.stack });
+
+      // ── Observability: log TTS failure + create alert ─────────────────────
+      await obs.logEvent({
+        agent: "tts",
+        event: "tts_failed",
+        assetId,
+        errorMessage: err.message,
+        durationMs: elapsed(),
+      });
+      await obs.createAlert(
+        "tts_error",
+        `TTS failed for asset "${assetId}" (${voice}): ${err.message}`,
+        "warning",
+        { assetId, detail: err.message }
+      );
+
       res.status(500).json({
         status: "error",
         message: err.message || "Internal server error",
@@ -508,10 +522,29 @@ Return ONLY valid JSON:
   ]
 }`;
 
+  const db_plan = admin.firestore();
+  const obs_plan = new ObservabilityClient(db_plan, workflowRef.id);
+  const planTimer = startTimer();
+
+  await obs_plan.logEvent({ agent: "plan", event: "started" });
+
   const planResp = await genai.models.generateContent({
     model: "gemini-2.5-flash-lite",
     contents: [{ parts: [{ text: planPrompt }], role: "user" }],
     config: { responseMimeType: "application/json" } as any,
+  });
+
+  // ── Observability: track plan agent tokens ────────────────────────────────
+  const planTokens = extractTokens(planResp);
+  await obs_plan.trackTokens("gemini-2.5-flash-lite", planTokens.inputTokens, planTokens.outputTokens);
+  await obs_plan.logEvent({
+    agent: "plan",
+    event: "completed",
+    inputTokens: planTokens.inputTokens,
+    outputTokens: planTokens.outputTokens,
+    totalTokens: planTokens.inputTokens + planTokens.outputTokens,
+    estimatedCostUsd: planTokens.inputTokens / 1_000_000 * 0.075 + planTokens.outputTokens / 1_000_000 * 0.30,
+    durationMs: planTimer(),
   });
 
   const planRaw = planResp.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -544,9 +577,12 @@ async function runNarratePhase(
   const snap = await workflowRef.get();
   const workflow = snap.data() as any;
   const genai = new GoogleGenAI({ apiKey });
+  const obs = new ObservabilityClient(db, workflowRef.id, tripId);
 
   const update = (msg: string) =>
     workflowRef.update({ narrateProgress: msg, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+  await obs.logEvent({ agent: "narrate", event: "started", tripId });
 
   // Load approved POIs
   const poisSnap = await db
@@ -558,12 +594,25 @@ async function runNarratePhase(
 
   if (pois.length === 0) throw new Error("No POIs found in the trip — approve the plan first.");
 
-  // Helper: call Gemini for a text-only narration
-  const generateText = async (prompt: string): Promise<string> => {
+  // Helper: call Gemini for a text-only narration + track tokens
+  const generateText = async (prompt: string, poiId?: string, poiName?: string): Promise<string> => {
+    const t = startTimer();
     const resp = await genai.models.generateContent({
       model: "gemini-2.5-flash-lite",
       contents: [{ parts: [{ text: prompt }], role: "user" }],
     });
+    const tokens = extractTokens(resp);
+    // Fire-and-forget — don't await to keep narration speed up
+    obs.trackTokens("gemini-2.5-flash-lite", tokens.inputTokens, tokens.outputTokens);
+    if (poiId) {
+      obs.logEvent({
+        agent: "narrate", event: "completed",
+        poiId, poiName,
+        inputTokens: tokens.inputTokens, outputTokens: tokens.outputTokens,
+        totalTokens: tokens.inputTokens + tokens.outputTokens,
+        durationMs: t(),
+      });
+    }
     return resp.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
   };
 
@@ -602,7 +651,8 @@ Tour: ${workflow.input.description || workflow.input.cityName}
 Estimated drive time to next stop: ${driveMin} minutes.
 Words to write: ~${Math.round(driveMin * 0.8 * 130)} (at 130 wpm fill 80% of drive time).
 Rules: Start with a fascinating fact — NO generic greetings. ${nextPoi ? `Near the end, smoothly transition toward the next stop: ${nextPoi.name}.` : "End with a warm closing thought."}
-Output ONLY the narration text.`
+Output ONLY the narration text.`,
+      poi.id, poi.name
     );
 
     const poiUpdate: any = {
@@ -633,6 +683,8 @@ Output ONLY the narration text.`
       .update(poiUpdate);
   }
 
+  await obs.logEvent({ agent: "narrate", event: "completed", tripId });
+
   await workflowRef.update({
     status: "awaiting_narration_approval",
     narrateProgress: null,
@@ -652,6 +704,7 @@ async function runPublishPhase(
 ) {
   const genai = new GoogleGenAI({ apiKey });
   const bucket = admin.storage().bucket();
+  const obs = new ObservabilityClient(db, workflowRef.id, tripId);
 
   // Load trip + POIs
   const tripSnap = await db.collection("trips").doc(tripId).get();
@@ -673,31 +726,68 @@ async function runPublishPhase(
     "publishProgress.currentItem": "Preparing…",
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+  await obs.logEvent({ agent: "publish", event: "started", tripId });
 
   // ── Helper: generate TTS, upload WAV, return public URL ─────────────────
   const publishAudio = async (text: string, storagePath: string, voiceName: "Algenib" | "Kore"): Promise<string> => {
+    const assetName = storagePath.split("/").pop() || storagePath;
     await workflowRef.update({
-      "publishProgress.currentItem": storagePath.split("/").pop(),
+      "publishProgress.currentItem": assetName,
       "publishProgress.completed": completed,
     });
 
-    const ttsResp = await genai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      config: {
-        responseModalities: ["AUDIO"],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
-      } as any,
-      contents: [{ parts: [{ text }], role: "user" }],
-    });
+    const ttsTimer = startTimer();
+    let ttsResp: any;
+    try {
+      ttsResp = await genai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        config: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
+        } as any,
+        contents: [{ parts: [{ text }], role: "user" }],
+      });
+    } catch (ttsErr: any) {
+      // ── Observability: TTS API call failed ──────────────────────────────
+      await obs.logEvent({
+        agent: "publish", event: "tts_failed",
+        storagePath, assetId: assetName,
+        errorMessage: ttsErr.message,
+        durationMs: ttsTimer(),
+      });
+      await obs.createAlert(
+        "tts_error",
+        `TTS API call failed for ${assetName}: ${ttsErr.message}`,
+        "critical",
+        { assetId: assetName, detail: ttsErr.message }
+      );
+      throw ttsErr; // Re-throw to halt publish phase
+    }
 
     const audioPart = ttsResp.candidates?.[0]?.content?.parts?.[0];
-    if (!audioPart?.inlineData?.data) throw new Error(`No TTS audio returned for ${storagePath}`);
+    if (!audioPart?.inlineData?.data) {
+      const errMsg = `No TTS audio returned for ${storagePath}`;
+      await obs.logEvent({ agent: "publish", event: "tts_failed", storagePath, assetId: assetName, errorMessage: errMsg });
+      await obs.createAlert("publish_failure", errMsg, "critical", { assetId: assetName, detail: errMsg });
+      throw new Error(errMsg);
+    }
 
     const pcm = Buffer.from(audioPart.inlineData.data, "base64");
     const wav = encodeWav(pcm);
     const file = bucket.file(storagePath);
     await file.save(wav, { metadata: { contentType: "audio/wav", cacheControl: "public, max-age=31536000" } });
     await file.makePublic();
+
+    // ── Observability: TTS success + char tracking ──────────────────────
+    obs.trackTtsChars(text.length); // fire-and-forget
+    obs.logEvent({
+      agent: "publish", event: "tts_success",
+      storagePath, assetId: assetName,
+      ttsCharacters: text.length,
+      estimatedTtsCostUsd: text.length * 0.000004,
+      durationMs: ttsTimer(),
+    });
+
     completed++;
     await workflowRef.update({ "publishProgress.completed": completed });
     return `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
@@ -757,12 +847,21 @@ async function runPublishPhase(
   for (const poi of pois) {
     if (!poi.narrationText) continue;
 
+    const transTimer = startTimer();
     const hiResp = await genai.models.generateContent({
       model: "gemini-2.5-flash-lite",
       contents: [{
         parts: [{ text: `Translate this English tour narration to natural, conversational Hindi. Output ONLY the Hindi text:\n\n${poi.narrationText}` }],
         role: "user",
       }],
+    });
+    const transTokens = extractTokens(hiResp);
+    obs.trackTokens("gemini-2.5-flash-lite", transTokens.inputTokens, transTokens.outputTokens);
+    obs.logEvent({
+      agent: "translate", event: "translate_completed",
+      poiId: poi.id, poiName: poi.name,
+      inputTokens: transTokens.inputTokens, outputTokens: transTokens.outputTokens,
+      durationMs: transTimer(),
     });
     const narrationTextHi = hiResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || poi.narrationText;
 
@@ -778,6 +877,8 @@ async function runPublishPhase(
   }
 
   // ── Done ─────────────────────────────────────────────────────────────────
+  await obs.logEvent({ agent: "publish", event: "completed", tripId });
+
   await workflowRef.update({
     status: "published",
     "publishProgress.completed": total,
@@ -798,3 +899,429 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// ─── FUNCTION 6: validateVoicePublications ───────────────────────────────────
+//
+// PURPOSE: Audits every expected audio file for a published tour.
+// Checks Firebase Storage for each .wav asset and reports status.
+// Optionally re-publishes any missing files when repair=true.
+//
+// REQUEST BODY (JSON):
+//   {
+//     "tripId":  string,   // The published trip to audit
+//     "repair":  boolean   // If true, re-generate any missing audio files
+//   }
+//
+// RESPONSE:
+//   {
+//     "status": "ok",
+//     "summary": { total: number, ok: number, missing: number, error: number },
+//     "results": ValidationResult[]
+//   }
+//
+export const validateVoicePublications = onRequest(
+  {
+    region: "us-central1",
+    secrets: [googleGenAiApiKey],
+    timeoutSeconds: 540,
+    memory: "512MiB",
+    cors: true,
+  },
+  async (req: Request, res: Response) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ status: "error", message: "Method Not Allowed" });
+      return;
+    }
+
+    const { tripId, repair = false } = req.body as { tripId: string; repair?: boolean };
+
+    if (!tripId) {
+      res.status(400).json({ status: "error", message: "Missing required field: tripId" });
+      return;
+    }
+
+    const db = admin.firestore();
+    const bucket = admin.storage().bucket();
+    const apiKey = googleGenAiApiKey.value();
+    const genai = new GoogleGenAI({ apiKey });
+
+    logger.info(`[validateVoicePublications] Auditing tripId="${tripId}" repair=${repair}`);
+
+    try {
+      // ── Load trip document ─────────────────────────────────────────────────
+      const tripSnap = await db.collection("trips").doc(tripId).get();
+      if (!tripSnap.exists) {
+        res.status(404).json({ status: "error", message: `Trip "${tripId}" not found` });
+        return;
+      }
+      const trip = tripSnap.data() as any;
+
+      // ── Load all POIs ordered by index ─────────────────────────────────────
+      const poisSnap = await db
+        .collection("trips").doc(tripId)
+        .collection("trip_pois")
+        .orderBy("orderIndex")
+        .get();
+      const pois = poisSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+      // ── Build expected asset matrix ────────────────────────────────────────
+      interface AssetSpec {
+        assetId: string;
+        label: string;
+        language: "en" | "hi";
+        voice: "male" | "female";
+        storagePath: string;
+        text: string;
+        firestoreUpdate?: (url: string) => Promise<void>;
+      }
+
+      const assets: AssetSpec[] = [];
+
+      // Welcome (EN only)
+      if (trip.welcomeAudioText) {
+        assets.push({
+          assetId: "intro",
+          label: "Welcome EN Male",
+          language: "en",
+          voice: "male",
+          storagePath: `trips/${tripId}/audio/intro_male.wav`,
+          text: trip.welcomeAudioText,
+          firestoreUpdate: async (url) => {
+            await db.collection("trips").doc(tripId).update({ introNarrationMaleUrl: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          },
+        });
+        assets.push({
+          assetId: "intro",
+          label: "Welcome EN Female",
+          language: "en",
+          voice: "female",
+          storagePath: `trips/${tripId}/audio/intro_female.wav`,
+          text: trip.welcomeAudioText,
+          firestoreUpdate: async (url) => {
+            await db.collection("trips").doc(tripId).update({ introNarrationFemaleUrl: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          },
+        });
+      }
+
+      // Filler (EN only)
+      const fillerText = trip.fillerGeneratedText || trip.fillerBaseText;
+      if (fillerText) {
+        assets.push({
+          assetId: "filler",
+          label: "Filler EN Male",
+          language: "en",
+          voice: "male",
+          storagePath: `trips/${tripId}/audio/filler_male.wav`,
+          text: fillerText,
+          firestoreUpdate: async (url) => {
+            await db.collection("trips").doc(tripId).update({ fillerAudioMaleUrl: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          },
+        });
+        assets.push({
+          assetId: "filler",
+          label: "Filler EN Female",
+          language: "en",
+          voice: "female",
+          storagePath: `trips/${tripId}/audio/filler_female.wav`,
+          text: fillerText,
+          firestoreUpdate: async (url) => {
+            await db.collection("trips").doc(tripId).update({ fillerAudioFemaleUrl: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          },
+        });
+      }
+
+      // Per-POI: EN narration + Hindi narration + leg narrations
+      for (const poi of pois) {
+        const stopLabel = `Stop ${poi.orderIndex}: ${poi.name}`;
+
+        // EN narration (male + female)
+        if (poi.narrationText) {
+          assets.push({
+            assetId: `${poi.id}-intro`,
+            label: `${stopLabel} EN Male`,
+            language: "en",
+            voice: "male",
+            storagePath: `trips/${tripId}/audio/${poi.id}-intro_male.wav`,
+            text: poi.narrationText,
+            firestoreUpdate: async (url) => {
+              await db.collection("trips").doc(tripId).collection("trip_pois").doc(poi.id)
+                .update({ audioMaleDataUri: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+            },
+          });
+          assets.push({
+            assetId: `${poi.id}-intro`,
+            label: `${stopLabel} EN Female`,
+            language: "en",
+            voice: "female",
+            storagePath: `trips/${tripId}/audio/${poi.id}-intro_female.wav`,
+            text: poi.narrationText,
+            firestoreUpdate: async (url) => {
+              await db.collection("trips").doc(tripId).collection("trip_pois").doc(poi.id)
+                .update({ audioFemaleDataUri: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+            },
+          });
+        }
+
+        // Hindi narration (male + female)
+        if (poi.narrationTextHi) {
+          assets.push({
+            assetId: `${poi.id}-hi`,
+            label: `${stopLabel} HI Male`,
+            language: "hi",
+            voice: "male",
+            storagePath: `trips/${tripId}/audio/${poi.id}-hi_male.wav`,
+            text: poi.narrationTextHi,
+            firestoreUpdate: async (url) => {
+              await db.collection("trips").doc(tripId).collection("trip_pois").doc(poi.id)
+                .update({ audioMaleDataUriHi: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+            },
+          });
+          assets.push({
+            assetId: `${poi.id}-hi`,
+            label: `${stopLabel} HI Female`,
+            language: "hi",
+            voice: "female",
+            storagePath: `trips/${tripId}/audio/${poi.id}-hi_female.wav`,
+            text: poi.narrationTextHi,
+            firestoreUpdate: async (url) => {
+              await db.collection("trips").doc(tripId).collection("trip_pois").doc(poi.id)
+                .update({ audioFemaleDataUriHi: url, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+            },
+          });
+        } else if (poi.narrationText) {
+          // Hindi text doesn't exist yet — mark as missing with EN text as source for repair
+          const hiPlaceholder = `[TRANSLATE_TO_HI] ${poi.narrationText}`;
+          assets.push({
+            assetId: `${poi.id}-hi`,
+            label: `${stopLabel} HI Male`,
+            language: "hi",
+            voice: "male",
+            storagePath: `trips/${tripId}/audio/${poi.id}-hi_male.wav`,
+            text: hiPlaceholder,
+          });
+          assets.push({
+            assetId: `${poi.id}-hi`,
+            label: `${stopLabel} HI Female`,
+            language: "hi",
+            voice: "female",
+            storagePath: `trips/${tripId}/audio/${poi.id}-hi_female.wav`,
+            text: hiPlaceholder,
+          });
+        }
+
+        // Leg narrations (EN only)
+        if (Array.isArray(poi.legNarrations)) {
+          for (const leg of poi.legNarrations) {
+            if (!leg.text) continue;
+            assets.push({
+              assetId: `leg-${leg.id}`,
+              label: `${stopLabel} → Leg EN Male`,
+              language: "en",
+              voice: "male",
+              storagePath: `trips/${tripId}/audio/leg-${leg.id}_male.wav`,
+              text: leg.text,
+              firestoreUpdate: async (url) => {
+                const updatedLegs = poi.legNarrations.map((l: any) =>
+                  l.id === leg.id ? { ...l, maleUrl: url } : l
+                );
+                await db.collection("trips").doc(tripId).collection("trip_pois").doc(poi.id)
+                  .update({ legNarrations: updatedLegs, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+              },
+            });
+            assets.push({
+              assetId: `leg-${leg.id}`,
+              label: `${stopLabel} → Leg EN Female`,
+              language: "en",
+              voice: "female",
+              storagePath: `trips/${tripId}/audio/leg-${leg.id}_female.wav`,
+              text: leg.text,
+              firestoreUpdate: async (url) => {
+                const updatedLegs = poi.legNarrations.map((l: any) =>
+                  l.id === leg.id ? { ...l, femaleUrl: url } : l
+                );
+                await db.collection("trips").doc(tripId).collection("trip_pois").doc(poi.id)
+                  .update({ legNarrations: updatedLegs, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+              },
+            });
+          }
+        }
+      }
+
+      // ── Check existence of each asset in Storage ───────────────────────────
+      interface ValidationResult {
+        assetId: string;
+        label: string;
+        language: "en" | "hi";
+        voice: "male" | "female";
+        storagePath: string;
+        url: string | null;
+        status: "ok" | "missing" | "error";
+        sizeBytes?: number;
+      }
+
+      const results: ValidationResult[] = [];
+
+      for (const asset of assets) {
+        try {
+          const file = bucket.file(asset.storagePath);
+          const [exists] = await file.exists();
+
+          if (exists) {
+            const [metadata] = await file.getMetadata();
+            const url = `https://storage.googleapis.com/${bucket.name}/${asset.storagePath}`;
+            results.push({
+              assetId: asset.assetId,
+              label: asset.label,
+              language: asset.language,
+              voice: asset.voice,
+              storagePath: asset.storagePath,
+              url,
+              status: "ok",
+              sizeBytes: parseInt(metadata.size as string) || 0,
+            });
+          } else {
+            results.push({
+              assetId: asset.assetId,
+              label: asset.label,
+              language: asset.language,
+              voice: asset.voice,
+              storagePath: asset.storagePath,
+              url: null,
+              status: "missing",
+            });
+          }
+        } catch (err: any) {
+          logger.warn(`[validateVoicePublications] Error checking ${asset.storagePath}`, err);
+          results.push({
+            assetId: asset.assetId,
+            label: asset.label,
+            language: asset.language,
+            voice: asset.voice,
+            storagePath: asset.storagePath,
+            url: null,
+            status: "error",
+          });
+        }
+      }
+
+      // ── Repair missing assets if requested ────────────────────────────────
+      if (repair) {
+        const missing = assets.filter((_, i) => results[i].status !== "ok");
+        logger.info(`[validateVoicePublications] Repairing ${missing.length} missing assets`);
+
+        const delay = () => new Promise(r => setTimeout(r, 2200));
+
+        const publishAudio = async (text: string, storagePath: string, voiceName: "Algenib" | "Kore"): Promise<string> => {
+          const ttsResp = await genai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            config: {
+              responseModalities: ["AUDIO"],
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
+            } as any,
+            contents: [{ parts: [{ text }], role: "user" }],
+          });
+          const audioPart = ttsResp.candidates?.[0]?.content?.parts?.[0];
+          if (!audioPart?.inlineData?.data) throw new Error(`No TTS audio returned for ${storagePath}`);
+          const pcm = Buffer.from(audioPart.inlineData.data, "base64");
+          const wav = encodeWav(pcm);
+          const file = bucket.file(storagePath);
+          await file.save(wav, { metadata: { contentType: "audio/wav", cacheControl: "public, max-age=31536000" } });
+          await file.makePublic();
+          return `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+        };
+
+        for (let i = 0; i < assets.length; i++) {
+          const asset = assets[i];
+          const result = results[i];
+          if (result.status === "ok") continue;
+
+          let textToSpeak = asset.text;
+
+          // If Hindi text needs translation from EN source
+          if (asset.language === "hi" && textToSpeak.startsWith("[TRANSLATE_TO_HI]")) {
+            const enText = textToSpeak.replace("[TRANSLATE_TO_HI] ", "");
+            const hiResp = await genai.models.generateContent({
+              model: "gemini-2.5-flash-lite",
+              contents: [{
+                parts: [{ text: `Translate this English tour narration to natural, conversational Hindi. Output ONLY the Hindi text:\n\n${enText}` }],
+                role: "user",
+              }],
+            });
+            textToSpeak = hiResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || enText;
+
+            // Save Hindi text back to Firestore
+            const poiId = asset.assetId.replace(/-hi$/, "");
+            await db.collection("trips").doc(tripId).collection("trip_pois").doc(poiId)
+              .update({ narrationTextHi: textToSpeak, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          }
+
+          const repairTimer = startTimer();
+          try {
+            const voiceName = asset.voice === "male" ? "Algenib" : "Kore";
+            const url = await publishAudio(textToSpeak, asset.storagePath, voiceName);
+
+            // Update Firestore if we have an updater
+            if (asset.firestoreUpdate) {
+              await asset.firestoreUpdate(url);
+            }
+
+            // Update result in place
+            results[i] = { ...result, status: "ok", url };
+            logger.info(`[validateVoicePublications] Repaired ${asset.storagePath}`);
+
+            // ── Observability: repair success ────────────────────────────
+            const obsVal = new ObservabilityClient(db, `repair_${tripId}`, tripId);
+            await obsVal.logEvent({
+              agent: "validator", event: "repair_triggered",
+              assetId: asset.assetId, storagePath: asset.storagePath,
+              ttsCharacters: textToSpeak.length,
+              durationMs: repairTimer(),
+            });
+            await obsVal.trackTtsChars(textToSpeak.length);
+
+            await delay();
+          } catch (err: any) {
+            logger.error(`[validateVoicePublications] Repair failed for ${asset.storagePath}`, err);
+            results[i] = { ...result, status: "error" };
+
+            // ── Observability: repair failure alert ──────────────────────
+            const obsVal = new ObservabilityClient(db, `repair_${tripId}`, tripId);
+            await obsVal.logEvent({
+              agent: "validator", event: "repair_failed",
+              assetId: asset.assetId, storagePath: asset.storagePath,
+              errorMessage: err.message, durationMs: repairTimer(),
+            });
+            await obsVal.createAlert(
+              "repair_failed",
+              `Repair failed for ${asset.storagePath}: ${err.message}`,
+              "critical",
+              { assetId: asset.assetId, detail: err.message }
+            );
+          }
+        }
+      }
+
+      // ── Build summary ──────────────────────────────────────────────────────
+      const summary = {
+        total: results.length,
+        ok: results.filter(r => r.status === "ok").length,
+        missing: results.filter(r => r.status === "missing").length,
+        error: results.filter(r => r.status === "error").length,
+      };
+
+      logger.info(`[validateVoicePublications] Audit complete`, summary);
+
+      res.json({
+        status: "ok",
+        tripId,
+        tripName: trip.name || tripId,
+        repaired: repair,
+        summary,
+        results,
+      });
+
+    } catch (err: any) {
+      logger.error(`[validateVoicePublications] Fatal error`, { message: err.message });
+      res.status(500).json({ status: "error", message: err.message });
+    }
+  }
+);
